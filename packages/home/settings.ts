@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { formOf, ROUTE, routeId, type Connector, type Field } from "@lifestreamprotocol/connect";
 import { canonical, duration, instant, isObject, KeyError, makeUnder, plainFolder, TimeError, writeDurably, type DaySettings, type FileKind, type HomeFolder, type Json, type JsonObject, type KeptFile } from "@lifestreamprotocol/core";
 import { SCREEN_CUTOVER_MS } from "@lifestreamprotocol/families";
-import { OWN_BLOCKS, readModelSettings, WORK_KINDS, type ModelSettings, type WorkKind } from "@lifestreamprotocol/model";
+import { OWN_BLOCKS, readModelSettings, unfit, WORK_KINDS, workNeed, type ModelSettings, type WorkKind } from "@lifestreamprotocol/model";
 import { PRIVACY_MEMBER, PRIVACY_SETTINGS, privacySetting, readPrivacySettings, type PrivacySettings } from "@lifestreamprotocol/privacy";
 import { catalogOf } from "./catalog.js";
-import { canServe, RANGE_MEMBER, ROUTE_ID, WORK_MEMBER, type Defaults, type ModelRoute } from "./models.js";
+import { RANGE_MEMBER, ROUTE_ID, WORK_MEMBER, type Defaults, type ModelRoute } from "./models.js";
 import { refuse } from "./refusal.js";
 import type { HomeSettings } from "./streams-report.js";
 import { CLI } from "./cli-name.js";
@@ -590,7 +590,7 @@ export function checkMember(connector: Connector, member: string, value: Json, r
   if (bound(value, shape) !== value) fail(key, `runs ${shape.min === undefined ? "" : `from ${shape.min} `}${shape.max === undefined ? "up" : `to ${shape.max}`}`);
   if (member.startsWith(WORK_MEMBER) && member !== RANGE_MEMBER && value !== "default" && value !== "off") {
     const work = connector.processing![member.slice(WORK_MEMBER.length)]!;
-    const serving = routes.filter((route) => canServe(route, work)).map((route) => route.id);
+    const serving = routes.filter((route) => unfit(route, workNeed(work)) === null).map((route) => route.id);
     if (!serving.includes(value as string)) {
       const known = routes.some((route) => route.id === value);
       fail(key, `${known ? `names a model route that cannot serve ${work.label.toLowerCase()}` : "names no model route the home knows"}: it is default, off${serving.length === 0 ? "" : ` or one of ${serving.join(", ")}`}`);

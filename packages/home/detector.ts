@@ -168,6 +168,6 @@ export function driveHalf(door: string, passes: { readonly call: () => string | 
       body += decoder.decode();
       return JSON.parse(body.split("\n").filter((line) => line.trim() !== "").at(-1)!) as RunnerEnded;
     },
-    list: () => listRunners(at, pass("drive"), fetcher),
+    list: () => listRunners(at, pass("drive"), fetcher).then(({ runners }) => runners),
   };
 }

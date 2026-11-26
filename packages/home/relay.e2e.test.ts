@@ -25,7 +25,7 @@ import { DEVICE, makeHome, makeHomeDb, NOW_MS, PHONE_UNIT, REPO } from "./test/s
 
 const report: Record<string, unknown> = {};
 
-const RELAYED: Record<Act, { again: boolean; wait_ms: number }> = {
+const RELAYED: Record<Act, { again: boolean; wait_ms: number; streams?: true }> = {
   "POST /v1/pair": { again: true, wait_ms: 30_000 },
   "POST /v1/act": { again: false, wait_ms: 30_000 },
   "POST /v1/refresh": { again: true, wait_ms: 30_000 },
@@ -45,6 +45,7 @@ const RELAYED: Record<Act, { again: boolean; wait_ms: number }> = {
   "POST /v1/subscriptions/<name>": { again: true, wait_ms: 30_000 },
   "GET /v1/subscriptions": { again: true, wait_ms: 30_000 },
   "GET /v1/secrets/openrouter": { again: true, wait_ms: 30_000 },
+  "POST /v1/chat/completions": { again: false, wait_ms: 5_000, streams: true },
   "POST /v1/ask/words": { again: true, wait_ms: 15_000 },
   "GET /v1/places/suggest": { again: false, wait_ms: 5_000 },
   "POST /v1/agents/request": { again: false, wait_ms: 30_000 },
@@ -209,6 +210,7 @@ describe("one relay, every route", () => {
       "POST /v1/subscriptions/<name>": () => call(url, "POST", "/v1/subscriptions/codex", as("mac")),
       "GET /v1/subscriptions": () => call(url, "GET", "/v1/subscriptions", as("mac")),
       "GET /v1/secrets/openrouter": () => call(url, "GET", "/v1/secrets/openrouter", as("ask")),
+      "POST /v1/chat/completions": () => call(url, "POST", "/v1/chat/completions", as("ask"), { model: "fake:fake-model", messages: [{ role: "user", content: "a synthetic question" }] }),
       "POST /v1/ask/words": () => call(url, "POST", "/v1/ask/words", as("reader"), { audio: `sha256:${audio}` }),
       "POST /v1/agents/request": () => call(url, "POST", "/v1/agents/request", as("mcp"), { name: "Synthetic agent", checked: true, host: "example.com" }),
       "GET /v1/agents/request/<id>": () => call(url, "GET", "/v1/agents/request/request-1", as("mcp")),

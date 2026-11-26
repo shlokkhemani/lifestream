@@ -59,6 +59,7 @@ import { isSignInRoute, signinRoutes } from "./signin-routes.js";
 import { ask, askHome, NoHomeError, socketPath, type HomeSocket } from "./socket.js";
 import { nudges, type Nudges } from "./nudges.js";
 import { NO_SLOT_KEY, type SlotHanded } from "./vault.js";
+import { chatRoute, CHAT_BODY_BYTES, CHAT_ROUTE, type Reached } from "./chat-route.js";
 import { bodyOf, CutShort, LINGER_MS, moving, refuseCut, refusedOn } from "./silence.js";
 import { openStations, type Stations } from "./stations.js";
 import type { PeerWire } from "./peers.js";
@@ -139,7 +140,7 @@ const TELL_MS = 30_000;
 const SECOND_MS = 1_000;
 const LEAST_WAIT_MS = 3 * SECOND_MS;
 const WAIT_HEADER = "lifestream-wait";
-type Relayed = { readonly again: boolean; readonly wait_ms: number };
+type Relayed = { readonly again: boolean; readonly wait_ms: number; readonly streams?: true };
 const OWN_ACTS = {
   "POST /v1/pair": { again: true, wait_ms: WAIT_MS },
   "POST /v1/act": { again: false, wait_ms: WAIT_MS },
@@ -160,6 +161,7 @@ const OWN_ACTS = {
   "POST /v1/subscriptions/<name>": { again: true, wait_ms: WAIT_MS },
   "GET /v1/subscriptions": { again: true, wait_ms: WAIT_MS },
   "GET /v1/secrets/openrouter": { again: true, wait_ms: WAIT_MS },
+  "POST /v1/chat/completions": { again: false, wait_ms: 5_000, streams: true },
   "POST /v1/ask/words": { again: true, wait_ms: 15_000 },
   "GET /v1/places/suggest": { again: false, wait_ms: 5_000 },
   "GET /v1/agents/waiting": { again: true, wait_ms: WAIT_MS },
@@ -767,6 +769,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       wire: runners, noun: "runner", alone: true, exchange: `POST ${RUNNER_EXCHANGE}`, listing: `GET ${RUNNERS}`,
       peer: (principal) => principal.scopes.includes("run"),
       drives: (principal) => principal.scopes.includes("drive") || principal.scopes.includes("call") || principal.scopes.includes("find"),
+      below: async (unit, version) => runners.below(unit, version),
     },
   ];
 
@@ -923,8 +926,8 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     room(body.kind, 0);
   };
 
-  const body = async (request: IncomingMessage): Promise<JsonObject> => {
-    const text = (await bodyOf(request, BODY_BYTES, silentMs, (bytes) => received.set(request, bytes))).toString("utf8").trim();
+  const body = async (request: IncomingMessage, limit = BODY_BYTES): Promise<JsonObject> => {
+    const text = (await bodyOf(request, limit, silentMs, (bytes) => received.set(request, bytes))).toString("utf8").trim();
     if (text === "") return {};
     let value: unknown;
     try { value = JSON.parse(text); } catch { return refuse(422, "BAD_REQUEST", "the body is a JSON object"); }
@@ -1107,6 +1110,13 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     const answer = await relay({ verb: "ask-key" }, "GET /v1/secrets/openrouter", request) as JsonObject;
     own();
     return [200, answer];
+  };
+
+  const relayChat = chatRoute({ clock, reach: async (model, http) => await relay({ verb: "model-reach", model }, "POST /v1/chat/completions", http) as Reached });
+  const chatting = async (principal: Principal, request: IncomingMessage, response: ServerResponse, reach: Reach): Promise<void> => {
+    const own = () => askServerOnly(principal, request, reach, "a model is reached for Chat's own loop alone, on the home's Mac");
+    own();
+    await relayChat(await body(request, CHAT_BODY_BYTES), request, response, own);
   };
 
   const askPassAt = (request: IncomingMessage, reach: Reach): boolean =>
@@ -1920,6 +1930,11 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
           const streamed = request.method === "POST" ? STREAM_ROUTE.exec(pathname) : null;
           const acquisition = request.method === "PUT" ? ACQUISITION_ROUTE.exec(pathname) : null;
           const source = acquisition === null ? null : decodeSegment(acquisition[1]!);
+          if (request.method === "POST" && pathname === CHAT_ROUTE) {
+            response.once("close", () => line(response.statusCode));
+            await chatting(principal, request, response, reach);
+            return;
+          }
           if (request.method === "GET" && (pathname === WAITING_ROUTE || pathname === GUIDES_ROUTE || pathname === PAGES.feedback.route)) {
             const reply = pathname === PAGES.feedback.route ? await feedbackPageRoute(principal, request) : await (pathname === WAITING_ROUTE ? waitingRoute : guidesRoute)(principal, reach, request);
             response.writeHead(reply.status, reply.headers);

@@ -8,7 +8,8 @@ import { callLock, callsLock, ledgerFileOf, openLedger, type AttemptRef, type La
 import type { SentCopy } from "./sent.js";
 import type { TransportSettings } from "./settings.js";
 import { bounded, errorText, mediaTypeOf, SendFailed, type SendAttachment, type Sent, type Transport } from "./transport.js";
-import { transportOf, type Found } from "./transports/index.js";
+import { transportsOf, type Found } from "./transports/index.js";
+import { RUNNER_TRANSPORT } from "./transports/runner.js";
 
 
 export type CallOutcome = "replied" | "failed" | "busy" | "unavailable" | "forgotten";
@@ -41,8 +42,24 @@ export function routeId(route: { transport: string; model: string; runner?: stri
   return `${route.transport}:${route.runner === undefined ? "" : `${route.runner}/`}${route.model}`;
 }
 
+export function readRouteId(id: string): { transport: string; runner?: string; model: string } | null {
+  const at = id.indexOf(":");
+  if (at < 1 || at === id.length - 1) return null;
+  const transport = id.slice(0, at);
+  const rest = id.slice(at + 1);
+  if (transport !== RUNNER_TRANSPORT) return { transport, model: rest };
+  const slash = rest.indexOf("/");
+  return slash < 1 || slash === rest.length - 1 ? null : { transport, runner: rest.slice(0, slash), model: rest.slice(slash + 1) };
+}
+
 export function restsOf(route: { transport: string; model: string; runner?: string | undefined }): { transport: string; runner: string | null; route: string } {
   return { transport: route.transport, runner: route.runner === undefined ? null : `${route.transport}:${route.runner}`, route: routeId(route) };
+}
+
+function transportNamed(name: string, transports: TransportSettings | undefined, found: Found | undefined): Transport {
+  const transport = transportsOf(transports, found).find((each) => each.name === name);
+  if (transport === undefined) throw new TypeError(`no transport is named ${name}`);
+  return transport;
 }
 
 export interface CallResult {
@@ -125,7 +142,7 @@ async function call(options: CallOptions, key: string, clock: () => number): Pro
     const { route } = options;
     const row = ledger.row(key);
     if (row === undefined) return { key, outcome: "busy", sent: false, reason: `no request under ${key}` };
-    const transport = (options.transport ?? ((name: string) => transportOf(name, options.transports, options.found)))(route.transport);
+    const transport = (options.transport ?? ((name: string) => transportNamed(name, options.transports, options.found)))(route.transport);
     const { leaves } = transport;
     const copy = leaves === null || handed === undefined ? undefined : ledger.sent.get(handed);
     if (leaves !== null && (copy === undefined || copy.receiver !== leaves || copy.key !== key)) {

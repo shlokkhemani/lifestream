@@ -5,7 +5,7 @@ export const UNKNOWN_ROUTE = "<unknown>";
 const LITERAL = new Set([
   "/v1/pair", "/v1/exchange", "/v1/act", "/v1/refresh", "/v1/account", "/v1/settings", "/v1/seal", "/v1/process", "/v1/me",
   "/v1/feedback", "/v1/feedback/draft", "/v1/feedback/screenshot", "/v1/feedback/send", "/v1/restore", "/v1/stated", "/v1/home/verify", "/v1/outbound", "/v1/hide-details", "/v1/restore-details",
-  "/v1/privacy", "/v1/privacy/keep", "/v1/secrets/openrouter", "/v1/subscriptions",
+  "/v1/privacy", "/v1/privacy/keep", "/v1/secrets/openrouter", "/v1/chat/completions", "/v1/subscriptions",
   "/v1/signin/key", "/v1/signin/device/start", "/v1/signin/device/poll", "/v1/signin/client/start", "/v1/signin/client/finish",
   "/v1/agents/request", "/v1/agents/grant", "/v1/agents/refresh", "/v1/agents/revoke", "/v1/agents/waiting", "/v1/agents/answer",
   "/v1/agents/guides", "/v1/agents/address", "/v1/agents/keys",

@@ -38,7 +38,8 @@ export { ArtifactError, ensureArtifact, removeArtifact, type Artifact } from "./
 export { checkAgain, codesigned, lastEntry, makeReady, readyEntry, Refused, removeBuilds, type Build, type ReadyOptions, type SignatureCheck } from "./builds.js";
 export { bare, compatible, faults, readAnswer, type Read } from "./answer-types.js";
 export { askIdentity, openAsker, type Answer, type Asker, type AskerOptions, type AskState, type By, type Candidate, type Known, type Pending, type RoutedAsk, type Sending } from "./asker.js";
-export { CALL_EXIT, LEDGER_DAMAGED_EXIT, REST_MS, restsOf, routeId, runCall, type CallOptions, type CallOutcome, type CallResult, type CallRoute } from "./call.js";
+export { CALL_EXIT, LEDGER_DAMAGED_EXIT, readRouteId, REST_MS, restsOf, routeId, runCall, type CallOptions, type CallOutcome, type CallResult, type CallRoute } from "./call.js";
+export { unfit, type Unfit, type UseNeed } from "./fit.js";
 export { inputHash, promptHash, requestKey, retryIdentity, type Sampling } from "./digest.js";
 export {
   callCopiesOf,
@@ -80,22 +81,26 @@ export {
   NO_SPEECH,
   REASON_CHARS,
   SendFailed,
-  WORK_KINDS,
+  type Abilities,
+  type ChatEffort,
+  type ChatReach,
+  type Input,
+  type ListedModel,
+  type Output,
   type RequestDefaults,
-  type Offer,
   type SendAttachment,
   type SendRequest,
   type Sent,
   type Transport,
   type Unavailable,
-  type WorkKind,
 } from "./transport.js";
+export { CHARS_A_TOKEN, MODEL_USES, unfitWords, USE_IDS, WORK_KINDS, workNeed, type UseId, type WorkKind } from "./uses.js";
 export { checkClaude, claudeEnv, signOutClaude } from "./transports/claude.js";
 export { checkCodex, codexEnv } from "./transports/codex.js";
 export { fakeTransport, type FakeOptions } from "./transports/fake.js";
-export { configured, priced, transportOf, transportSecret, type Found } from "./transports/index.js";
+export { priced, transportSecret, transportsOf, type Found } from "./transports/index.js";
 export { OPENROUTER_SECRET } from "./transports/openrouter.js";
 export { CLOUD_VOICE, transcriptionsTransport } from "./transports/transcriptions.js";
-export { CALL_PASS, listRunners, runnerTransport, warmRunner, type RunnerOptions } from "./transports/runner.js";
+export { CALL_PASS, listRunners, RUNNER_TRANSPORT, runnerTransport, warmRunner, type RunnerOptions } from "./transports/runner.js";
 export type { ProgramAt } from "./transports/program.js";
-export { BEAT_MS, CALL_BYTES, CALL_SILENT_MS, CHAT_LINE, DOCUMENT_IDLE_S, EMBED_ROLES, EMBED_TEXTS, embedAnswerOf, embedAskOf, endedOf, EXCHANGE_BYTES, EXCHANGE_SILENT_MS, FETCHING_MS, FIND_HANDED, FIND_LINES, FIND_PASSAGES, findPassages, findAnswerOf, isHanded, isPlaced, isResult, isStated, MOST_FILES, NOT_THE_REQUESTS, POLL_MS, PRESENCE_MS, RUNNER_CALLS, RUNNER_EXCHANGE, RUNNER_WIRE_VERSION, runnerInfo, RUNNERS, STOP_MS, vectorOf, vectorText, type CallLine, type DetectorKey, type EmbedAnswer, type EmbedAsk, type EmbedRole, type FileFailure, type FindLine, type FindAnswer, type FindMark, type RunnerAnswer, type RunnerAttachment, type RunnerCall, type RunnerCode, type RunnerEnded, type RunnerError, type RunnerExchange, type RunnerFailure, type RunnerFile, type RunnerFileState, type RunnerHanded, type RunnerInfo, type RunnerInterruption, type RunnerListing, type RunnerPlaced, type RunnerResult, type RunnerStated, type RunnerThermal, type RunnerWait } from "./runner-wire.js";
+export { BEAT_MS, CALL_BYTES, CALL_SILENT_MS, CHAT_LINE, DOCUMENT_IDLE_S, EMBED_ROLES, EMBED_TEXTS, embedAnswerOf, embedAskOf, endedOf, EXCHANGE_BYTES, EXCHANGE_SILENT_MS, FETCHING_MS, FIND_HANDED, FIND_LINES, FIND_PASSAGES, findPassages, findAnswerOf, isHanded, isPlaced, isResult, isStated, MOST_FILES, NOT_THE_REQUESTS, POLL_MS, PRESENCE_MS, RUNNER_CALLS, RUNNER_EXCHANGE, RUNNER_WIRE_VERSION, runnerInfo, RUNNERS, STOP_MS, vectorOf, vectorText, type CallLine, type DetectorKey, type EmbedAnswer, type EmbedAsk, type EmbedRole, type FileFailure, type FindLine, type FindAnswer, type FindMark, type RunnerAnswer, type RunnerAttachment, type RunnerBelow, type RunnerCall, type RunnerCode, type RunnerEnded, type RunnerError, type RunnerExchange, type RunnerFailure, type RunnerFile, type RunnerFileState, type RunnerHanded, type RunnerInfo, type RunnerInterruption, type RunnerListing, type RunnerPlaced, type RunnersListed, type RunnerResult, type RunnerStated, type RunnerThermal, type RunnerWait } from "./runner-wire.js";

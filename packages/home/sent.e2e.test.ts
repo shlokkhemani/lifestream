@@ -50,12 +50,12 @@ describe("a request whose route leaves the machine", () => {
   it("is sent hidden under its work's level, never as it is: no detail a level hides reaches the receiver, the reply comes back restored, and each send has its ask row", async () => {
     const root = makeRoot("lifestream-sent-", {
       sources: { [SOURCE]: "fake-rows" }, cap: 4,
-      fake: { offers: [FAKE_OFFER], leaves: RECEIVER },
+      fake: { models: [FAKE_OFFER], leaves: RECEIVER },
     });
     roots.push(root);
     const log = join(root, "received.jsonl");
     const verb = (name: string, args: string[]) => askHome(testSocket(root), name, args);
-    const setFake = (more: JsonObject) => verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: [FAKE_OFFER], leaves: RECEIVER, log, ...more })]);
+    const setFake = (more: JsonObject) => verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: [FAKE_OFFER], leaves: RECEIVER, log, ...more })]);
     const received = (): { input: string }[] => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { input: string }) : []);
     const rows = () => (readLedger(root, (db) => db.prepare("SELECT receiver, route, what, level, counts, key, attempt FROM outbound ORDER BY seq").all()) as
       { receiver: string; route: string; what: string; level: string; counts: string; key: string | null; attempt: number | null }[]).map((row) => ({ ...row, counts: JSON.parse(row.counts) as JsonObject }));
@@ -116,7 +116,7 @@ describe("a request whose route leaves the machine", () => {
 
   it("waits, sending nothing, while its work's hiding is not ready, and its row says why", async () => {
     const root = makeRoot("lifestream-sent-waits-", {
-      sources: { [SOURCE]: "fake-rows" }, cap: 4, fake: { offers: [FAKE_OFFER], leaves: RECEIVER, reply: "A caption." },
+      sources: { [SOURCE]: "fake-rows" }, cap: 4, fake: { models: [FAKE_OFFER], leaves: RECEIVER, reply: "A caption." },
     });
     roots.push(root);
     const home: Home = await startHome(root, { stopGraceMs: 50, registry: FAKES, log: () => undefined, tickMs: TICK_MS });

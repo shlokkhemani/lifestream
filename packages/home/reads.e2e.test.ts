@@ -1440,7 +1440,7 @@ describe("one voice recording's read", () => {
     };
     await settle("the held recording waiting on its model", async () => state() === "pending" && (await read("note-held")).transcribed?.line === "The test model isn't available");
     expect((await read("note-held")).transcribed).toEqual({ by: null, at_ms: null, state: "waiting", line: "The test model isn't available", ask, choose: [] });
-    await askHome(testSocket(root), "settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 10, offers: [FAKE_OFFER] })]);
+    await askHome(testSocket(root), "settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 10, models: [FAKE_OFFER] })]);
     await settle("the held recording transcribed", () => state() === "done");
     const done = await read("note-held");
     expect(done.blobs).toEqual([`sha256:${hex(HELD)}`]);

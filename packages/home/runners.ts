@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   BEAT_MS, CALL_BYTES, CALL_SILENT_MS, CHAT_LINE, endedOf, EXCHANGE_BYTES, EXCHANGE_SILENT_MS, FIND_HANDED, FIND_LINES, FIND_PASSAGES, isPlaced, isResult, isStated, POLL_MS, PRESENCE_MS, RUNNER_CALLS,
-  RUNNER_EXCHANGE, runnerInfo, RUNNERS, type CallLine, type FindLine, type RunnerCall, type RunnerEnded, type RunnerError, type RunnerHanded, type RunnerInfo, type RunnerListing, type RunnerPlaced, type RunnerResult,
+  RUNNER_EXCHANGE, runnerInfo, RUNNERS, type CallLine, type FindLine, type RunnerCall, type RunnerEnded, type RunnerError, type RunnerHanded, type RunnerBelow, type RunnerInfo, type RunnersListed, type RunnerListing, type RunnerPlaced, type RunnerResult,
 } from "@lifestreamprotocol/model";
 import { answerHeld, jsonOf, openPeers, type Hand, type Peer, type PeerWire } from "./peers.js";
 import { Refusal, refuse } from "./refusal.js";
@@ -32,6 +32,7 @@ export interface Runners extends PeerWire {
   reserve(note: string, runner: string): boolean;
   release(note: string): void;
   listing(): RunnerListing[];
+  below(unit: string, version: string): void;
   close(): void;
 }
 
@@ -74,6 +75,10 @@ export function openRunners(options: RunnersOptions): Runners {
     poll_ms: options.poll_ms ?? POLL_MS, presence_ms: options.presence_ms ?? PRESENCE_MS, noun: "runner",
     interrupted: (_id, cause, unit) => ended({ code: "INTERRUPTED", reason: cause, ...(unit === "" ? {} : { runner: unit }) }),
   });
+  const presence_ms = options.presence_ms ?? PRESENCE_MS;
+  const belowAt = new Map<string, RunnerBelow & { at_ms: number }>();
+  const belowList = (): RunnerBelow[] => [...belowAt.values()].filter((each) => Date.now() - each.at_ms < presence_ms).sort((a, b) => (a.unit < b.unit ? -1 : 1))
+    .map(({ unit, version }) => ({ unit, version }));
   const filesOf = (runner: Runner): string => JSON.stringify([...options.wanted(runner.info)]);
   let line: Waiting[] = [];
   let placed = 0;
@@ -175,6 +180,7 @@ export function openRunners(options: RunnersOptions): Runners {
     if (!isStated(stated) || !Array.isArray(results) || !results.every(isResult)) {
       return refuse(400, "BAD_CALL", "an exchange states its runner (name, version, boot, slots, power, memory_gb, running, files) and its results");
     }
+    belowAt.delete(unit);
     const { peer: runner } = runners.arrive(unit, runnerInfo(unit, stated), (): RunnerKept => ({ listed: "", told: new Set() }));
     for (const [id, of] of preempted) if (of === unit && !runner.info.running.includes(id)) preempted.delete(id);
     runners.settle(runner, results as RunnerResult[]);
@@ -201,7 +207,7 @@ export function openRunners(options: RunnersOptions): Runners {
     const slot = runner === undefined ? null : slotOf(runner, sent.model);
     if (slot !== null && isFind(sent.line) !== (slot === "detector")) return crossed();
     const file = runner?.info.files.find((each) => each.id === sent.model);
-    return sent.warm === true && file !== undefined && !file.kinds.includes("audio") ? cold() : null;
+    return sent.warm === true && file !== undefined && !file.input.includes("audio") ? cold() : null;
   }
 
   function place(sent: RunnerPlaced, signal: AbortSignal, handed: () => void = () => undefined, ahead = false): Promise<RunnerEnded> {
@@ -280,7 +286,7 @@ export function openRunners(options: RunnersOptions): Runners {
       const pathname = new URL(request.url ?? "/", "http://door").pathname;
       if ("peer" in caller) return exchange(caller.peer, request, response);
       if (pathname === RUNNER_CALLS) return placeSent(request, response, "drive" in caller ? caller.line : undefined);
-      return answerHeld(response, 200, { runners: listing() });
+      return answerHeld(response, 200, { runners: listing(), below: belowList() } satisfies RunnersListed);
     },
     place,
     reserve(note, unit) {
@@ -301,6 +307,9 @@ export function openRunners(options: RunnersOptions): Runners {
       if (runner !== undefined) drain(runner);
     },
     listing,
+    below(unit, version) {
+      belowAt.set(unit, { unit, version, at_ms: Date.now() });
+    },
     close() {
       closed = true;
       clearInterval(looking);

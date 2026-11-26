@@ -1,15 +1,23 @@
 import { readFileSync } from "node:fs";
 import { extname } from "node:path";
-import { SendFailed, type Offer, type Transport } from "../transport.js";
-import { complete } from "./completions.js";
+import { SendFailed, type ListedModel, type Transport } from "../transport.js";
+import { complete, keyHeaders } from "./completions.js";
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 export const OPENROUTER_SECRET = "openrouter";
 
-const OFFERS: readonly Offer[] = [
-  { model: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", kinds: ["pictures", "audio"], text_chars: null, ready: true },
-  { model: "openai/gpt-6-luna", name: "GPT-6 Luna", kinds: ["text"], text_chars: null, ready: true },
+const THINKING = ["low", "medium", "high"] as const;
+
+const DECLARED: readonly ListedModel[] = [
+  {
+    model: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", input: ["text", "image", "audio"], output: "text", tools: true, context_tokens: null,
+    thinking: THINKING, ready: true, suggested: ["pictures", "text"],
+  },
+  {
+    model: "openai/gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null,
+    thinking: THINKING, ready: true, suggested: ["pictures", "text", "chat"],
+  },
 ];
 
 export interface OpenRouterOptions {
@@ -25,8 +33,10 @@ export function openRouterTransport(options: OpenRouterOptions): Transport {
     provider: "OpenRouter",
     cost: "priced",
     leaves: "OpenRouter",
+    chat: "door",
     defaults: { effort: "low", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 4 },
-    offers: async () => [...OFFERS],
+    models: async () => [...DECLARED],
+    reach: () => ({ url: ENDPOINT, headers: keyHeaders(options.key()), effort: "reasoning" }),
     async available() {
       return options.held() ? { ok: true } : { ok: false, reason: "no_key", detail: "openrouter has no API key" };
     },

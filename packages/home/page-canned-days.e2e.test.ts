@@ -407,7 +407,7 @@ describe("The canned home's day pages, which the phone's canned home serves", ()
   beforeAll(async () => {
     const sources = { ...Object.fromEntries([LOCATION, LOCATION_BEFORE_OFF, PLACES, WHATSAPP, IMESSAGE, BOOK, CALLS, CALENDAR, HEALTH, PHOTOS, GMAIL, SCREEN_TIME].map((source) => [source, "canned-days-rows"])), [VOICE]: "voice-ios-bundle" };
     const another = { ...FAKE_OFFER, model: "fake-model-2", name: "Another fake model" };
-    root = makeRoot("lifestream-page-canned-day-", { sources, settings: { unit: UNIT, "day.zone": ZONE, "model.transports.fake": { offers: [FAKE_OFFER, another] } } });
+    root = makeRoot("lifestream-page-canned-day-", { sources, settings: { unit: UNIT, "day.zone": ZONE, "model.transports.fake": { models: [FAKE_OFFER, another] } } });
     const db = openHome(openHomeFolder(root), "migrate");
     db.commit((tx) => tx.tables.sources.add({ id: BANK, vendor: BANK_CONNECTOR.vendor, connector: "canned-days-rows", added_ms: 0 }));
     db.close();

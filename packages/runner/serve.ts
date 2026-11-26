@@ -106,7 +106,8 @@ export async function serve(options: RunnerOptions): Promise<void> {
     const stating = rows.map((row): RunnerFile => {
       const { state, fetched_bytes, failure } = fileOf(row);
       return {
-        id: row.id, name: row.name, kinds: row.kinds, bytes: row.bytes, text_chars: row.text_chars, languages: row.languages, memory_gb: row.memory_gb, state, fetched_bytes, failure,
+        id: row.id, name: row.name, input: row.input, output: row.output, tools: row.tools, context_tokens: row.context_tokens, thinking: row.thinking,
+        bytes: row.bytes, languages: row.languages, memory_gb: row.memory_gb, state, fetched_bytes, failure,
         ...(row.library === "detector" ? { detector: row.key } : {}),
       };
     });

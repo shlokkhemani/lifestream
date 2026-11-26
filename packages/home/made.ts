@@ -1,6 +1,7 @@
 import type { AskRow, ItemRoute, ReadTables } from "@lifestreamprotocol/core";
 import type { Made, Step } from "./streams-report.js";
-import { placeOf, readRouting, serving, unfit, type ModelRoute, type Routing, type RoutingAt } from "./models.js";
+import { unfit, unfitWords, workNeed } from "@lifestreamprotocol/model";
+import { placeOf, readRouting, serving, type ModelRoute, type Routing, type RoutingAt } from "./models.js";
 import { needsWords, powerWords } from "./processing.js";
 import { dayWords } from "./stream-words.js";
 
@@ -71,9 +72,9 @@ export function chooseFor(tables: Pick<ReadTables, "asks">, routing: Routing, as
   const now = serving(routing, { work_id: row.work_id, chosen: route.id, at_key: row.at_key });
   if ("none" in now) {
     const work = routing.works[row.work_id ?? ""];
-    const why = work === undefined ? null : unfit(route, work);
+    const why = work === undefined ? null : unfit(route, workNeed(work));
     if (why === null) return { refused: "Nothing is asked of this item." };
-    return { refused: `${route.name} doesn't take ${why === "text" ? "text this long" : work!.kind}.` };
+    return { refused: `${unfitWords(route.name, why)}.` };
   }
   return { choice: { family: asked.family, item: asked.item, prompt: asked.prompt, route: route.id, model: route.model } };
 }

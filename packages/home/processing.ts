@@ -1,12 +1,12 @@
 import type { Work } from "@lifestreamprotocol/connect";
 import { addDays, civilDay, dayBounds, selects, type JsonObject, type ReadTables, type SourceRow } from "@lifestreamprotocol/core";
 import type { Family } from "@lifestreamprotocol/families";
-import type { Rates } from "@lifestreamprotocol/model";
+import { MODEL_USES, unfit, workNeed, type Rates } from "@lifestreamprotocol/model";
 import { PRIVACY_MEMBER, type NamedLevel, type PrivacySettings } from "@lifestreamprotocol/privacy";
 import { AUDIO_LINE, HIDING_META, sentLevel, type HidingWaits } from "./copies.js";
 import { extractCursor } from "./derive.js";
 import { runnerUnit } from "./lifecycle.js";
-import { canServe, FILLED, heldBy, NO_MODEL, opening, placeOf, RANGE_MEMBER, readRouting, routeWords, WORK_MEMBER, workId, type Defaults, type ModelRoute, type Routing, type RoutingAt, type WorkNeeds, type WorkRouting } from "./models.js";
+import { FILLED, heldBy, NO_MODEL, opening, placeOf, RANGE_MEMBER, readRouting, routeWords, WORK_MEMBER, workId, type Defaults, type ModelRoute, type Routing, type RoutingAt, type WorkNeeds, type WorkRouting } from "./models.js";
 import { aboutLeft, amount, leftWords, NB, number } from "./stream-words.js";
 import type { History, MemberStep, PrivacyRow, Processing, ProcessingShape, Step } from "./streams-report.js";
 
@@ -270,8 +270,8 @@ export function memberWords(work: WorkNeeds & { prefers?: string | undefined }, 
   const own = runnerUnit(home);
   const steps: MemberStep[] = [
     { value: "off", words: STEP_WORDS.off, note: null },
-    { value: "default", words: STEP_WORDS.default, note: named !== undefined && canServe(named, work) ? named.name : unset },
-    ...routes.flatMap((each): MemberStep[] => canServe(each, work) ? [{
+    { value: "default", words: STEP_WORDS.default, note: named !== undefined && unfit(named, workNeed(work)) === null ? named.name : unset },
+    ...routes.flatMap((each): MemberStep[] => unfit(each, workNeed(work)) === null ? [{
       value: each.id, words: each.name, note: each.state === "ready" ? placeOf(each, at) : each.line,
       ...(each.runner === null ? {} : { runner: { unit: each.runner.unit, name: each.runner.name, home: each.runner.unit === own } }),
     }] : []),
@@ -281,8 +281,8 @@ export function memberWords(work: WorkNeeds & { prefers?: string | undefined }, 
 }
 
 export function needsWords(work: WorkNeeds, routes: readonly ModelRoute[]): string {
-  const ofKind = routes.filter((route) => route.kinds.includes(work.kind));
-  if (ofKind.length > 0 && !ofKind.some((route) => canServe(route, work))) return "Needs a model for long text";
+  const ofKind = routes.filter((route) => unfit(route, MODEL_USES[work.kind].need) === null);
+  if (ofKind.length > 0 && !ofKind.some((route) => unfit(route, workNeed(work)) === null)) return "Needs a model for long text";
   return `Connect a model that takes ${work.kind}`;
 }
 

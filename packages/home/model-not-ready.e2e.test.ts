@@ -39,7 +39,7 @@ const answered = (root: string, item: string): boolean => readHome(root, (db) =>
 
 describe("a hiding model chosen before its file is there", () => {
   it("sends meanwhile hidden by the rules and People's names, naming no model, and Chat is answered; once the model is ready the next ask uses it and names it", async () => {
-    const root = makeRoot("lifestream-model-late-", { sources: { [SOURCE]: "fake-rows" }, cap: 4, fake: { offers: [FAKE_OFFER], leaves: RECEIVER }, settings: { "families.notes": { text: "1" } } });
+    const root = makeRoot("lifestream-model-late-", { sources: { [SOURCE]: "fake-rows" }, cap: 4, fake: { models: [FAKE_OFFER], leaves: RECEIVER }, settings: { "families.notes": { text: "1" } } });
     roots.push(root);
     editSettings(root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "privacy.detector": RUNNER });
     mintPrincipal(openHomeFolder(root), { unit: "chat-reader", scopes: ["read"], token: READER, now_ms: Date.now() });
@@ -59,7 +59,7 @@ describe("a hiding model chosen before its file is there", () => {
     let program: ReturnType<typeof spawn> | undefined;
     const said: string[] = [];
     try {
-      await askHome(testSocket(root), "settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 50, offers: [FAKE_OFFER], leaves: RECEIVER, log, reply: "[[Person 1]] in the photo." })]);
+      await askHome(testSocket(root), "settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 50, models: [FAKE_OFFER], leaves: RECEIVER, log, reply: "[[Person 1]] in the photo." })]);
       await until("the home's models stored", () => readHome(root, (db) => db.prepare("SELECT 1 FROM meta WHERE key = ?").get(MODELS_META)) !== undefined);
       await until("People's first run done", () => quiet(root));
       writePrepared(openHomeFolder(root), peopleFileOf(root, machine().dir), PEOPLE, { rows: new Map([["names", new Map([["table", NAMES as unknown as JsonObject]])]]), position: "names-1" });

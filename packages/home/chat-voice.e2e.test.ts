@@ -57,10 +57,10 @@ function wav(samples: number): Buffer {
 }
 
 const parakeet = (state: RunnerFile["state"]): RunnerFile => ({
-  id: PARAKEET, name: "Parakeet", kinds: ["audio"], bytes: 700_000_000, text_chars: null, languages: ["en"], memory_gb: 2, state, fetched_bytes: 0, failure: null,
+  id: PARAKEET, name: "Parakeet", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], bytes: 700_000_000, languages: ["en"], memory_gb: 2, state, fetched_bytes: 0, failure: null,
 });
 const route = (over: Partial<ModelRoute> & Pick<ModelRoute, "id" | "transport" | "model">): ModelRoute => ({
-  name: over.model, kinds: ["audio"], text_chars: null, offered: true, runner: null, leaves: null, where: "Stays on this computer", cost: "free",
+  name: over.model, input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, offered: true, runner: null, leaves: null, where: "Stays on this computer", cost: "free",
   request: { effort: "none", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null, ...over,
 } as ModelRoute);
 const onRunner = (state: ModelRoute["state"] = "ready", unit = RUNNER): ModelRoute => route({

@@ -67,3 +67,7 @@ function parse(transport: string, text: string): { text: string; cost?: number; 
 export function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
+
+export function keyHeaders(key: string | undefined): Record<string, string> {
+  return key === undefined || key.length === 0 ? {} : { Authorization: `Bearer ${key}` };
+}

@@ -700,7 +700,7 @@ describe("the stage through the door", () => {
     const { at, url, call, logs } = await doorOf({ hiding: { pictures: playedPictures().pictures, match: async () => null } }, { runner: RUNNER });
     const auth = (who: string) => ({ authorization: `Bearer ${at.tokens[who]}` });
     const stated = { name: "Synthetic Mac", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: 300, thermal: "nominal", memory_gb: 32, running: [], files: [{
-      id: "synthetic-model", name: "synthetic-model", kinds: ["pictures", "text"], bytes: 1_000, text_chars: 16_000, languages: [], memory_gb: 16, state: "ready", fetched_bytes: 1_000, failure: null,
+      id: "synthetic-model", name: "synthetic-model", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 16, state: "ready", fetched_bytes: 1_000, failure: null,
     }] };
     const exchange = async (results: unknown[] = []) => {
       const response = await fetch(`${url}/v1/runners/exchange`, { method: "POST", headers: { ...auth("runner"), "lifestream-device": "runner/1" }, body: JSON.stringify({ runner: stated, results }) });
@@ -739,7 +739,7 @@ describe("the stage through the door", () => {
     });
     const auth = (who: string) => ({ authorization: `Bearer ${at.tokens[who]}` });
     const stated = { name: "Synthetic Mac", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: 300, thermal: "nominal", memory_gb: 32, running: [], files: [{
-      id: "synthetic-model", name: "synthetic-model", kinds: ["pictures", "text"], bytes: 1_000, text_chars: 16_000, languages: [], memory_gb: 16, state: "ready", fetched_bytes: 1_000, failure: null,
+      id: "synthetic-model", name: "synthetic-model", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 16, state: "ready", fetched_bytes: 1_000, failure: null,
     }] };
     const exchange = async (results: unknown[] = []) => {
       const response = await fetch(`${url}/v1/runners/exchange`, { method: "POST", headers: { ...auth("runner"), "lifestream-device": "runner/1" }, body: JSON.stringify({ runner: stated, results }) });

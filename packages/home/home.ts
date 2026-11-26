@@ -8,7 +8,7 @@ import {
   civilDay, damaged, HOME_DB, isObject, LEDGER_DB, makeUnder, writeDurably, openHome, openHomeFolder, outOfRoom, RELEASE, roomAt, SecretError, tryLock, type AttemptRow, type BlobStore, type FileLock, type Form, type HandedFolder, type HomeDb, type HomeFolder, type JobRow, type Json, type JsonObject, type Room, type SourceRow, type Tx, walkPlace,
 } from "@lifestreamprotocol/core";
 import type { Family } from "@lifestreamprotocol/families";
-import { CALL_PASS, callCopiesOf, LEDGER_DAMAGED_EXIT, listRunners, openAsker, openLedger, OPENROUTER_SECRET, warmRunner, WORK_KINDS, type Ledger, type ProgramAt } from "@lifestreamprotocol/model";
+import { CALL_PASS, callCopiesOf, LEDGER_DAMAGED_EXIT, listRunners, openAsker, openLedger, OPENROUTER_SECRET, readRouteId, transportSecret, warmRunner, WORK_KINDS, type Ledger, type ProgramAt } from "@lifestreamprotocol/model";
 import { openHider, openMarks, type Hider, type MarksStore } from "@lifestreamprotocol/privacy";
 import { HIDING_META, hidingWaits, openCopies, sentLevel, type CopyAnswer, type Copies } from "./copies.js";
 import { driveHalf, openDetector } from "./detector.js";
@@ -20,7 +20,8 @@ import { marksFileOf, openMarking, type Marking } from "./marking.js";
 import { meaningSettingsOf, ScreenIndex, screenFileOf } from "./screen-index.js";
 import { searchFileOf } from "./search-index.js";
 import { peopleFileOf, readNameTable } from "./people.js";
-import { Models, type Routing } from "./models.js";
+import { Models, type ModelReach, type Routing } from "./models.js";
+import { NO_MODEL_WORDS } from "./chat-route.js";
 import { promptsOf, startPrompts } from "./prompts.js";
 import { stagedFile } from "./ask-files.js";
 import { ChatVoice, voiceWorkOf } from "./chat-voice.js";
@@ -2053,6 +2054,25 @@ class HomeProcess implements Main {
     return { key: value };
   }
 
+  #modelReach(model: unknown): Extract<ModelReach, { url: string }> {
+    const named = typeof model === "string" ? readRouteId(model) : null;
+    if (typeof model !== "string" || named === null) throw new TypeError("model-reach names a model by its id");
+    const view = this.#db.view();
+    let reach: ModelReach;
+    try {
+      reach = this.#models.reach(view, model, (name) => this.#vaultRead(name));
+    } finally {
+      view.close();
+    }
+    if ("refused" in reach) {
+      if (reach.refused === "NO_MODEL") throw new Refusal(404, "NO_MODEL", NO_MODEL_WORDS);
+      throw new Refusal(409, "NOT_READY", reach.line, undefined, { line: reach.line });
+    }
+    const secret = transportSecret(named.transport, this.settings.model.transports);
+    if (secret !== null) this.#record({ at_ms: this.now(), secret, op: "get", lane: "door", task: "chat", ok: Object.keys(reach.headers).length > 0 });
+    return reach;
+  }
+
   async #placesSearch(request: JsonObject): Promise<googlePlaces.TypedAnswer> {
     const { latitude, longitude, q } = request;
     if (typeof latitude !== "number" || typeof longitude !== "number" || typeof q !== "string") throw new TypeError("places-search names a latitude, a longitude and the words typed, q");
@@ -2473,6 +2493,7 @@ class HomeProcess implements Main {
       }
     }
     if (verb === "ask-key") return this.#askKey();
+    if (verb === "model-reach") return this.#modelReach(request.model);
     if (verb === "subscriptions") {
       const name = request.choose;
       if (name === undefined) return { programs: this.#programs!.state() };

@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
-import type { Artifact, Build, WorkKind } from "@lifestreamprotocol/model";
+import type { Abilities, Artifact, Build } from "@lifestreamprotocol/model";
 import { DECODE } from "./decode.js";
 import { EMBEDDINGGEMMA_2_EMBEDS, EMBEDDINGGEMMA_2_Q8, type Embedder } from "./embed.js";
 import { QWEN_3_5_4B } from "./qwen.js";
 
 
-interface Shared {
+interface Shared extends Readonly<Abilities> {
   readonly id: string;
   readonly name: string;
-  readonly kinds: readonly WorkKind[];
   readonly platforms: readonly string[];
-  readonly text_chars: number | null;
   readonly languages: readonly string[];
   readonly memory_gb: number;
   readonly bytes: number;
@@ -97,16 +95,16 @@ const ONNX_PLATFORMS: readonly string[] = ["darwin-arm64", "linux-x64", "linux-a
 
 export const FILES: readonly Row[] = [
   ollamaRow({
-    id: "qwen3.5-4b", name: "Qwen 3.5", kinds: ["pictures", "text"], platforms: ["darwin-arm64"], text_chars: 16_000, languages: [], memory_gb: 16,
+    id: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], platforms: ["darwin-arm64"], languages: [], memory_gb: 16,
     source: { model: "qwen3.5:4b", registry: "https://registry.ollama.ai/v2/library/qwen3.5", manifest: QWEN_3_5_4B },
   }),
   ollamaRow({
-    id: "embeddinggemma-2-q8-512", name: "EmbeddingGemma 2", kinds: [], platforms: ["darwin-arm64"], text_chars: 8_192, languages: [], memory_gb: 8,
+    id: "embeddinggemma-2-q8-512", name: "EmbeddingGemma 2", input: ["text"], output: "vectors", tools: false, context_tokens: 2_048, thinking: [], platforms: ["darwin-arm64"], languages: [], memory_gb: 8,
     source: { model: "embeddinggemma-2:270m-q8_0-text", registry: "https://registry.ollama.ai/v2/library/embeddinggemma-2", manifest: EMBEDDINGGEMMA_2_Q8 },
     embed: EMBEDDINGGEMMA_2_EMBEDS,
   }),
   speechRow({
-    id: "parakeet-unified-en-0.6b", name: "Parakeet", kinds: ["audio"], platforms: SPEECH_PLATFORMS, text_chars: null, memory_gb: 8,
+    id: "parakeet-unified-en-0.6b", name: "Parakeet", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], platforms: SPEECH_PLATFORMS, memory_gb: 8,
     languages: ["en"],
     source: {
       url: hugging("handy-computer/parakeet-unified-en-0.6b-gguf", "7e948f21b7bdbac698d3318db9d350f1096f3b6c", "parakeet-unified-en-0.6b-Q8_0.gguf"),
@@ -114,7 +112,7 @@ export const FILES: readonly Row[] = [
     },
   }),
   speechRow({
-    id: "nemotron-3.5-asr-0.6b", name: "Nemotron Speech", kinds: ["audio"], platforms: SPEECH_PLATFORMS, text_chars: null, memory_gb: 8,
+    id: "nemotron-3.5-asr-0.6b", name: "Nemotron Speech", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], platforms: SPEECH_PLATFORMS, memory_gb: 8,
     languages: ["en", "es", "fr", "it", "pt", "nl", "de", "tr", "ru", "ar", "hi", "ja", "ko", "vi", "uk", "pl", "sv", "cs", "nb", "da", "bg", "fi", "hr", "sk", "zh", "hu", "ro", "et"],
     source: {
       url: hugging("handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf", "53ce288f69326b415aeef030cfcb02a08a8096dd", "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"),
@@ -122,7 +120,7 @@ export const FILES: readonly Row[] = [
     },
   }),
   detectorRow({
-    id: "privacy-filter", name: "Privacy Filter", kinds: [], platforms: ONNX_PLATFORMS, text_chars: 32_000, languages: [], memory_gb: 8,
+    id: "privacy-filter", name: "Privacy Filter", input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], platforms: ONNX_PLATFORMS, languages: [], memory_gb: 8,
     source: {
       graph: { url: PRIVACY_FILTER("onnx/model_quantized.onnx"), bytes: 162_239, sha256: "a325fb5341567a73c94e91ec5e49060d38d9b16111f518ad34773039a0c9c098" },
       weights: { url: PRIVACY_FILTER("onnx/model_quantized.onnx_data"), bytes: 1_618_042_064, sha256: "50f4c8c7f3c27fbc1fe16d4f74f6f7c3b74ba8f18a262e8b6911854c64c33a6d" },

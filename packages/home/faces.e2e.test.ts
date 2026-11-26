@@ -158,7 +158,7 @@ describe("faces on a running home", () => {
     const log = join(root, "received.jsonl");
     const said = (placeholder: string) => JSON.stringify({ caption: `${placeholder} holds a cake.`, faces: [{ placeholder, who: "a man" }] });
     const sock = testSocket(root);
-    const transport = (more: JsonObject) => askHome(sock, "settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: [FAKE_OFFER], log, ...more })]);
+    const transport = (more: JsonObject) => askHome(sock, "settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: [FAKE_OFFER], log, ...more })]);
     const received = (): { input: string; attachments: { media_type: string; bytes: string }[] }[] =>
       (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { input: string; attachments: { media_type: string; bytes: string }[] }) : []);
     const caption = (hex: string) => {

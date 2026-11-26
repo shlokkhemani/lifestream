@@ -1,7 +1,7 @@
-import { WORK_KINDS, type WorkKind } from "@lifestreamprotocol/model";
+import { unfit, WORK_KINDS, workNeed, type WorkKind } from "@lifestreamprotocol/model";
 import { chooseFor } from "../made.js";
 import { modelsRead, OFF_STEP, type ModelsRead } from "../models-read.js";
-import { canServe, readRouting, runnerPause, storedModels, type StoredModels } from "../models.js";
+import { itemUsesOf, readRouting, runnerPause, storedModels, type StoredModels } from "../models.js";
 import { heldRunners } from "../principals.js";
 import { refuse } from "../refusal.js";
 import { effective, personal, planned, reset } from "../settings.js";
@@ -32,7 +32,7 @@ export async function models(ctx: VerbContext, args: readonly string[]) {
       if (value !== OFF_STEP.value) {
         const routes = storedOf(ctx).routes.filter((each) => each.offered);
         const route = routes.find((each) => each.id === value) ?? fail(`no model ${value}; the home reaches ${routes.map((each) => each.id).join(", ") || "none"}`);
-        if (!canServe(route, { kind: kind as WorkKind })) fail(`${route.name} does not take ${kind}`);
+        if (unfit(route, workNeed({ kind: kind as WorkKind })) !== null) fail(`${route.name} does not take ${kind}`);
       }
       planned(ctx.folder, { [`model.defaults.${kind}`]: value === OFF_STEP.value ? null : value }).write();
       break;
@@ -129,7 +129,7 @@ function readOf(ctx: VerbContext): ModelsRead {
 
 function printed(ctx: VerbContext, read: ModelsRead): ModelsRead {
   const routes = storedOf(ctx).routes.filter((each) => each.offered);
-  for (const route of routes) ctx.out(`${route.id}  ${route.name} · ${route.kinds.join(", ")} · ${route.line ?? route.where}`);
+  for (const route of routes) ctx.out(`${route.id}  ${route.name} · ${itemUsesOf(route).join(", ")} · ${route.line ?? route.where}`);
   if (routes.length === 0) ctx.out("no model the home reaches");
   for (const kind of WORK_KINDS) ctx.out(`${kind}: ${read.defaults[kind].words}`);
   ctx.out(`OpenRouter: ${read.openrouter.connected ? "key held" : "no key"}`);

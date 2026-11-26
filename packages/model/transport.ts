@@ -1,14 +1,43 @@
 import type { Sampling } from "./digest.js";
+import type { UseId } from "./uses.js";
+
+export type Input = "text" | "image" | "audio";
+export type Output = "text" | "vectors" | "marks";
+
+export const MODEL_INPUTS: readonly Input[] = ["text", "image", "audio"];
+export const MODEL_OUTPUTS: readonly Output[] = ["text", "vectors", "marks"];
+
+export interface Abilities {
+  input: readonly Input[];
+  output: Output;
+  tools: boolean;
+  context_tokens: number | null;
+  thinking: readonly string[];
+}
+
+export interface ListedModel extends Abilities {
+  model: string;
+  name: string;
+  ready: boolean;
+  suggested?: readonly UseId[];
+  runner?: { unit: string; name: string; battery: boolean };
+}
+
+export type ChatEffort = "reasoning_effort" | "reasoning";
+
+export type ChatReach = { url: string; headers: Record<string, string>; effort: ChatEffort } | { runner: string; file: string };
 
 export interface Transport {
   readonly name: string;
   readonly provider: string;
   readonly cost: "plan" | "priced" | "free";
   readonly leaves: string | null;
+  readonly chat: "door" | "program" | null;
   readonly defaults: RequestDefaults;
-  offers(): Promise<Offer[]>;
+  models(): Promise<ListedModel[]>;
   available(): Promise<{ ok: true } | { ok: false; reason: Unavailable; detail: string; until_ms?: number }>;
   send(request: SendRequest, attachments: SendAttachment[]): Promise<Sent>;
+  reach?(model: string, runner?: string): ChatReach;
 }
 
 export type Unavailable = "no_program" | "unusable" | "signed_out" | "no_key" | "away";
@@ -18,18 +47,6 @@ export interface RequestDefaults {
   sampling?: Sampling;
   timeout_ms: number;
   concurrency: number;
-}
-
-export type WorkKind = "pictures" | "audio" | "text";
-export const WORK_KINDS: readonly WorkKind[] = ["pictures", "audio", "text"];
-
-export interface Offer {
-  model: string;
-  name: string;
-  kinds: readonly WorkKind[];
-  text_chars: number | null;
-  ready: boolean;
-  runner?: { unit: string; name: string; battery: boolean };
 }
 
 export interface SendRequest {

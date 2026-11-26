@@ -13,17 +13,17 @@ import { keyedFolder, testMachine } from "@lifestreamprotocol/core/test/keyed";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { canonical, civilDay, dayBounds, digest, hideDetails, Keys, openHomeFolder, piecesText, tryLock, trySharedLock, wantedOf } from "@lifestreamprotocol/core";
 import { openAsker, type Asker, type AskerOptions, type Candidate, type RoutedAsk, type Sending } from "./asker.js";
-import { LEDGER_DAMAGED_EXIT, REST_MS, runCall, type CallOptions, type CallRoute, type Converter } from "./call.js";
+import { LEDGER_DAMAGED_EXIT, readRouteId, REST_MS, routeId, runCall, type CallOptions, type CallRoute, type Converter } from "./call.js";
 import { inputHash, promptHash, requestKey, retryIdentity } from "./digest.js";
 import { callCopiesOf, callLock, callsLock, holdCalls, ledgerSchema, LONGEST_REST_MS, openLedger, type AttemptRef, type Ledger, type Rest } from "./ledger.js";
 import { isHanded, isPlaced, isStated, runnerInfo, type RunnerEnded, type RunnerListing, type RunnerPlaced } from "./runner-wire.js";
 import { readModelSettings, type ModelSettings, type TransportSettings } from "./settings.js";
-import { NO_SPEECH, SendFailed, type Offer, type SendAttachment, type SendRequest, type Transport, type WorkKind } from "./transport.js";
+import { NO_SPEECH, SendFailed, type Abilities, type ListedModel, type SendAttachment, type SendRequest, type Transport } from "./transport.js";
 import { addressTransport } from "./transports/address.js";
 import { CLAUDE_ITEM_MODEL } from "./transports/claude.js";
 import { codexTransport } from "./transports/codex.js";
 import { fakeTransport, type FakeOptions } from "./transports/fake.js";
-import { configured, priced, transportOf, transportSecret, type Found } from "./transports/index.js";
+import { priced, transportSecret, transportsOf, type Found } from "./transports/index.js";
 import { openRouterTransport } from "./transports/openrouter.js";
 import { CALL_PASS, listRunners, runnerTransport, warmRunner } from "./transports/runner.js";
 import { CLOUD_VOICE, transcriptionsTransport } from "./transports/transcriptions.js";
@@ -1377,7 +1377,7 @@ describe("the model package: each way it could fail, written before the code", (
   });
 
   it("a custom address on this machine is said to leave it, one on another machine is not, or it is sent audio", async () => {
-    const leaves = (url: string) => transportOf("address", { address: { url, model: "synthetic-local", kinds: ["pictures"] } }).leaves;
+    const leaves = (url: string) => named("address", { address: { url, model: "synthetic-local", kinds: ["pictures"] } }).leaves;
     expect(["http://127.0.0.1:11434/v1", "http://localhost:8080/v1", "http://[::1]:1234/v1", "https://models.example.com/v1", "http://192.168.1.4:11434/v1"].map(leaves))
       .toEqual([null, null, null, "models.example.com", "192.168.1.4"]);
     const posts: { url: string; headers: unknown; body: unknown }[] = [];
@@ -1475,7 +1475,7 @@ describe("the model package: each way it could fail, written before the code", (
     const ask = (n: number): RoutedAsk => ({ family: "mail", item: `mail:synthetic-x${n}`, prompt: "tag", input: said(` mail synthetic-x${n}`), model: "synthetic-local", effort: "none", sampling: { temperature: 0 }, work: "mail", source: "synthetic:account-a:mail" });
     const keys = [1, 2, 3, 4].map((n) => (home.asker.request(ask(n)) as { send: string }).send) as [string, string, string, string];
     const block = (path: string, secret?: string): TransportSettings => ({ address: { url: base(path), model: "synthetic-local", kinds: ["text"], ...(secret === undefined ? {} : { secret }) } });
-    const call = (key: string, transports: TransportSettings) => home.call(key, { transports, found, transport: (name) => transportOf(name, transports, found) });
+    const call = (key: string, transports: TransportSettings) => home.call(key, { transports, found, transport: (name) => named(name, transports, found) });
     expect(transportSecret("address", block("answers", "synthetic-address-key"))).toBe("synthetic-address-key");
     expect(await call(keys[0], block("answers", "synthetic-address-key"))).toMatchObject({ outcome: "replied" });
     expect(await call(keys[1], block("answers"))).toMatchObject({ outcome: "replied" });
@@ -2224,7 +2224,7 @@ describe("the claude transport", () => {
     try {
       for (const ask of asks) {
         home.asker.request(ask);
-        outcomes.push(await home.call(home.asker.key(ask), { transport: (name) => transportOf(name, home.settings.transports, { programs: { claude: claude.at } }) }));
+        outcomes.push(await home.call(home.asker.key(ask), { transport: (name) => named(name, home.settings.transports, { programs: { claude: claude.at } }) }));
       }
     } finally {
       for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
@@ -2291,7 +2291,7 @@ describe("the claude transport", () => {
       { is_error: true, api_error_status: null, terminal_reason: "api_error", result: "Not logged in · Please run /login" },
       { is_error: true, api_error_status: null, terminal_reason: "max_turns", result: "synthetic: the request's own failure" },
     ]);
-    const via = { transport: (name: string) => transportOf(name, home.settings.transports, { programs: { claude: claude.at } }) };
+    const via = { transport: (name: string) => named(name, home.settings.transports, { programs: { claude: claude.at } }) };
     const limited = photo(home, "l1");
     const key = home.asker.key(limited);
     const others = ["l2", "l3", "l4"].map((name) => photo(home, name));
@@ -2355,7 +2355,7 @@ describe("the claude transport", () => {
     const item = photo(home, "h1");
     const key = home.asker.key(item);
     home.asker.request(item);
-    const via = { route: home.route(key, { timeout_ms: 1_000 }), transport: (name: string) => transportOf(name, home.settings.transports, { programs: { claude: claude.at } }) };
+    const via = { route: home.route(key, { timeout_ms: 1_000 }), transport: (name: string) => named(name, home.settings.transports, { programs: { claude: claude.at } }) };
     const rests = () => home.ledger.resting(home.now()).get("claude")?.until_ms;
     expect(await home.call(key, via)).toMatchObject({ outcome: "unavailable", sent: false });
     expect(rests()).toBe(start + 30 * MINUTE);
@@ -2373,7 +2373,7 @@ describe("the claude transport", () => {
     const root = scratch();
     const claude = fakeClaude(root, [{ result: "a synthetic caption of a converted photo" }]);
     const home = openHome(root, CLAUDE);
-    const via = { transport: (name: string) => transportOf(name, home.settings.transports, { programs: { claude: claude.at } }), convert: async (_input: string, output: string) => { writeFileSync(output, "synthetic jpeg converted"); } };
+    const via = { transport: (name: string) => named(name, home.settings.transports, { programs: { claude: claude.at } }), convert: async (_input: string, output: string) => { writeFileSync(output, "synthetic jpeg converted"); } };
     const heic = home.blobs.put(Buffer.from("synthetic heic bytes"));
     const audio = home.blobs.put(Buffer.from("synthetic m4a bytes"));
     const asks: RoutedAsk[] = [
@@ -2394,11 +2394,11 @@ describe("the claude transport", () => {
 
     const missing = photo(home, "m1");
     home.asker.request(missing);
-    const rested = await home.call(home.asker.key(missing), { transport: (name) => transportOf(name, home.settings.transports, {}) });
+    const rested = await home.call(home.asker.key(missing), { transport: (name) => named(name, home.settings.transports, {}) });
     expect(rested).toMatchObject({ outcome: "unavailable", sent: false, reason: expect.stringMatching(/^Claude Code is not on this Mac yet: it is downloaded once Claude is chosen/u) });
     expect(home.ledger.tries(home.asker.key(missing))).toBe(0);
     expect([...home.ledger.resting(home.now()).keys()]).toEqual(["claude"]);
-    expect(await transportOf("codex", {}, {}).available()).toEqual({ ok: false, reason: "no_program", detail: expect.stringMatching(/^Codex is not on this Mac yet: it is downloaded once ChatGPT is chosen/u) });
+    expect(await named("codex", {}, {}).available()).toEqual({ ok: false, reason: "no_program", detail: expect.stringMatching(/^Codex is not on this Mac yet: it is downloaded once ChatGPT is chosen/u) });
     home.close();
     artifact("claude-attachments", home.path);
   });
@@ -2406,40 +2406,49 @@ describe("the claude transport", () => {
   it("a transport's seam leaves who provides it, what it costs, who receives the data, its defaults or what it offers unsaid", async () => {
     const address = { url: "http://127.0.0.1:11434/v1", model: "synthetic-local", kinds: ["pictures", "text"] as const };
     const seams = Object.fromEntries(await Promise.all(["codex", "claude", "openrouter", "address", "fake"].map(async (name) => {
-      const transport = transportOf(name, { address: { ...address, kinds: [...address.kinds] } });
-      return [name, { provider: transport.provider, cost: transport.cost, leaves: transport.leaves, defaults: transport.defaults, offers: await transport.offers() }] as const;
+      const transport = named(name, { address: { ...address, kinds: [...address.kinds] }, fake: {} });
+      return [name, { provider: transport.provider, cost: transport.cost, leaves: transport.leaves, chat: transport.chat, defaults: transport.defaults, models: await transport.models() }] as const;
     })));
-    const offer = (model: string, name: string, ...kinds: WorkKind[]): Offer => ({ model, name, kinds, text_chars: null, ready: true });
+    const THINKING = ["low", "medium", "high"];
+    const listed = (model: string, name: string, abilities: Partial<Abilities>, extra: Partial<ListedModel> = {}): ListedModel =>
+      ({ model, name, input: ["text"], output: "text", tools: true, context_tokens: null, thinking: THINKING, ...abilities, ready: true, ...extra });
     expect(seams).toEqual({
       codex: {
-        provider: "ChatGPT", cost: "plan", leaves: "OpenAI",
-        defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 }, offers: [offer("gpt-6-luna", "GPT-6 Luna", "pictures", "text")],
+        provider: "ChatGPT", cost: "plan", leaves: "OpenAI", chat: "program",
+        defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
+        models: [listed("gpt-6-luna", "GPT-6 Luna", { input: ["text", "image"], context_tokens: 1_050_000 }, { suggested: ["pictures", "text"] })],
       },
       claude: {
-        provider: "Claude", cost: "plan", leaves: "Anthropic",
-        defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 }, offers: [offer(CLAUDE_ITEM_MODEL, "Claude Haiku 5.5", "pictures", "text")],
+        provider: "Claude", cost: "plan", leaves: "Anthropic", chat: "program",
+        defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
+        models: [listed(CLAUDE_ITEM_MODEL, "Claude Haiku 5.5", { input: ["text", "image"], context_tokens: 200_000 }, { suggested: ["pictures", "text"] })],
       },
       openrouter: {
-        provider: "OpenRouter", cost: "priced", leaves: "OpenRouter",
+        provider: "OpenRouter", cost: "priced", leaves: "OpenRouter", chat: "door",
         defaults: { effort: "low", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 4 },
-        offers: [offer("google/gemini-3.8-flash", "Gemini 3.8 Flash", "pictures", "audio"), offer("openai/gpt-6-luna", "GPT-6 Luna", "text")],
+        models: [
+          listed("google/gemini-3.8-flash", "Gemini 3.8 Flash", { input: ["text", "image", "audio"] }, { suggested: ["pictures", "text"] }),
+          listed("openai/gpt-6-luna", "GPT-6 Luna", { input: ["text", "image"] }, { suggested: ["pictures", "text", "chat"] }),
+        ],
       },
       address: {
-        provider: "the custom address", cost: "free", leaves: null,
-        defaults: { effort: "none", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 1 }, offers: [offer("synthetic-local", "synthetic-local", "pictures", "text")],
+        provider: "the custom address", cost: "free", leaves: null, chat: "door",
+        defaults: { effort: "none", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 1 },
+        models: [listed("synthetic-local", "synthetic-local", { input: ["text", "image"], thinking: [] })],
       },
       fake: {
-        provider: "the test model", cost: "free", leaves: null,
-        defaults: { effort: "low", timeout_ms: 120_000, concurrency: 8 }, offers: [],
+        provider: "the test model", cost: "free", leaves: null, chat: null,
+        defaults: { effort: "low", timeout_ms: 120_000, concurrency: 8 }, models: [],
       },
     });
     const photos = { family: "photos", item: "photo:synthetic-defaults", prompt: "caption", input: said(INPUT), ...STREAM };
     const home = openHome(scratch());
-    const { effort, sampling } = transportOf("codex", {}).defaults;
+    const { effort, sampling } = named("codex", {}).defaults;
     expect(home.asker.key({ ...photos, model: "gpt-5.6-luna", effort, ...(sampling === undefined ? {} : { sampling }) })).toBe(GOLDEN.key_codex);
     home.close();
-    const fake = fakeTransport({ offers: [offer("synthetic/model", "A synthetic model", "audio")], unavailable: "synthetic: away", until_ms: T0 + 15_000 });
-    expect(await fake.offers()).toEqual([offer("synthetic/model", "A synthetic model", "audio")]);
+    const voice = listed("synthetic/model", "A synthetic model", { input: ["audio"], tools: false, thinking: [] });
+    const fake = fakeTransport({ models: [voice], unavailable: "synthetic: away", until_ms: T0 + 15_000 });
+    expect(await fake.models()).toEqual([voice]);
     expect(await fake.available()).toEqual({ ok: false, reason: "away", detail: "synthetic: away", until_ms: T0 + 15_000 });
     mkdirSync(ARTIFACTS, { recursive: true });
     writeFileSync(join(ARTIFACTS, "transport-seams.json"), `${JSON.stringify(seams, null, 2)}\n`);
@@ -2497,17 +2506,28 @@ describe("model settings", () => {
       held: (name) => { asked.push(`held ${name}`); return held; },
       secret: (name) => { asked.push(`secret ${name}`); return held ? "synthetic-openrouter-key" : undefined; },
     });
-    expect(await transportOf("openrouter", {}, found(false)).available()).toEqual({ ok: false, reason: "no_key", detail: "openrouter has no API key" });
-    expect(await transportOf("openrouter", {}, found(true)).available()).toEqual({ ok: true });
+    expect(await named("openrouter", {}, found(false)).available()).toEqual({ ok: false, reason: "no_key", detail: "openrouter has no API key" });
+    expect(await named("openrouter", {}, found(true)).available()).toEqual({ ok: true });
     expect(asked).toEqual(["held openrouter", "held openrouter"]);
     expect(transportSecret("openrouter", {})).toBe("openrouter");
   });
 });
 
 describe("the runner transport", () => {
+  it("reads a model's id back to its transport, its runner and its model, the one way an id is read, and no other string as one", () => {
+    const routes = [
+      { transport: "openrouter", model: "google/gemini-3.8-flash" },
+      { transport: "address", model: "qwen3.5:9b" },
+      { transport: "runner", runner: RUNNER_UNIT, model: "qwen3.5-4b" },
+      { transport: "runner", runner: RUNNER_UNIT, model: "ollama/qwen3.5:9b" },
+    ];
+    expect(routes.map((route) => readRouteId(routeId(route)))).toEqual(routes);
+    expect(["default", "off", "", ":model", "codex:", "runner:qwen3.5-4b", `runner:${RUNNER_UNIT}/`, "runner:/qwen3.5-4b"].map(readRouteId)).toEqual(Array(8).fill(null));
+  });
+
   it("takes a file's languages as primary language codes, or none, and keeps them; a subtag, a sentence, a word that is no code or no member at all is refused", () => {
     const stated = (languages: unknown) => {
-      const { present: _present, unit: _unit, ...rest } = runner(true, [{ ...file("speech", "absent"), kinds: ["audio"], languages: languages as string[] }]);
+      const { present: _present, unit: _unit, ...rest } = runner(true, [{ ...file("speech", "absent"), input: ["audio"], context_tokens: null, languages: languages as string[] }]);
       return rest;
     };
     for (const languages of [[], ["en"], ["en", "hi", "pt", "zh", "fil"]]) {
@@ -2523,28 +2543,29 @@ describe("the runner transport", () => {
     const door = await fakeDoor();
     const listed = [runner(true, [file("qwen3.5-4b", "ready"), file("downloading", "fetching", { fetched_bytes: 1_200_000_000 }), file("absent", "absent")], 2)];
     const transport = runnerTransport({ door: door.url, pass: () => CALL, runners: listed, clock: () => RUNNER_NOW });
-    expect([transport.name, transport.provider, transport.cost, transport.leaves]).toEqual(["runner", "the runner", "free", null]);
+    expect([transport.name, transport.provider, transport.cost, transport.leaves, transport.chat]).toEqual(["runner", "the runner", "free", null, "door"]);
+    expect(transport.reach?.("qwen3.5-4b", RUNNER_UNIT)).toEqual({ runner: RUNNER_UNIT, file: "qwen3.5-4b" });
     expect(await transport.available()).toEqual({ ok: true });
     const machine = { unit: RUNNER_UNIT, name: "MacBook Pro", battery: false };
-    expect((await transport.offers()).map((offer) => [offer.model, offer.runner, offer.ready])).toEqual([
+    expect((await transport.models()).map((model) => [model.model, model.runner, model.ready])).toEqual([
       ["qwen3.5-4b", machine, true], ["downloading", machine, false], ["absent", machine, false],
     ]);
     expect(transport.defaults).toEqual({ effort: "none", timeout_ms: 300_000, concurrency: 2 });
 
     const away = runnerTransport({ door: door.url, pass: () => CALL, runners: [runner(false, [file("qwen3.5-4b", "ready")])], clock: () => RUNNER_NOW });
-    expect((await away.offers()).map((offer) => offer.ready)).toEqual([false]);
+    expect((await away.models()).map((model) => model.ready)).toEqual([false]);
     expect(away.defaults.concurrency).toBe(0);
     const battery = runnerTransport({ door: door.url, pass: () => CALL, runners: [{ ...runner(true, [file("qwen3.5-4b", "ready")]), power: "battery" }], clock: () => RUNNER_NOW });
-    expect((await battery.offers())[0]!.runner).toEqual({ ...machine, battery: true });
+    expect((await battery.models())[0]!.runner).toEqual({ ...machine, battery: true });
 
     expect([CALL_PASS, transportSecret("runner", {})]).toEqual(["call", "call"]);
-    const called = transportOf("runner", {}, { door: door.url, secret: (name) => (name === CALL_PASS ? CALL : undefined) });
+    const called = named("runner", {}, { door: door.url, secret: (name) => (name === CALL_PASS ? CALL : undefined) });
     expect(await called.available()).toEqual({ ok: true });
     expect(await ended(called.send(request(new AbortController().signal), []))).toEqual({ answered: { text: "a synthetic caption", model: "qwen3.5-4b", input_tokens: 9 } });
     expect(await runnerTransport({ door: undefined, pass: () => CALL, clock: () => RUNNER_NOW }).available()).toMatchObject({ ok: false, reason: "away", until_ms: RUNNER_NOW + 15_000 });
 
     door.state.listed = listed;
-    expect(await listRunners(door.url, DRIVE)).toEqual(listed);
+    expect(await listRunners(door.url, DRIVE)).toEqual({ runners: listed, below: [] });
     await expect(listRunners(door.url, CALL)).rejects.toThrow("the door answered 401");
     const silent = createServer(() => undefined);
     await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
@@ -2863,15 +2884,17 @@ describe("the cloud voice transport", () => {
     const { posts, fetcher } = played();
     const transport = transcriptionsTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher });
     expect([transport.name, transport.provider, transport.cost, transport.leaves]).toEqual(["openrouter-voice", "OpenRouter", "priced", "OpenRouter"]);
-    expect(await transport.offers()).toEqual([{ model: "elevenlabs/scribe-v2", name: "Scribe v2", kinds: ["audio"], text_chars: null, ready: true }]);
+    expect(await transport.models()).toEqual([{
+      model: "elevenlabs/scribe-v2", name: "Scribe v2", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], ready: true, suggested: ["audio"],
+    }]);
     expect(CLOUD_VOICE).toEqual({ transport: "openrouter-voice", model: "elevenlabs/scribe-v2" });
     expect(transport.defaults).toEqual({ effort: "none", timeout_ms: 120_000, concurrency: 4 });
     expect(await transcriptionsTransport({ held: () => false, key: () => undefined }).available()).toMatchObject({ ok: false, reason: "no_key" });
     expect([transportSecret("openrouter-voice", {}), transportSecret("openrouter", {})]).toEqual(["openrouter", "openrouter"]);
-    expect(configured({})).toEqual(["runner", "codex", "claude", "openrouter", "openrouter-voice"]);
+    expect(transportsOf({}).map((each) => each.name)).toEqual(["runner", "codex", "claude", "openrouter", "openrouter-voice"]);
     expect(priced({})).toContain("openrouter-voice");
     expect(readModelSettings({ cap: 8, transports: { "openrouter-voice": { concurrency: 2 } } }).transports).toEqual({ "openrouter-voice": { concurrency: 2 } });
-    const built = transportOf("openrouter-voice", {}, { held: (name) => name === "openrouter", secret: (name) => (name === "openrouter" ? "synthetic-key" : undefined) });
+    const built = named("openrouter-voice", {}, { held: (name) => name === "openrouter", secret: (name) => (name === "openrouter" ? "synthetic-key" : undefined) });
     expect(await built.available()).toEqual({ ok: true });
 
     const home = openHome(scratch(), { via: { "elevenlabs/scribe-v2": "openrouter-voice" } });
@@ -3204,15 +3227,21 @@ function artifact(name: string, path: string): void {
 
 const WAIT_MS = 30_000;
 
+function named(name: string, transports?: TransportSettings, found: Found = {}): Transport {
+  const transport = transportsOf(transports, found).find((each) => each.name === name);
+  if (transport === undefined) throw new TypeError(`no transport is named ${name}`);
+  return transport;
+}
+
 const DRIVE = "synthetic-drive-pass";
 const CALL = "synthetic-call-pass";
 const RUNNER_UNIT = "runner-macbook-pro-0001";
 const RUNNER_NOW = Date.UTC(2026, 10, 11, 12, 0);
-type Listed = RunnerListing["files"][number];
-const file = (id: string, state: Listed["state"], extra: Partial<Listed> = {}): Listed => ({
-  id, name: `Model ${id}`, kinds: ["pictures", "text"], bytes: 4_000_000_000, text_chars: 16_000, languages: [], memory_gb: 16, state, fetched_bytes: 0, failure: null, ...extra,
+type Held = RunnerListing["files"][number];
+const file = (id: string, state: Held["state"], extra: Partial<Held> = {}): Held => ({
+  id, name: `Model ${id}`, input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16, state, fetched_bytes: 0, failure: null, ...extra,
 });
-const runner = (present: boolean, files: Listed[], slots = 1): RunnerListing => ({
+const runner = (present: boolean, files: Held[], slots = 1): RunnerListing => ({
   unit: RUNNER_UNIT, name: "MacBook Pro", version: "1", boot: "boot-a", slots, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files, present,
 });
 
@@ -3222,7 +3251,7 @@ async function fakeDoor() {
   };
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     if (request.headers.authorization !== `Bearer ${request.method === "GET" ? DRIVE : CALL}`) return void response.writeHead(401).end(JSON.stringify({ code: "PRINCIPAL_UNKNOWN", message: "no such pass" }));
-    if (request.method === "GET" && request.url === "/v1/runners") return void response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ runners: state.listed }));
+    if (request.method === "GET" && request.url === "/v1/runners") return void response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ runners: state.listed, below: [] }));
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {

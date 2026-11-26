@@ -32,7 +32,7 @@ const SOURCE = "apple-notes:local:mac-0001";
 const PLAIN_HEADER = Buffer.from("SQLite format 3\0", "latin1");
 const LABELS = ["store:home", "store:ledger", "store:custody", "store:prepared", "store:search", "store:screen", "files", "names", "ask-pending"] as const;
 const SOCKET_VERBS = [
-  "generation", "vault", "vault-check", "vault-init", "vault-new", "vault-confirm", "vault-recovery", "vault-discard", "vault-slot", "unlock", "recover", "sealed", "seal", "chat-voice", "ask-key",
+  "generation", "vault", "vault-check", "vault-init", "vault-new", "vault-confirm", "vault-recovery", "vault-discard", "vault-slot", "unlock", "recover", "sealed", "seal", "chat-voice", "ask-key", "model-reach",
   "subscriptions", "owner-act", "places-search", "account-connect", "device-start", "device-poll", "client-start", "client-finish", "seal-field", "stations", "redeem", "opened",
   "stated", "drained", "agent", "agents-call", "account", "offers", "through", "maintenance",
   "status", "report", "outbound", "codex", "claude", "settings", "repair", "undo", "rebuild", "erase", "drop", "act", "import", "source", "device", "setup", "pair", "connect",
@@ -69,7 +69,7 @@ async function keyedHome(): Promise<KeyedHome> {
   await adopt(root, { machine: at, keyed: readHandoff(JSON.stringify({ home_id: id, slot_key: slot.toString("hex"), recovery })), fileSystem: () => "apfs", platform: "darwin" });
   writeFolder(root, {
     helpers: 2, clocks: false, "model.cap": 64, "model.defaults.pictures": FAKE_ROUTE, "model.defaults.audio": FAKE_ROUTE, "model.defaults.text": FAKE_ROUTE,
-    "model.transports.fake": { delay_ms: 100, offers: [FAKE_OFFER] },
+    "model.transports.fake": { delay_ms: 100, models: [FAKE_OFFER] },
   });
   const vault = new Vault({ root, machine: at.dir, home: id });
   expect(vault.start({ key: slot, why: null }, 1)).toBeNull();

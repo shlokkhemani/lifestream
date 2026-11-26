@@ -21,7 +21,7 @@ const MODEL = "qwen3.5-4b";
 const KEY = { file: "sha256:0f0f", decode: "1" };
 
 const detectorFile = (state: RunnerFile["state"], over: Partial<RunnerFile> = {}): RunnerFile => ({
-  id: DETECTOR, name: "Privacy Filter", kinds: [], bytes: 900_000_000, text_chars: 32_000, languages: [], memory_gb: 8, state,
+  id: DETECTOR, name: "Privacy Filter", input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], bytes: 900_000_000, languages: [], memory_gb: 8, state,
   fetched_bytes: state === "ready" ? 900_000_000 : 0, failure: null, detector: KEY, ...over,
 });
 const listing = (files: RunnerFile[], over: Partial<RunnerListing> = {}): RunnerListing => ({
@@ -76,7 +76,7 @@ describe("the detector's client", () => {
 
   it("names the hiding model's file id from the runners' tables: the named runner's first, any runner's while off, downloaded or not, null when none lists one", () => {
     const { detector: _, ...plain } = detectorFile("ready");
-    const model: RunnerFile = { ...plain, id: MODEL, name: "Qwen 3.5", kinds: ["pictures", "text"] };
+    const model: RunnerFile = { ...plain, id: MODEL, name: "Qwen 3.5", input: ["text", "image"], output: "text", context_tokens: 4_000 };
     const other = listing([model, detectorFile("absent", { id: "other-filter" })], { unit: "runner-mac-mini-bb01" });
     expect(hidingFile([], RUNNER)).toBeNull();
     expect(hidingFile([listing([model])], RUNNER)).toBeNull();
