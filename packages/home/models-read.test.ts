@@ -6,7 +6,7 @@ import type { ModelMenu } from "./pages.js";
 import { memberWords } from "./processing.js";
 
 const ROUTE: ModelRoute = {
-  id: "fake/fake-model", transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: true, runner: null,
+  id: "fake/fake-model", transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: true, runner: null,
   leaves: "Fake", where: "Sent to Fake", cost: "free", request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
 };
 const UNIT = "runner-macbook-pro-0001";

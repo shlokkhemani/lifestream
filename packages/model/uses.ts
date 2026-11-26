@@ -25,9 +25,13 @@ export const USE_IDS = Object.keys(MODEL_USES) as readonly UseId[];
 
 export const CHARS_A_TOKEN = 4;
 
-export function workNeed(work: { kind: WorkKind; text_chars?: number | null | undefined }): UseNeed {
+export function workNeed(work: { kind: WorkKind; text_chars?: number | null | undefined; timed?: true | undefined }): UseNeed {
   const { need } = MODEL_USES[work.kind];
-  return work.text_chars === undefined || work.text_chars === null ? need : { ...need, context_tokens: Math.ceil(work.text_chars / CHARS_A_TOKEN) };
+  return {
+    ...need,
+    ...(work.text_chars === undefined || work.text_chars === null ? {} : { context_tokens: Math.ceil(work.text_chars / CHARS_A_TOKEN) }),
+    ...(work.timed === true ? { timed: true as const } : {}),
+  };
 }
 
 const INPUT_WORDS: Readonly<Record<Input, string>> = {
@@ -38,6 +42,7 @@ const INPUT_WORDS: Readonly<Record<Input, string>> = {
 
 const WORDS: Readonly<Record<Exclude<Unfit, { input: unknown }>, string>> = {
   tools: "can't search your record",
+  timed: "can't time its words",
   context: "holds too little text for this",
   leaves: "sends text off this Mac",
   output: "doesn't do this",

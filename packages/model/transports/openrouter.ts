@@ -14,15 +14,15 @@ type Endpoint = "/chat/completions" | "/audio/transcriptions";
 
 const DECLARED: readonly (ListedModel & { endpoint: Endpoint })[] = [
   {
-    model: "elevenlabs/scribe-v2", name: "Scribe v2", input: ["audio"], output: "text", tools: false, context_tokens: null,
+    model: "elevenlabs/scribe-v2", name: "Scribe v2", input: ["audio"], output: "text", tools: false, timed: false, context_tokens: null,
     thinking: [], ready: true, suggested: ["audio"], request: { effort: "none" }, endpoint: "/audio/transcriptions",
   },
   {
-    model: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", input: ["text", "image", "audio"], output: "text", tools: true, context_tokens: null,
+    model: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash", input: ["text", "image", "audio"], output: "text", tools: true, timed: true, context_tokens: null,
     thinking: THINKING, ready: true, suggested: ["pictures", "text"], endpoint: "/chat/completions",
   },
   {
-    model: "openai/gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null,
+    model: "openai/gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: null,
     thinking: THINKING, ready: true, suggested: ["pictures", "text", "chat"], endpoint: "/chat/completions",
   },
 ];
@@ -74,7 +74,7 @@ function catalog(root: Record<string, unknown>): ListedModel[] {
     const context = model.context_length;
     return [{
       model: model.id, name: typeof model.name === "string" && model.name !== "" ? model.name : model.id,
-      input: MODALITIES.filter((modality) => inputs.includes(modality)), output: "text", tools: parameters.includes("tools"),
+      input: MODALITIES.filter((modality) => inputs.includes(modality)), output: "text", tools: parameters.includes("tools"), timed: inputs.includes("audio"),
       context_tokens: typeof context === "number" && Number.isSafeInteger(context) && context > 0 ? context : null,
       thinking: parameters.includes("reasoning") ? THINKING : [], ready: true,
     }];

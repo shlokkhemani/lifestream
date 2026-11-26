@@ -46,7 +46,7 @@ const FIXTURE = join(FIXTURES, "report.json");
 const PHONE_FIXTURE = join(FIXTURES, "pages", "canned", "connectors.report.json");
 const WRITE_FIXTURES = process.env.LIFESTREAM_FIXTURES === "write";
 
-const ROUTE = { output: "text", tools: false, context_tokens: null, thinking: [], suggested: [], offered: true, runner: null, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
+const ROUTE = { output: "text", tools: false, timed: false, context_tokens: null, thinking: [], suggested: [], offered: true, runner: null, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
 const VISION: ModelRoute = {
   ...ROUTE, id: "openrouter:vendor-a/vision-1", transport: "openrouter", model: "vendor-a/vision-1", name: "Vision One", input: ["text", "image"], chat: "door",
   leaves: "OpenRouter", where: "Sent to OpenRouter", cost: "priced", state: "ready", line: null,
@@ -57,8 +57,8 @@ const PLAN: ModelRoute = {
   leaves: "Anthropic", where: "Sent to Anthropic", cost: "plan", state: "waiting", line: PLAN_LINE,
 };
 const RUNNER_UNIT = "runner-macbook-pro-0001";
-const SEES: Abilities = { input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [] };
-const HEARS: Abilities = { input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [] };
+const SEES: Abilities = { input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [] };
+const HEARS: Abilities = { input: ["audio"], output: "text", tools: false, timed: true, context_tokens: null, thinking: [] };
 const runnerFile = (id: string, name: string, abilities: Abilities, bytes: number, languages: string[], memory_gb: number, state: RunnerFile["state"], fetched_bytes = 0): RunnerFile =>
   ({ id, name, ...abilities, bytes, languages, memory_gb, state, fetched_bytes, failure: null });
 const NEMOTRON_LANGUAGES = ["en", "es", "fr", "it", "pt", "nl", "de", "tr", "ru", "ar", "hi", "ja", "ko", "vi", "uk", "pl", "sv", "cs", "nb", "da", "bg", "fi", "hr", "sk", "zh", "hu", "ro", "et"];
@@ -75,7 +75,7 @@ const ON_RUNNER = {
   request: { effort: "none", sampling: null, timeout_ms: 300_000 },
 } as const;
 const onRunner = (file: RunnerFile) => ({ ...ON_RUNNER, id: `runner:${RUNNER_UNIT}/${file.id}`, model: file.id, name: file.name, chat: "door" as const,
-  input: file.input, output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: file.thinking });
+  input: file.input, output: file.output, tools: file.tools, timed: file.timed, context_tokens: file.context_tokens, thinking: file.thinking });
 const QWEN: ModelRoute = { ...onRunner(RUNNER.files[0]!), suggested: ["pictures"], state: "ready", line: null };
 const PARAKEET: ModelRoute = { ...onRunner(RUNNER.files[1]!), state: "unavailable", line: "Downloading, 0.3 of 0.7 GB" };
 const NEMOTRON: ModelRoute = { ...onRunner(RUNNER.files[2]!), state: "unavailable", line: "Not downloaded" };

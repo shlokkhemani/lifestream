@@ -15,7 +15,7 @@ const UNIT = `runner-${HOME}`;
 const OTHER = "runner-mac-mini-0002";
 
 const file = (id: string, name: string, more: Partial<RunnerFile>): RunnerFile => ({
-  id, name, input: ["text"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16, state: "absent", fetched_bytes: 0, failure: null, ...more,
+  id, name, input: ["text"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16, state: "absent", fetched_bytes: 0, failure: null, ...more,
 });
 const QWEN = file("qwen3.5-4b", "Qwen 3.5 4B", { input: ["text", "image"] });
 const PARAKEET = file("parakeet-unified-en-0.6b", "Parakeet", { input: ["audio"], bytes: 731_357_568, languages: ["en"], memory_gb: 8, state: "ready" });
@@ -27,7 +27,7 @@ const FILTER = file("privacy-filter", "Privacy Filter", { output: "marks", memor
 const RUNNER: StoredRunner = { unit: UNIT, name: "MacBook Pro", present: true, power: "battery", memory_gb: 16, files: [QWEN, PARAKEET, NEMOTRON, BIG, GEMMA, FILTER], below: null };
 const MINI: StoredRunner = { unit: OTHER, name: "Mac mini", present: true, power: null, memory_gb: 16, files: [PARAKEET], below: null };
 
-const BASE = { output: "text", tools: false, context_tokens: null, thinking: [], offered: true, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
+const BASE = { output: "text", tools: false, timed: false, context_tokens: null, thinking: [], offered: true, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
 const onRunner = (runner: StoredRunner, each: RunnerFile, suggested: UseId[]): ModelRoute => ({
   ...BASE, id: `runner:${runner.unit}/${each.id}`, transport: "runner", model: each.id, name: each.name, input: each.input, output: each.output, chat: "door", suggested,
   runner: { unit: runner.unit, name: runner.name, battery: false }, leaves: null, where: `Stays on ${runner.name}`, cost: "free",

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import {
-  ArtifactError, embedAnswerOf, Refused, RUNNER_WIRE_VERSION, type Build, type RunnerAnswer as Answer, type RunnerCall as Call, type RunnerExchange as Exchange, type RunnerHanded as Handed, type RunnerResult as Result,
+  ArtifactError, embedAnswerOf, Refused, RUNNER_WIRE_VERSION, TIMED_TRANSCRIPT, type Build, type RunnerAnswer as Answer, type RunnerCall as Call, type RunnerExchange as Exchange, type RunnerHanded as Handed, type RunnerResult as Result,
 } from "@lifestreamprotocol/model";
 import { canonicalWav, decodeAudio, MOST_SECONDS } from "./audio.js";
 import { detectorLibrary, withFallback, type Classifier } from "./detector.js";
@@ -17,7 +17,7 @@ import { Failed, NotReady, type Library } from "./library.js";
 import { ollamaLibrary, type OllamaManifest } from "./ollama.js";
 import { openOllama, type OllamaChild, type OllamaOptions } from "./ollama-child.js";
 import { idleOf, powerOf, serve, thermalOf, type RunnerOptions } from "./serve.js";
-import { speechLibrary, type Transcriber } from "./speech.js";
+import { speechLibrary, type HeardSegment, type Transcriber } from "./speech.js";
 import { syntheticTokenizer, tokenizerOf } from "./test/synthetic-tokenizer.js";
 
 const WAIT_MS = 30_000;
@@ -232,7 +232,7 @@ describe("the runner", () => {
     expect([...state.headers]).toEqual([`runner/${RUNNER_WIRE_VERSION} Bearer ${PASS}`]);
     expect(state.last()!.runner).toMatchObject({ version: RUNNER_WIRE_VERSION, slots: 1, running: [] });
     expect(state.last()!.runner.files.map((each) => [each.id, each.state])).toEqual(FILES.map((row) => [row.id, "absent"]));
-    expect(Object.keys(state.last()!.runner.files[0]!).sort()).toEqual(["bytes", "context_tokens", "failure", "fetched_bytes", "id", "input", "languages", "memory_gb", "name", "output", "state", "thinking", "tools"]);
+    expect(Object.keys(state.last()!.runner.files[0]!).sort()).toEqual(["bytes", "context_tokens", "failure", "fetched_bytes", "id", "input", "languages", "memory_gb", "name", "output", "state", "thinking", "timed", "tools"]);
     const languages = Object.fromEntries(state.last()!.runner.files.map((each) => [each.id, each.languages]));
     expect(languages).toEqual(Object.fromEntries(FILES.map((row) => [row.id, row.languages])));
     expect(languages[PICTURES]).toEqual([]);
@@ -558,7 +558,7 @@ async function registry() {
   const model = (name: string, layers: readonly string[], embed?: OllamaRow["embed"]) => {
     const published = publish(name, layers);
     const row = ollamaRow({
-      id: `${name}-test`, name, input: embed === undefined ? ["text", "image"] : ["text"], output: embed === undefined ? "text" : "vectors", tools: false,
+      id: `${name}-test`, name, input: embed === undefined ? ["text", "image"] : ["text"], output: embed === undefined ? "text" : "vectors", tools: false, timed: false,
       context_tokens: embed === undefined ? 4_000 : 2_048, thinking: [], platforms: [], languages: [], memory_gb: 16,
       source: { model: `${name}:1b`, registry: `${url}/v2/library/${name}`, bytes: published.size, layers: ["application/vnd.docker.container.image.v1+json", "application/vnd.ollama.image.model"] },
       ...(embed === undefined ? {} : { embed }),
@@ -1076,6 +1076,8 @@ function transcribers() {
     swap: null as string | null,
     holdLoad: false,
     events: [] as string[],
+    segments: [] as HeardSegment[],
+    timestamps: [] as (string | undefined)[],
   };
   const gates = new Map<string, () => void>();
   const release = (name: string): void => gates.get(name)?.();
@@ -1092,11 +1094,12 @@ function transcribers() {
     if (state.loaded.length > state.disposed.length) state.faults.push(`${name} loaded while another is`);
     state.loaded.push(name);
     return {
-      async transcribe(samples) {
+      async transcribe(samples, options) {
         state.transcribing.push(name);
+        state.timestamps.push(options.timestamps);
         if (state.holding.has(name)) await new Promise<void>((resolve) => gates.set(name, resolve));
         state.transcribing.splice(state.transcribing.indexOf(name), 1);
-        return { text: ` ${name} heard ${samples.length} samples ` };
+        return { text: ` ${name} heard ${samples.length} samples `, segments: state.segments };
       },
       dispose() {
         if (state.transcribing.includes(name)) state.faults.push(`${name} let go while in use`);
@@ -1114,7 +1117,7 @@ describe("the speech library", () => {
     const bytes = { a: Buffer.from("model a"), b: Buffer.from("model b") };
     const served = await files(new Map([["/models/speech-a.gguf", bytes.a], ["/models/speech-b.gguf", bytes.b]]));
     const row = (id: string, of: Buffer) => speechRow({
-      id, name: id, input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], platforms: [], languages: ["en"], memory_gb: 8, source: { url: `${served.url}/models/${id}.gguf`, bytes: of.length, sha256: sha(of) },
+      id, name: id, input: ["audio"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], platforms: [], languages: ["en"], memory_gb: 8, source: { url: `${served.url}/models/${id}.gguf`, bytes: of.length, sha256: sha(of) },
     });
     return { a: row("speech-a", bytes.a), b: row("speech-b", bytes.b) };
   }
@@ -1138,6 +1141,28 @@ describe("the speech library", () => {
     await expect(library.run(a, { ...call("r-4", a.id), attachments: [TONE] }, signal)).rejects.toBeInstanceOf(NotReady);
     expect(state.loaded).toEqual(["model a", "model b", "model y"]);
     expect(state.disposed.at(-1)).toBe("model y");
+    expect(state.faults).toEqual([]);
+  });
+
+  it("answers a call whose schema is the timed transcript with the engine's segments as its JSON, in seconds and unjoined, a call with no schema or another schema plain text as before, and a timed call whose engine heard words but gave no times fails unreadable", async () => {
+    const dir = folder();
+    const { a } = await rows();
+    const { state, load } = transcribers();
+    const library = speechLibrary(dir, load);
+    await library.fetch(a, () => undefined, signal);
+    state.segments = [{ text: " Hello there.", t0Ms: 0, t1Ms: 1_250 }, { text: " ", t0Ms: 1_250, t1Ms: 1_400 }, { text: "See you. ", t0Ms: 61_500, t1Ms: 62_040 }];
+    const described = { ...TIMED_TRANSCRIPT, description: "one side of a call" };
+    const timed = await library.run(a, { ...call("r-t1", a.id), attachments: [TONE], schema: described }, signal);
+    expect(JSON.parse(timed.text)).toEqual({
+      segments: [{ start_s: 0, end_s: 1.25, text: "Hello there." }, { start_s: 1.25, end_s: 1.4, text: "" }, { start_s: 61.5, end_s: 62.04, text: "See you." }],
+    });
+    const plain = await library.run(a, { ...call("r-t2", a.id), attachments: [TONE] }, signal);
+    expect(plain.text).toMatch(/^model a heard \d+ samples$/u);
+    const other = await library.run(a, { ...call("r-t3", a.id), attachments: [TONE], schema: { type: "object", properties: {}, required: [], additionalProperties: false } }, signal);
+    expect(other.text).toMatch(/^model a heard \d+ samples$/u);
+    expect(state.timestamps).toEqual(["segment", undefined, undefined]);
+    state.segments = [];
+    await expect(library.run(a, { ...call("r-t4", a.id), attachments: [TONE], schema: TIMED_TRANSCRIPT }, signal)).rejects.toMatchObject({ reason: "unreadable" });
     expect(state.faults).toEqual([]);
   });
 
@@ -1244,7 +1269,7 @@ describe("the detector library", () => {
     const server = await files(new Map(Object.entries(names).map(([key, name]) => [`/pf/${name}`, bytes[key as keyof typeof bytes]])));
     const artifact = (key: keyof typeof bytes) => ({ url: `${server.url}/pf/${names[key]}`, bytes: bytes[key].length, sha256: sha(bytes[key]) });
     const row = detectorRow({
-      id: DETECTOR, name: "Privacy Filter", input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], platforms: [], languages: [], memory_gb: 8,
+      id: DETECTOR, name: "Privacy Filter", input: ["text"], output: "marks", tools: false, timed: false, context_tokens: 8_000, thinking: [], platforms: [], languages: [], memory_gb: 8,
       source: { graph: artifact("graph"), weights: artifact("weights"), tokenizer: artifact("tokenizer"), tokenizer_config: artifact("tokenizer_config"), config: artifact("config") },
     });
     return { row, asked: server.asked, bytes };

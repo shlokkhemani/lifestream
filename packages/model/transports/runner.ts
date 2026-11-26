@@ -42,7 +42,7 @@ export function runnerTransport(options: RunnerOptions): Transport {
         return runner.files.map((file): ListedModel => {
           const uses = suggested.get(file.id);
           return {
-            model: file.id, name: file.name, input: file.input, output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: file.thinking,
+            model: file.id, name: file.name, input: file.input, output: file.output, tools: file.tools, timed: file.timed, context_tokens: file.context_tokens, thinking: file.thinking,
             runner: { unit: runner.unit, name: runner.name, battery: runner.power === "battery" }, ready: runner.present && file.state === "ready",
             ...(uses === undefined ? {} : { suggested: uses }),
           };

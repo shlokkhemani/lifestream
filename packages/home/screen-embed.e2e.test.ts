@@ -73,7 +73,7 @@ function vectorFor(text: string): Float32Array {
   return vector;
 }
 
-const ready = (id: string): RunnerFile => ({ id, name: id, input: ["text"], output: "vectors", tools: false, context_tokens: 2_048, thinking: [], bytes: 1, languages: [], memory_gb: 8, state: "ready", fetched_bytes: 1, failure: null });
+const ready = (id: string): RunnerFile => ({ id, name: id, input: ["text"], output: "vectors", tools: false, timed: false, context_tokens: 2_048, thinking: [], bytes: 1, languages: [], memory_gb: 8, state: "ready", fetched_bytes: 1, failure: null });
 
 const listing = (over: Partial<RunnerListing> = {}): RunnerListing => ({
   unit: RUNNER, name: "Synthetic Mac", version: "3", boot: "boot-a", slots: 1, power: "mains", idle_s: 600, thermal: "nominal", memory_gb: 16, running: [],

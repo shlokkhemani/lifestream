@@ -4,17 +4,17 @@ import type { Abilities, ListedModel, Transport } from "./transport.js";
 import { claudeTransport } from "./transports/claude.js";
 import { codexTransport } from "./transports/codex.js";
 import { openRouterTransport } from "./transports/openrouter.js";
-import { MODEL_USES, USE_IDS, workNeed, type UseId } from "./uses.js";
+import { MODEL_USES, unfitWords, USE_IDS, workNeed, type UseId } from "./uses.js";
 
 type Row = Abilities & { leaves: string | null };
 
 const local = (abilities: Partial<Abilities> & Pick<Abilities, "input">): Row =>
-  ({ output: "text", tools: false, context_tokens: null, thinking: [], leaves: null, ...abilities });
+  ({ output: "text", tools: false, timed: false, context_tokens: null, thinking: [], leaves: null, ...abilities });
 
 const RUNNER_ROWS: Readonly<Record<string, Row>> = {
   "Qwen 3.5": local({ input: ["text", "image"], context_tokens: 4_000 }),
-  Parakeet: local({ input: ["audio"] }),
-  "Nemotron Speech": local({ input: ["audio"] }),
+  Parakeet: local({ input: ["audio"], timed: true }),
+  "Nemotron Speech": local({ input: ["audio"], timed: true }),
   "EmbeddingGemma 2": local({ input: ["text"], output: "vectors", context_tokens: 2_048 }),
   "Privacy Filter": local({ input: ["text"], output: "marks", context_tokens: 8_000 }),
 };
@@ -80,5 +80,20 @@ describe("the fit of a model to a use", () => {
     expect(unfit(qwen, workNeed({ kind: "text", text_chars: 16_001 }))).toBe("context");
     expect(unfit({ ...qwen, context_tokens: null }, workNeed({ kind: "text", text_chars: 500_000 }))).toBeNull();
     expect(workNeed({ kind: "pictures", text_chars: null })).toEqual(MODEL_USES.pictures.need);
+  });
+
+  it("takes a model that times its words for a timed work, names every other audio model timed, and states the input it misses first", async () => {
+    const declared = await declaredRows();
+    const calls = workNeed({ kind: "audio", timed: true });
+    expect(calls).toEqual({ ...MODEL_USES.audio.need, timed: true });
+    expect(workNeed({ kind: "audio" })).toEqual(MODEL_USES.audio.need);
+    expect(unfit(declared["openrouter:google/gemini-3.8-flash"]!, calls)).toBeNull();
+    expect(unfit(RUNNER_ROWS.Parakeet!, calls)).toBeNull();
+    expect(unfit(RUNNER_ROWS["Nemotron Speech"]!, calls)).toBeNull();
+    expect(unfit(declared["openrouter:elevenlabs/scribe-v2"]!, calls)).toBe("timed");
+    expect(unfit(declared["openrouter:elevenlabs/scribe-v2"]!, workNeed({ kind: "audio" }))).toBeNull();
+    expect(unfit(local({ input: ["audio"] }), calls)).toBe("timed");
+    expect(unfit(declared["codex:gpt-6-luna"]!, calls)).toEqual({ input: "audio" });
+    expect(unfitWords("Scribe v2", "timed")).toBe("Scribe v2 can't time its words");
   });
 });

@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
-import { USE_IDS, type UseId } from "@lifestreamprotocol/model";
+import { runnerInfo, unfit, USE_IDS, workNeed, type RunnerStated, type StatedFile, type UseId } from "@lifestreamprotocol/model";
 import { readPrivacySettings } from "@lifestreamprotocol/privacy";
 import { LIST_EVERY_MS, Models } from "./models.js";
 import { until } from "./test/harness-root.js";
@@ -180,5 +180,38 @@ describe("a custom address", () => {
     expect(models.reach(controls, "address:local-model", () => undefined)).toMatchObject({ url: `${server.url}/chat/completions`, leaves: null });
     at.address = { url: "http://192.0.2.7:11434/v1", model: "local-model" };
     expect(models.reach(controls, "address:local-model", () => undefined)).toMatchObject({ url: "http://192.0.2.7:11434/v1/chat/completions", leaves: "192.0.2.7" });
+  });
+});
+
+describe("a timed work's models", () => {
+  const RUNNER_UNIT = "runner-macbook-pro-0001";
+  const OLDER_UNIT = "runner-mac-mini-0002";
+  const parakeet = (timed?: boolean): StatedFile => ({
+    id: "parakeet-unified-en-0.6b", name: "Parakeet", input: ["audio"], output: "text", tools: false, ...(timed === undefined ? {} : { timed }), context_tokens: null, thinking: [],
+    bytes: 731_357_568, languages: ["en"], memory_gb: 8, state: "ready", fetched_bytes: 731_357_568, failure: null,
+  });
+  const stated = (file: StatedFile): RunnerStated => ({
+    name: "MacBook Pro", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files: [file],
+  });
+
+  it("builds a route from each offer with what it states of timing: a runner's timed file and Gemini are fit for a timed work; an older runner's file that states none, and Scribe, are not, and say so", async () => {
+    const runners = [{ ...runnerInfo(RUNNER_UNIT, stated(parakeet(true))), present: true }, { ...runnerInfo(OLDER_UNIT, stated(parakeet())), present: true }];
+    const models = new Models({
+      settings: () => ({ model: { cap: 4 }, defaults: NONE, connectors: {}, runners: {}, privacy: readPrivacySettings({}) }),
+      registry: () => ({ connectors: [], families: [] }), ledger: { resting: () => new Map() },
+      found: () => ({ programs: {}, held: () => false }),
+      runners: async () => ({ runners, below: [] }), paired: () => new Set(), clock: () => T0, day: () => ({ zone: "UTC", day_start_hour: 4 }),
+      unset: () => [], fill: () => undefined,
+    });
+    await models.read();
+    const calls = workNeed({ kind: "audio", timed: true });
+    const hearing = models.list(new Set()).filter((route) => route.input.includes("audio"));
+    expect(hearing.map((route) => [route.id, route.timed, unfit(route, calls)])).toEqual([
+      [`runner:${RUNNER_UNIT}/parakeet-unified-en-0.6b`, true, null],
+      [`runner:${OLDER_UNIT}/parakeet-unified-en-0.6b`, false, "timed"],
+      ["openrouter:elevenlabs/scribe-v2", false, "timed"],
+      ["openrouter:google/gemini-3.8-flash", true, null],
+    ]);
+    expect(hearing.map((route) => unfit(route, workNeed({ kind: "audio" })))).toEqual([null, null, null, null]);
   });
 });

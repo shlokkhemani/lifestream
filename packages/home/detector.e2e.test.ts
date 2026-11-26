@@ -22,7 +22,7 @@ const MODEL = "qwen3.5-4b";
 const KEY = { file: "sha256:0f0f", decode: "1" };
 
 const detectorFile = (state: RunnerFile["state"], over: Partial<RunnerFile> = {}): RunnerFile => ({
-  id: DETECTOR, name: "Privacy Filter", input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], bytes: 900_000_000, languages: [], memory_gb: 8, state,
+  id: DETECTOR, name: "Privacy Filter", input: ["text"], output: "marks", tools: false, timed: false, context_tokens: 8_000, thinking: [], bytes: 900_000_000, languages: [], memory_gb: 8, state,
   fetched_bytes: state === "ready" ? 900_000_000 : 0, failure: null, detector: KEY, ...over,
 });
 const listing = (files: RunnerFile[], over: Partial<RunnerListing> = {}): RunnerListing => ({

@@ -25,19 +25,19 @@ describe("Settings › Default models and Providers through the door", () => {
     const unit = `runner-${effective(root).settings.unit}`;
     const request = { effort: "low", sampling: null, timeout_ms: 120_000 };
     const qwen: ModelRoute = {
-      id: `runner:${unit}/qwen3.5-4b`, transport: "runner", model: "qwen3.5-4b", name: "Qwen 3.5 4B", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [],
+      id: `runner:${unit}/qwen3.5-4b`, transport: "runner", model: "qwen3.5-4b", name: "Qwen 3.5 4B", input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [],
       chat: "door", suggested: ["pictures", "text"], offered: true, runner: { unit, name: "MacBook Pro", battery: false }, leaves: null, where: "Stays on MacBook Pro", cost: "free",
       request, state: "unavailable", line: "Not downloaded",
     };
     const luna: ModelRoute = {
-      id: "codex:gpt-6-luna", transport: "codex", model: "gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null, thinking: [],
+      id: "codex:gpt-6-luna", transport: "codex", model: "gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: null, thinking: [],
       chat: "program", suggested: ["pictures", "text"], offered: true, runner: null, leaves: "OpenAI", where: "Sent to OpenAI", cost: "plan", request, state: "ready", line: null,
     };
     const stored: StoredModels = {
       routes: [qwen, luna],
       runners: [{
         unit, name: "MacBook Pro", present: true, power: "mains", memory_gb: 16, below: null, files: [{
-          id: "qwen3.5-4b", name: "Qwen 3.5 4B", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16,
+          id: "qwen3.5-4b", name: "Qwen 3.5 4B", input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16,
           state: "absent", fetched_bytes: 0, failure: null,
         }],
       }],

@@ -70,7 +70,7 @@ function namesOf(root: Record<string, unknown>, input: readonly Input[]): Listed
 }
 
 function rowOf(id: string, input: readonly Input[]): ListedModel {
-  return { model: id, name: id, input, output: "text", tools: true, context_tokens: null, thinking: [], ready: true };
+  return { model: id, name: id, input, output: "text", tools: true, timed: false, context_tokens: null, thinking: [], ready: true };
 }
 
 function declaredFirst(model: string | undefined, listed: readonly ListedModel[]): readonly ListedModel[] {
