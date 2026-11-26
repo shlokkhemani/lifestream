@@ -160,8 +160,8 @@ final class PassTests: XCTestCase {
 }
 
 extension PassTests {
-    static func wanting(_ ids: [String], files: [String] = ["photo"]) -> PhotosWanted {
-        PhotosWanted(photos: ids.map { .init(asset: $0, files: files) },
+    static func wanting(_ ids: [String], files: [String] = ["photo"], settled: [String] = []) -> PhotosWanted {
+        PhotosWanted(photos: ids.map { .init(asset: $0, files: files) }, settled: settled,
                      left: .init(wanted: ids.count, unavailable: 0, bytes: Int64(ids.count) * 1_000))
     }
 
@@ -181,7 +181,9 @@ extension PassTests {
         let asked = Asks()
         let home = PhotoPass.Home(caughtUp: true, wanted: { owed in
             asked.count(owed)
-            return Self.wanting(owed.filter { !asked.unnamed.contains($0) })
+            guard !asked.paused else { return PhotosWanted(photos: [], settled: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) }
+            return Self.wanting(owed.filter { !asked.unnamed.contains($0) && !asked.settled.contains($0) },
+                                settled: owed.filter(asked.settled.contains))
         })
         let run = { (device: Device) in await pass.run(.init(seconds: 60), device: device, bringingIn: false, home: home) }
         var steps: [[String: Any]] = []
@@ -233,14 +235,43 @@ extension PassTests {
         synthetic.put(Self.photo("CLOUD/L0/001", at: 41), files: [.inCloud(Data("in iCloud".utf8))])
         _ = await run(mobile)
         assertEqual(await pass.state().owed, ["CLOUD/L0/001", "ELSEWHERE/L0/001"])
-        asked.unnamed = ["ELSEWHERE/L0/001"]
+        asked.settled = ["ELSEWHERE/L0/001"]
         let answered = await run(mobile)
         await step("answered", answered)
         XCTAssertEqual(asked.owed.last, ["CLOUD/L0/001", "ELSEWHERE/L0/001"])
         assertEqual(await pass.state().owed, [],
-                    "the one the answer does not name leaves, and the one only iCloud holds leaves for the past's rule")
+                    "the one the home settled leaves, and the one only iCloud holds leaves for the past's rule")
         XCTAssertEqual(synthetic.downloads, 0, "nothing comes from iCloud")
         assertEqual(await pass.state().later, [])
+
+        synthetic.put(Self.photo("LATE/L0/001", at: 45), files: [.here(Data())])
+        _ = await run(mobile)
+        assertEqual(await pass.state().owed, ["LATE/L0/001"])
+        asked.unnamed = ["LATE/L0/001"]
+        let unknown = await run(mobile)
+        await step("not known yet", unknown)
+        XCTAssertEqual(asked.owed.last, ["LATE/L0/001"])
+        assertEqual(await pass.state().owed, ["LATE/L0/001"], "a photo the home does not know yet, neither wanted nor settled, stays owed")
+        asked.unnamed = []
+        asked.paused = true
+        let paused = await run(mobile)
+        await step("paused", paused)
+        XCTAssertEqual(asked.owed.last, ["LATE/L0/001"])
+        assertEqual(await pass.state().owed, ["LATE/L0/001"], "a home whose past is paused settles nothing: it stays owed")
+        asked.paused = false
+        let wanted = await run(mobile)
+        await step("wanted while written", wanted)
+        XCTAssertEqual(asked.owed.last, ["LATE/L0/001"])
+        XCTAssertEqual(wanted?.files, 0, "its file still states 0 bytes")
+        assertEqual(await pass.state().owed, ["LATE/L0/001"], "wanted while it is written, it stays owed")
+        let lateAsked = synthetic.filesAsked
+        synthetic.put(PhotoSnapshot(localIdentifier: "LATE/L0/001", creationDate: Self.day.addingTimeInterval(45 * 60),
+                                    modificationDate: Self.day.addingTimeInterval(46 * 60), resources: [Self.still]))
+        let resaved = await run(mobile)
+        await step("saved again", resaved)
+        XCTAssertEqual([resaved?.snapshots, resaved?.files], [1, 1], "the re-save is now: its files come inline, over mobile data")
+        XCTAssertEqual(synthetic.filesAsked, lateAsked + 1)
+        assertEqual(await pass.state().owed, [], "landed, it leaves owed")
 
         let filesAsked = synthetic.filesAsked
         synthetic.put(PhotoSnapshot(localIdentifier: "OLD3/L0/001", creationDate: Self.day.addingTimeInterval(-63 * 60),
@@ -702,11 +733,21 @@ final class Asks: @unchecked Sendable {
     private let lock = NSLock()
     private var made: [[String]] = []
     private var notNamed: Set<String> = []
+    private var named: Set<String> = []
+    private var held = false
     var asks: Int { lock.withLock { made.count } }
     var owed: [[String]] { lock.withLock { made.filter { !$0.isEmpty } } }
     var unnamed: Set<String> {
         get { lock.withLock { notNamed } }
         set { lock.withLock { notNamed = newValue } }
+    }
+    var settled: Set<String> {
+        get { lock.withLock { named } }
+        set { lock.withLock { named = newValue } }
+    }
+    var paused: Bool {
+        get { lock.withLock { held } }
+        set { lock.withLock { held = newValue } }
     }
     func count(_ owed: [String] = []) { lock.withLock { made.append(owed) } }
 }

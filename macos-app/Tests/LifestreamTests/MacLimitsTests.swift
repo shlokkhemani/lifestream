@@ -19,7 +19,7 @@ final class MacLimitsTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    func testTheSpoolRecordsUntilItsDiskIsFullAndTheHomeHearsEachLevelAndNetworkOnce() async throws {
+    func testTheSpoolRecordsUntilItsDiskIsFullAndTheHomeHearsEachLevelOnceWithTheNetworkOnEveryExchange() async throws {
         let disk = Disk(free: 6 * Self.gb)
         let volume = Volume(folder, read: { _ in disk.free }, clock: { disk.now })
         let network = ReportedNetwork()
@@ -31,26 +31,27 @@ final class MacLimitsTests: XCTestCase {
         limits.start()
         try await until("the level and the network at the start") { door.changes("room") == ["ok"] && door.changes("network") == ["now"] }
 
+        network.report(.costly)
+        network.report(.lowData)
         disk.free = 4 * Self.gb
         disk.now.addTimeInterval(60)
         XCTAssertTrue(volume.fits(.new), "a low disk keeps recording")
         try await until("low told") { door.changes("room") == ["ok", "low"] }
+        XCTAssertEqual(door.stated("network").last, "low-data", "the exchange states the network as it is now, told by no caller")
+        network.report(.free)
         disk.free = Self.gb / 2
         disk.now.addTimeInterval(60)
         XCTAssertFalse(volume.fits(.new), "a full disk saves no frame")
         try await until("full told") { door.changes("room") == ["ok", "low", "full"] }
+        XCTAssertEqual(door.stated("network").last, "all")
         disk.free = nil
         disk.now.addTimeInterval(60)
         XCTAssertTrue(volume.fits(.new), "a disk that does not read is low: recording goes on")
         try await until("low told again") { door.changes("room") == ["ok", "low", "full", "low"] }
 
-        network.report(.costly)
-        network.report(.lowData)
-        try await until("Low Data Mode told") { door.stated("network").last == "low-data" }
-        network.report(.free)
-        try await until("free told") { door.stated("network").last == "all" }
+        XCTAssertEqual(door.stated("network").count, door.stated("room").count, "every exchange states the network")
         XCTAssertEqual(door.changes("network"), ["now", "low-data", "all"],
-                       "each change once, a repeat none: the home's own Mac on a hotspot states now though its sends all move")
+                       "the home's own Mac on a hotspot states now though its sends all move")
         XCTAssertEqual(door.changes("room"), ["ok", "low", "full", "low"], "each level once, the unknown reading low")
         try record("stated", ["room": door.changes("room"), "network": door.changes("network")])
     }
@@ -66,19 +67,22 @@ final class MacLimitsTests: XCTestCase {
         let here = MacPhotoPass(paths: paths, link: try link(Door(), network: network), settings: settings, disk: disk)
         let away = MacPhotoPass(paths: paths, link: try link(Door(), at: "http://100.100.1.1:4680", folder: "away", network: network),
                                 settings: settings, disk: disk)
-        let facts = { (pass: MacPhotoPass) async -> String in
-            let device = await pass.device
+        let facts = { (pass: MacPhotoPass, pressed: Bool) async -> String in
+            let device = await pass.device(pressed: pressed)
             return "\(device.pastMoves ? "past moves" : "past waits"), \(device.iCloud ? "iCloud moves" : "iCloud waits")"
         }
-        var seen = [[await facts(here), await facts(away)]]
+        var seen = [[await facts(here, false), await facts(away, false)]]
+        var pressed = [[await facts(here, true), await facts(away, true)]]
         for path in [.free, .costly, .free, .lowData] as [MobileData.Path] {
             network.report(path)
-            seen.append([await facts(here), await facts(away)])
+            seen.append([await facts(here, false), await facts(away, false)])
+            pressed.append([await facts(here, true), await facts(away, true)])
         }
         let free = ["past moves, iCloud moves", "past moves, iCloud moves"]
         let held = ["past moves, iCloud waits", "past waits, iCloud waits"]
         XCTAssertEqual(seen, [held, free, held, free, held],
                        "unknown, a hotspot and Low Data Mode hold the past and iCloud's downloads; a home on this Mac takes its past on any")
+        XCTAssertEqual(pressed, Array(repeating: free, count: 5), "a press moves the past and iCloud's files on any network")
     }
 
     func testSetUpCountsItsDaysAboveTheLineAndRefusesADiskUnderIt() {

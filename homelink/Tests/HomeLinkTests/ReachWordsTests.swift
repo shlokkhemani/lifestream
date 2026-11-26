@@ -331,10 +331,10 @@ final class ReachWordsTests: XCTestCase {
     }
 
     func testTheNetworksCauseIsCheckedInItsOrder() {
-        let offline = NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false)
-        let cellular = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false)
-        let wifi = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false)
-        let tunnel = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true)
+        let offline = NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, cost: .free)
+        let cellular = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, cost: .free)
+        let wifi = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, cost: .free)
+        let tunnel = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, cost: .free)
         XCTAssertEqual(HomeLink.Cause.of(offline, homeListsTailscale: true), .offline)
         XCTAssertEqual(HomeLink.Cause.of(cellular, homeListsTailscale: true), .tailscaleOff)
         XCTAssertEqual(HomeLink.Cause.of(cellular, homeListsTailscale: false), .wifiOnly)

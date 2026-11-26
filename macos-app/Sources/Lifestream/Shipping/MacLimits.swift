@@ -24,7 +24,6 @@ final class MacLimits: @unchecked Sendable {
         link.tell(room: disk.room)
         let disk = disk
         watching = [
-            Task { await MacNetwork.tell(link) },
             Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(Self.every))

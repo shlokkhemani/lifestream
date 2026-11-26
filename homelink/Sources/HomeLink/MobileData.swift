@@ -5,7 +5,7 @@ public enum MobileData {
 
     static func key(of unit: String) -> String { "devices.\(unit).mobile_data" }
 
-    public enum Choice: String, Codable, CaseIterable, Sendable { case now, everything, small }
+    public enum Choice: String, Codable, CaseIterable, Sendable { case now, everything }
 
     public enum Path: Sendable, Equatable, CaseIterable {
         case free, costly, lowData
@@ -16,7 +16,7 @@ public enum MobileData {
     }
 
     public enum Allows: String, Codable, Sendable, CaseIterable {
-        case all, now, small, lowData = "low-data"
+        case all, now, lowData = "low-data"
 
         init(_ path: Path, _ choice: Choice) {
             switch (path, choice) {
@@ -24,17 +24,14 @@ public enum MobileData {
             case (.lowData, _): self = .lowData
             case (.costly, .everything): self = .all
             case (.costly, .now): self = .now
-            case (.costly, .small): self = .small
             }
         }
 
         func wait(_ kind: WriteKind, bytes: Int64) -> Wait? {
-            let large = bytes >= MobileData.largeBytes
             switch self {
             case .all: return nil
             case .now: return kind == .later ? .past : nil
-            case .small: return kind == .later ? .past : large ? .large : nil
-            case .lowData: return kind == .later || large ? .lowData : nil
+            case .lowData: return kind == .later || bytes >= MobileData.largeBytes ? .lowData : nil
             }
         }
     }
@@ -55,6 +52,8 @@ public enum MobileData {
         public var stated: Allows { Allows(path, choice) }
 
         public var internet: Moment { Moment(path: path, choice: choice, loopback: false, pressed: pressed) }
+
+        public var past: Decision { decide(.later, bytes: 0) }
 
         public func decide(_ kind: WriteKind, bytes: Int64) -> Decision {
             if let wait = wait(on: path, kind, bytes) { return .waits(wait) }
@@ -89,13 +88,12 @@ public enum MobileData {
     }
 
     public enum Wait: String, Sendable, CaseIterable {
-        case past, large, lowData = "low-data"
+        case past, lowData = "low-data"
 
         public var words: String {
             switch self {
-            case .past: return "Older photos and history wait for Wi-Fi · Settings › Mobile data"
-            case .large: return "Large sends wait for Wi-Fi · Settings › Mobile data"
-            case .lowData: return "Large sends wait: Low Data Mode is on"
+            case .past: return "Older photos and history wait for Wi-Fi"
+            case .lowData: return "Low Data Mode is on, so only small new sends go"
             }
         }
     }

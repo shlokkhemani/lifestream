@@ -180,11 +180,15 @@ struct ShippingPresentation: Equatable {
             label = said
             return
         }
-        if let waitsFor, mobile?.decide(.later, bytes: 0).moves == false {
-            label = waitsFor.words
+        if let waitsFor, mobile?.past.moves == false {
+            label = Self.words(waitsFor)
             return
         }
         label = "Lifestream: synced \(Self.clock(at, in: zone))" + (historyOnBattery ? ". \(Self.historyOnBattery)" : "")
+    }
+
+    static func words(_ wait: MobileData.Wait) -> String {
+        wait == .past ? wait.words + " · Settings › Mobile data" : wait.words
     }
 
     static func reachs(_ outcome: String) -> Bool {

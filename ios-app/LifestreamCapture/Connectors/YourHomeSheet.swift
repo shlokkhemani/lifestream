@@ -8,6 +8,7 @@ import os
 struct YourHomeSheet: View {
     private static let log = Logger(subsystem: "org.lifestreamprotocol.phone", category: "shipping")
     @EnvironmentObject private var model: CaptureAppModel
+    @Environment(\.openConnectors) private var open
     private let service = AppRuntime.shared.shipping
     @ObservedObject private var shipper = AppRuntime.shared.shipping.shipper
     @ObservedObject private var reach = AppRuntime.shared.reach
@@ -19,11 +20,18 @@ struct YourHomeSheet: View {
     @State private var addingAccount = false
     @State private var accountProblem: HomeLink.ActSaid?
     @State private var addedAccount: String?
+    @State private var past: MobileData.Wait?
 
     var body: some View {
         frame
             .sheet(isPresented: $pairing) {
                 PairingView()
+            }
+            .task {
+                let link = service.link
+                let changes = link.mobileChanges()
+                past = link.mobile(pressed: false).past.wait
+                for await _ in changes { past = link.mobile(pressed: false).past.wait }
             }
             .confirmationDialog("Unpair from Lifestream?", isPresented: $confirmUnpair, titleVisibility: .visible) {
                 Button("Unpair this iPhone", role: .destructive) { Task { await unpairThisPhone() } }
@@ -57,17 +65,23 @@ struct YourHomeSheet: View {
             let problem = problems.isEmpty ? nil : problems.joined(separator: " ")
             let sending = reach.snapshot.reach != .answering ? "Waiting to send." : shipper.shippingDescription
             let sends = sending != nil && ![.shipped, .nothingNew].contains(shipper.state.outcome) || problem != nil
+            let more = sends || past != nil
             SheetPart(nil) {
                 SettingRow("Mac", value: home,
                            line: reach.snapshot.lastReached.map { ReachWords.lastReached($0, clock: HomeClock.current.clock, now: AppClock.now) })
                     .accessibilityIdentifier("home.reached")
-                SettingRow("This iPhone", value: HardwareIdentity.marketingName, separator: account != nil || sends)
+                SettingRow("This iPhone", value: HardwareIdentity.marketingName, separator: account != nil || more)
                 if let account {
-                    SettingRow("Apple ID", value: account, separator: sends)
+                    SettingRow("Apple ID", value: account, separator: more)
                         .accessibilityIdentifier("home.account")
                 }
                 if sends {
-                    SettingRow("Last send", problem: problem, line: sending, separator: false) { EmptyView() }
+                    SettingRow("Last send", problem: problem, line: sending, separator: past != nil) { EmptyView() }
+                }
+                if let past {
+                    SettingRow("Mobile data", line: past.words, separator: false, opens: { open(.settings("mobile-data", "Mobile data")) })
+                        .opensFromLine()
+                        .accessibilityIdentifier("home.mobile-data")
                 }
             }
             if saved != nil, account == nil { addAccount }
@@ -215,7 +229,7 @@ extension PhoneShipper {
     }
 
     private var waitingDescription: String {
-        let power = "Large files wait to send until this iPhone charges or the app is open."
+        let power = "Large sends wait until this iPhone charges or the app is open."
         let network = waits.lazy.compactMap { wait -> String? in
             guard case .network(let why) = wait else { return nil }
             return why.words

@@ -206,7 +206,7 @@ public actor PhotoPass {
         guard pastFetches || !owed.isEmpty else { return }
         guard let wanted = try? await cut(at: deadline, { try await home.wanted(asking) }) else { return }
         if pastFetches { state.left = wanted.left }
-        state.owed.subtract(owed.subtracting(wanted.photos.map(\.asset)))
+        state.owed.subtract(owed.intersection(wanted.settled))
         let owedRoom = device.changeRoom.map { max(0, $0 - kept) } ?? device.spare
         guard let owedBytes = try await fetchOwed(wanted.photos.filter { owed.contains($0.asset) }, room: owedRoom, open: open,
                                                   until: deadline, state: &state, report: &report),
@@ -414,10 +414,12 @@ public actor PhotoPass {
 
 public struct PhotosWanted: Codable, Sendable, Equatable {
     public var photos: [Photo]
+    public var settled: [String]
     public var left: Left
 
-    public init(photos: [Photo], left: Left) {
+    public init(photos: [Photo], settled: [String], left: Left) {
         self.photos = photos
+        self.settled = settled
         self.left = left
     }
 

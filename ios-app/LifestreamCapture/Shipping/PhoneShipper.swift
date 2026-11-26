@@ -1107,3 +1107,9 @@ enum ReadOutcome: Equatable, Sendable {
         self = .failed(error.localizedDescription)
     }
 }
+
+extension MobileData.Decision {
+    var wait: MobileData.Wait? {
+        if case .waits(let wait) = self { wait } else { nil }
+    }
+}

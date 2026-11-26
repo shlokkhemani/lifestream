@@ -905,11 +905,7 @@ final class ShipperTests: XCTestCase {
         let next = await shipper.run(.timer)
         XCTAssertFalse((report.rows + next.rows).contains { Shipper.heldForNetwork($0) != nil }, "a home on this Mac never waits for Wi-Fi")
         XCTAssertNil(report.waitsFor ?? next.waitsFor)
-
-        let telling = Task { await MacNetwork.tell(here) }
-        defer { telling.cancel() }
-        try await until("the hotspot stated") { home.networks.contains("now") }
-        XCTAssertEqual(Set(home.networks), ["now"], "the home's own past waits for this Mac's Wi-Fi, though its sends do not")
+        XCTAssertEqual(Set(home.networks), ["now"], "each exchange states the hotspot: the home's own past waits for this Mac's Wi-Fi, though its sends do not")
     }
 
     func testAMacOnAHotspotSendsNewDataAndLetsAPageGoUntilTheNetworkIsFree() async throws {

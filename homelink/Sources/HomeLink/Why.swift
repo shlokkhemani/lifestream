@@ -9,7 +9,7 @@ public struct NetworkFacts: Sendable, Equatable {
     public let path: Int
     public let cost: MobileData.Path
 
-    public init(online: Bool, onLocalNetwork: Bool, tunnelUp: Bool, path: Int = 0, cost: MobileData.Path = .free) {
+    public init(online: Bool, onLocalNetwork: Bool, tunnelUp: Bool, path: Int = 0, cost: MobileData.Path) {
         self.online = online
         self.onLocalNetwork = onLocalNetwork
         self.tunnelUp = tunnelUp

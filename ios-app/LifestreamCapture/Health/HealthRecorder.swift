@@ -482,11 +482,9 @@ actor HealthRecorder {
             let from = HistoryStart.health(start: await historyStart(), since: covered ? try await store.since(.health) : nil)
             _ = try await HealthSweep.run(
                 store: store, type: type.identifier, start: from, anchor: try await storedAnchor(for: type),
-                past: mobile().decide(.later, bytes: 0),
-                read: { try await self.page(of: type, after: $0.flatMap(Self.queryAnchor), start: from) },
+                past: mobile().past,
+                read: { try await self.page(of: type, after: $0.flatMap(Self.queryAnchor), start: $1) },
                 committed: { _, firstYield in await self.pageCommitted(firstYield: firstYield) })
-            return .succeeded
-        } catch LinkFailure.waits {
             return .succeeded
         } catch {
             if Self.unasked(error) { return .succeeded }

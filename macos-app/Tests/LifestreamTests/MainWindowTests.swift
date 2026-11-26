@@ -276,10 +276,10 @@ import XCTest
             ShippingPresentation(read: true, paired: true, lastOutcome: outcome, lastRunAt: now, waitsFor: wait,
                                  mobile: path.map(away), zone: zone).label
         }
-        for wait in MobileData.Wait.allCases {
-            XCTAssertEqual(waiting("shipped", wait, .costly), wait.words, "the menu says the module's words")
-        }
-        XCTAssertEqual(waiting("nothing_new", .lowData, .lowData), "Large sends wait: Low Data Mode is on")
+        XCTAssertEqual(waiting("shipped", .past, .costly), "Older photos and history wait for Wi-Fi · Settings › Mobile data",
+                       "the module's words, and the page whose choice lets the past move")
+        XCTAssertEqual(waiting("shipped", .lowData, .costly), MobileData.Wait.lowData.words, "no page of ours lifts Low Data Mode: no pointer")
+        XCTAssertEqual(waiting("nothing_new", .lowData, .lowData), "Low Data Mode is on, so only small new sends go")
         XCTAssertEqual(waiting("shipped", .past, .free), "Lifestream: synced 16:00", "Wi-Fi again ends the wait before the next run")
         XCTAssertEqual(waiting("shipped", .past, nil), "Lifestream: synced 16:00")
         XCTAssertEqual(waiting("held DISK_LOW", .past, .costly), "Waiting for space on Lifestream's disk", "the home's disk is said over the network")

@@ -193,7 +193,7 @@ final class PersonTalkTests: XCTestCase {
         let door = PeopleDoor()
         let home = folder.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        let network = TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1))
+        let network = TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1, cost: .free))
         let link = HomeLink(device: HomeLink.Device(kind: .phone, version: "1.0.0", model: "iPhone", serial4: nil),
                             credentials: MemoryPass(), folder: home, transport: door, network: network)
         _ = try await link.pair(code: "12345678", name: "http://100.64.0.42:4680", account: "person-a@example.com")
