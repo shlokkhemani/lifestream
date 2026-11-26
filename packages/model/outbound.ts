@@ -60,6 +60,7 @@ export interface SentTo {
 export interface OutboundLog {
   write(row: NewOutbound): number;
   once(row: NewOutbound & { key: string }): number;
+  lookups(by: string, since_ms: number): number;
   list(query: { from: string; to: string; receiver?: string; before?: number; day: DaySettings }): OutboundList;
   row(seq: number, day: DaySettings): (Omit<OutboundRow, "refs"> & { refs: OutboundRef[]; sent: { body: string; pictures: Json[] } | null }) | undefined;
   carried(record: { source: string; kind: string; key: string }, day: DaySettings): OutboundRow[];
@@ -88,6 +89,7 @@ export function outboundOver(conn: Conn): {
   const bySeq = sql<Record<string, unknown>>(`SELECT ${COLUMNS} FROM outbound WHERE seq = ?`);
   const inRange = sql<Record<string, unknown>>(`SELECT ${COLUMNS} FROM outbound WHERE at_ms >= @from AND at_ms < @to AND (@receiver IS NULL OR receiver = @receiver) ORDER BY seq DESC`);
   const page = sql<Record<string, unknown>>(`SELECT ${COLUMNS} FROM outbound WHERE at_ms >= @from AND at_ms < @to AND (@receiver IS NULL OR receiver = @receiver) AND seq < @before ORDER BY seq DESC LIMIT @limit`);
+  const lookupsBy = sql<{ n: number }>("SELECT count(*) AS n FROM outbound WHERE at_ms >= ? AND what = 'lookup' AND by = ?");
   const nullKey = sql("UPDATE outbound SET key = NULL WHERE key = ?");
   const keyed = sql<{ seq: number }>("SELECT seq FROM outbound WHERE key = ? ORDER BY seq LIMIT 1");
   const dropRefs = sql("DELETE FROM outbound_refs WHERE source = ? AND kind = ? AND key = ?");
@@ -130,6 +132,8 @@ export function outboundOver(conn: Conn): {
     write: (row) => write(() => insertRow(row)),
 
     once: (row) => write(() => keyed.get(row.key)?.seq ?? insertRow(row)),
+
+    lookups: (by, since_ms) => lookupsBy.get(since_ms, by)!.n,
 
     list({ from, to, receiver, before, day }) {
       for (const each of [from, to]) if (!DAY_TEXT.test(each)) throw new RangeError(`a day is YYYY-MM-DD, not ${JSON.stringify(each)}`);

@@ -138,7 +138,7 @@ export function labelers(declared: readonly Connector[], factories: Readonly<Rec
   const lent = labelerLend(settings, home, fed);
   return declared.flatMap((connector) => connector.label === undefined ? [] : [factories[connector.label.labeler]!(working({
     ...connectorSettings(connector, settings.connectors[connector.id]).fields, ...lent,
-    lookup: lookupWriter(home, connector.label.labeler),
+    lookup: lookupWriter(home, connector.label.labeler), looked: lookupsOf(home, connector.label.labeler),
   }, workOf(home, connector.label.labeler)) as never)]);
 }
 
@@ -154,6 +154,17 @@ export function lookupWriter(home: RegistryHome, by: string): (sent: googlePlace
     const ledger = openLedger(home.folder(), { mode: "write" });
     try {
       ledger.outbound.write(lookupRow(by, sent, Date.now()));
+    } finally {
+      ledger.close();
+    }
+  };
+}
+
+export function lookupsOf(home: RegistryHome, by: string): (since_ms: number) => number {
+  return (since_ms) => {
+    const ledger = openLedger(home.folder(), { mode: "read" });
+    try {
+      return ledger.outbound.lookups(by, since_ms);
     } finally {
       ledger.close();
     }
