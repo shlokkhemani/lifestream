@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { addDays, instant, openHomeFolder, type DaySettings, type OpenView } from "@lifestreamprotocol/core";
-import { dayPage, labelsFrom, type DayDocument, type DaySideExtras, type WherePiece } from "@lifestreamprotocol/families";
+import { addDays, instant, openHomeFolder, type DaySettings, type EnrichmentRow, type ExtractRow, type OpenView } from "@lifestreamprotocol/core";
+import { buildLabels, CALLAUDIO_FAMILY, dayPage, labelsFrom, type DayDocument, type DaySideExtras, type MomentMade, type WherePiece } from "@lifestreamprotocol/families";
 import { serveDoor, type Door } from "./door.js";
 import { startHome, type Home } from "./home.js";
 import { BEFORE_HOME, dayBody, dayPageOf, lengthOf, momentPage, threadMessages, type DaysReads } from "./page-days.js";
@@ -16,6 +16,7 @@ import { ship } from "./test/harness-deliveries.js";
 
 const GOLDENS = join(REPO, "packages", "families", "test", "day-page");
 const SIDES = join(REPO, "packages", "families", "test", "day-side");
+const RECORDED = join(REPO, "packages", "families", "callaudio", "test", "2026-10-05.day.json");
 const REGISTRY = join(REPO, "packages", "home", "test", "days-registry.ts");
 const ZONE = "Asia/Kolkata";
 const UNIT = "macbook-pro-0001";
@@ -31,7 +32,7 @@ const EMPTY_DAY = "2026-09-01";
 const LARGE = "2026-10-02";
 const A = "+15550000301";
 const B = "+15550000302";
-const DURATIONS = ["duration_ms", "length_ms", "today_ms", "total_ms"];
+const DURATIONS = ["duration_ms", "length_ms", "today_ms", "total_ms", "from_ms"];
 
 type Body = Record<string, any>;
 type Point = { latitude: number; longitude: number };
@@ -89,6 +90,43 @@ function pinned(name: string, body: Body): void {
   expect(fixture.held, `homelink/Tests/Fixtures/pages/${name}.json is this read: LIFESTREAM_FIXTURES=write writes it`).toBe(fixture.written);
 }
 
+const partStart = (key: string): number => Date.parse(`${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}T${key.slice(9, 11)}:${key.slice(11, 13)}:${key.slice(13)}`);
+
+function recordingsOf(file: DayDocument): { extract(unit: string): ExtractRow | undefined; enrichment(item: string): EnrichmentRow | undefined } {
+  const extracts = new Map<string, ExtractRow>();
+  const answers = new Map<string, EnrichmentRow>();
+  const answer = (item: string, content: Body) => answers.set(item, { state: "done", item, content } as unknown as EnrichmentRow);
+  const call = file.atoms.find((atom) => atom.family === "calls")!;
+  for (const head of file.atoms.filter((atom) => atom.family === CALLAUDIO_FAMILY && atom.item?.startsWith("stretch:"))) {
+    const parts = new Map<string, Body>();
+    for (const turn of file.atoms.filter((atom) => atom.unit === head.unit && atom !== head)) {
+      const start_ms = partStart(turn.record!.key);
+      const part = parts.get(turn.item!) ?? {
+        kind: turn.record!.kind, key: turn.record!.key, track: turn.record!.kind.startsWith("mic") ? "mic" : "sound", sha256: turn.item!.slice("recording:".length),
+        media_type: "audio/mp4", start_ms, ms: 600_000, loud_s: 60, quiet: false, asked: true, segments: [],
+      };
+      part.segments.push({ start_s: (turn.start_ms! - start_ms) / 1_000, end_s: (turn.end_ms! - start_ms) / 1_000, text: turn.text.slice(turn.text.indexOf(": ") + 2) });
+      parts.set(turn.item!, part);
+    }
+    for (const [item, { segments }] of parts) answer(item, { segments });
+    const title = head.block!.title.slice(head.block!.title.indexOf(": ") + 2);
+    answer(head.item!, { title, summary: head.text.slice(head.text.indexOf(`${title}. `) + title.length + 2) });
+    const each = [...parts.values()].map(({ segments: _, ...part }) => part);
+    const party = { id: B, kind: "phone" };
+    extracts.set(head.unit, {
+      family: CALLAUDIO_FAMILY, unit: head.unit, content: {
+        short: false, source: head.record!.source, span: { start_ms: head.start_ms, end_ms: head.end_ms },
+        mic: each.filter((part) => part.track === "mic"), sound: each.filter((part) => part.track === "sound"),
+        holder: head.joins === undefined ? "Zoom" : null, camera: false, speakers: [], stopped_ms: null, open: false,
+        joined: head.joins === undefined ? null : {
+          record: head.joins, unit: call.unit, service: "phone", span: { start_ms: call.start_ms, end_ms: call.end_ms }, handles: [B], parties: [party], other: party,
+        },
+      },
+    } as unknown as ExtractRow);
+  }
+  return { extract: (unit) => extracts.get(unit), enrichment: (item) => answers.get(item) };
+}
+
 function asked(url: string, now_ms: number, more: Partial<Ask> = {}): Ask {
   return { url, now_ms, held: { machine: "machine-0001" }, ...more } as unknown as Ask;
 }
@@ -96,7 +134,7 @@ function asked(url: string, now_ms: number, more: Partial<Ask> = {}): Ask {
 describe("The day page built from a day file and the home's reads", () => {
   const goldens = readdirSync(GOLDENS).filter((name) => name.endsWith(".day.json")).sort();
 
-  const servedOver = (file: DayDocument & { sleep?: Record<string, { start_ms: number; end_ms: number }>; sent?: string[]; groups?: string[]; products?: Record<string, never> }, more: Partial<DaysReads> = {}) => {
+  const servedOver = (file: DayDocument & { sleep?: Record<string, { start_ms: number; end_ms: number }>; sent?: string[]; groups?: string[]; products?: Record<string, never> }, more: Partial<DaysReads> = {}, seen: Partial<Record<"extract" | "enrichment", unknown>> = {}) => {
     const settings: DaySettings = { zone: file.zone, day_start_hour: (file as { day_start_hour?: number }).day_start_hour ?? 4 };
     const read = { files: 0, builds: 0 };
     const OWNER = "owner@example.com";
@@ -107,6 +145,7 @@ describe("The day page built from a day file and the home's reads", () => {
       extract: (family: string, unit: string) => (family === "health" && file.sleep?.[unit] !== undefined ? { content: { kind: "sleep", ...file.sleep[unit] } } : undefined),
       extractsOn: (family: string) => (family === "mail" ? sent.map(({ source, key }) => ({ content: { source, mails: [{ key, from: { address: OWNER } }] } })) : []),
       derived: { days: { page: () => [] } },
+      ...seen,
     } as unknown as OpenView;
     const reads: DaysReads = {
       viewed: (use) => use(view),
@@ -127,6 +166,7 @@ describe("The day page built from a day file and the home's reads", () => {
       text: () => null,
       account: () => null,
       transcribed: () => null,
+      made: () => [],
       open: () => null,
       chat: () => ({ chat: "", conversation: null }),
       ...more,
@@ -301,6 +341,52 @@ describe("The day page built from a day file and the home's reads", () => {
       pinned(name, body);
     }
     expect(await read("e999999")).toMatchObject({ state: "gone", moment: null });
+  });
+
+  it("pins a call recording's moments for the apps' suites from the callaudio journey's day, alone and joined: its summary and turns, each playing its own part from its time; with no recording read, none", async () => {
+    const file = JSON.parse(readFileSync(RECORDED, "utf8")) as DayDocument;
+    const held = recordingsOf(file);
+    const made = (_view: OpenView, asked: readonly { family: string; item: string }[]): MomentMade[] => asked.map(({ family, item }) => ({
+      by: "Model A", at_ms: file.window.start_ms, state: "done", line: "Model A · today", ask: { family, item, prompt: item.startsWith("stretch:") ? "call-summary" : "call-transcript" }, choose: [],
+    }));
+    const people = buildLabels({ places: [], people: [{
+      record: {
+        slug: "person-b", name: "Person B", full_name: null, show: "name", entity: "person", relationship: null, hidden: false, me: false,
+        anchor: { kind: "phone", value: B }, handles: [], excluded: [], dismissed: [], merged_into: null, also_called: [],
+      },
+      since: new Map(), me_since: null, merged_since: null,
+    }] });
+    const settings: DaySettings = { zone: file.zone, day_start_hour: 4 };
+    const labels = () => labelsFrom((unit) => {
+      const content = people.contents.get(unit);
+      return content === undefined ? undefined : { content };
+    }, settings);
+    const recorded = servedOver(file, { made, labels }, {
+      extract: (family: string, unit: string) => family === CALLAUDIO_FAMILY ? held.extract(unit) : undefined,
+      enrichment: (family: string, item: string) => family === CALLAUDIO_FAMILY ? held.enrichment(item) : undefined,
+    });
+    const read = async (served: { moment: typeof recorded.moment }, focus: string) => {
+      const answer = await served.moment(asked(`/v1/page/moment?day=${file.day}&focus=${focus}`, file.window.end_ms));
+      expect(answer.status, focus).toBe(200);
+      const body = JSON.parse(answer.body as string) as Body;
+      PAGES.moment.shape.parse(body);
+      return body;
+    };
+    const turns = (body: Body) => (body.moment.view.recording.turns as Body[]).map((turn) => [turn.who, turn.words, turn.heard.record.kind, turn.heard.from_ms]);
+    const alone = await read(recorded, "e1");
+    expect([alone.state, alone.moment.title, alone.moment.view.name, alone.moment.view.recording.summary])
+      .toEqual(["found", "Zoom", "Zoom", "You and they went over the lease renewal; you will send the signed copy."]);
+    expect(turns(alone).slice(0, 2)).toEqual([["You", "Hello, can you hear me?", "mic-recording", 1_000], ["Them", "Yes, I can hear you.", "sound-recording", 11_000]]);
+    expect([alone.moment.view.recording.made.state, alone.moment.view.recording.made.ask]).toEqual(["done", { family: CALLAUDIO_FAMILY, item: file.atoms[0]!.item, prompt: "call-transcript" }]);
+    pinned("moment.recording", alone);
+    const joined = await read(recorded, "e8");
+    expect([joined.moment.title, joined.moment.view.name, joined.moment.people.map((person: Body) => person.name)]).toEqual(["Person B", "Person B", ["Person B"]]);
+    expect(turns(joined)).toEqual([
+      ["You", "Are we still on for Saturday?", "mic-recording", 1_000], ["Person B", "Yes, Saturday works for me.", "sound-recording", 11_000], ["You", "I will book the table.", "mic-recording", 41_000],
+    ]);
+    pinned("moment.recording-joined", joined);
+    const dark = await read(servedOver(file), "e1");
+    expect([dark.state, dark.moment.view.view, dark.moment.view.recording]).toEqual(["found", "call", null]);
   });
 
   it("pins a golden day whose second and third photos are a Live Photo and a 2 s video for the apps' suites: one row's tiles, its moment's gallery", async () => {

@@ -1,5 +1,6 @@
 import type { DayAtom, DayDocument } from "./days.js";
-import { appMinutes, appName, callOf, capital, checkInOf, counted, dictatedApp, duration, mailOf, NB, paymentOf, productId, productOf, who, type Products } from "./day-words.js";
+import type { RecordRef } from "@lifestreamprotocol/core";
+import { appMinutes, appName, callHeadOf, callOf, capital, checkInOf, counted, dictatedApp, duration, mailOf, NB, paymentOf, productId, productOf, who, type Products } from "./day-words.js";
 
 export type EpisodesFile = Pick<DayDocument, "day" | "zone" | "window" | "coverage" | "atoms">;
 
@@ -259,7 +260,10 @@ export function episodes(file: EpisodesFile, extras: EpisodesExtras, now: number
         add(block, "ai", atom);
         break;
       case "calls":
-        add(atom.record ? `call:${atom.record.source} ${atom.record.key}` : own, "call", atom);
+        add(atom.record ? callKey(atom.record) : own, "call", atom);
+        break;
+      case "callaudio":
+        add(atom.joins ? callKey(atom.joins) : block, "call", atom);
         break;
       case "mail":
         if (isSent(atom, sent)) add(own, "mail_sent", atom);
@@ -288,7 +292,8 @@ export function episodes(file: EpisodesFile, extras: EpisodesExtras, now: number
     }
   }
 
-  const spanOfDraft = (draft: Draft): Span => draft.key.startsWith("sleep:") ? { ...sleeps[draft.key.slice("sleep:".length)] } as Span : spanOf(draft.atoms);
+  const spanOfDraft = (draft: Draft): Span => draft.key.startsWith("sleep:") ? { ...sleeps[draft.key.slice("sleep:".length)] } as Span
+    : spanOf(draft.kind === "call" ? callAtoms(draft.atoms) : draft.atoms);
 
   const stays = [...drafts.values()].filter((draft) => draft.kind === "stay");
   for (const atom of stayParts) {
@@ -384,8 +389,9 @@ const anchorOf = (kind: Kind, span: Span, window: { start_ms: number }): number 
   Math.max((kind === "sleep" ? span.end_ms ?? span.start_ms : span.start_ms) as number, window.start_ms);
 
 function finish(draft: Draft, span: Span, ctx: Context): Episode {
-  const { kind, atoms } = draft;
-  const first = firstOf(draft);
+  const { kind } = draft;
+  const atoms = kind === "call" ? callOrder(draft.atoms) : draft.atoms;
+  const first = head(atoms);
   const words = titleOf(kind, atoms);
   const title = words === null ? null : firstLine(words);
   const count = kind === "ai" ? atoms.filter((atom) => atom.record).length : atoms.length;
@@ -394,7 +400,7 @@ function finish(draft: Draft, span: Span, ctx: Context): Episode {
   const sent = atoms.filter((atom) => speaker(atom) === OWNER).length;
   const folder = kind === "ai" && (first.block?.title ?? "").startsWith(`${name} in `) ? folderOf(first.block?.title ?? "") : undefined;
   const episode: Episode = {
-    id: `e${first.n}`, kind, family: first.family, title,
+    id: `e${firstOf(draft).n}`, kind, family: first.family, title,
     row: rowOf({ kind, atoms, name, title, start_ms: span.start_ms, end_ms, sent, folder }, ctx),
     start_ms: span.start_ms, end_ms, at_ms: draft.also ? null : anchorOf(kind, span, ctx.window), atoms: atoms.map((atom) => atom.n),
   };
@@ -412,8 +418,21 @@ function finish(draft: Draft, span: Span, ctx: Context): Episode {
   return episode;
 }
 
-const ALONE_KINDS: Record<string, Kind> = { money: "payment", calendar: "event", notes: "note", photos: "photos", calls: "call", listening: "listening",
-  phone: "phone" };
+const ALONE_KINDS: Record<string, Kind> = { money: "payment", calendar: "event", notes: "note", photos: "photos", calls: "call", callaudio: "call",
+  listening: "listening", phone: "phone" };
+
+const callKey = (record: RecordRef): string => `call:${record.source} ${record.key}`;
+
+const callRank = (atom: Atom): number => atom.family === "calls" ? 0 : callHeadOf(atom) !== null ? 1 : 2;
+
+function callOrder(atoms: Atom[]): Atom[] {
+  return [...atoms].sort((left, right) => callRank(left) - callRank(right));
+}
+
+function callAtoms(atoms: Atom[]): Atom[] {
+  const rank = Math.min(...atoms.map(callRank));
+  return rank === 2 ? atoms : atoms.filter((atom) => callRank(atom) === rank);
+}
 
 function aloneKind(atom: Atom, sent: Set<string>): Kind {
   if (atom.family === "mail") return isSent(atom, sent) ? "mail_sent" : "mail_received";
@@ -468,6 +487,8 @@ function titleOf(kind: Kind, atoms: Atom[]): string | null {
     case "ai":
       return first.block?.title ?? null;
     case "call": {
+      const heard = callHeadOf(first);
+      if (heard !== null) return heard.holder || null;
       const call = callOf(first.text);
       return call.who || call.group || null;
     }
@@ -684,9 +705,10 @@ function rowOf({ kind, atoms, name, title, start_ms, end_ms, sent, folder }: Row
         sent ? { sent } : came ? { received: came } : null, { quiet: !sent });
     }
     case "call": {
-      const { way } = callOf(first.text);
+      const { way } = callHeadOf(first) === null ? callOf(first.text) : { way: "" };
       const said = CALL_WORDS[way];
-      return row(said ? [text(said)] : [], way === "Missed" ? null : lasted);
+      const summary = atoms.map(callHeadOf).find((heard) => heard !== null)?.title;
+      return row([...said ? [text(said)] : [], ...summary ? [text(summary)] : []], way === "Missed" ? null : lasted);
     }
     case "sitting": {
       const pending = atoms.some((atom) => atom.text.includes("(account pending)"));

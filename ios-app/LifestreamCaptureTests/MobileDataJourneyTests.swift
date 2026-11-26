@@ -9,14 +9,13 @@ import XCTest
 final class MobileDataJourneyTests: XCTestCase {
     private static let photoBytes = 6_000_000
 
-    func testPhotosTakenOnMobileDataGoAtOnceWaitOnLowDataModeAndEverythingLetsThePastGo() async throws {
+    func testPhotosTakenOnMobileDataGoAtOnceInBundlesOfTheBoundGoOnLowDataModeAndEverythingLetsThePastGo() async throws {
         let rig = try await Rig(paired: true)
         addTeardownBlock { @MainActor in
             await rig.stop()
             Home.current = nil
             try? FileManager.default.removeItem(at: rig.root)
         }
-        rig.long = true
         rig.path = .costly
         let shipper = rig.launch()
         let library = SyntheticLibrary()
@@ -30,40 +29,38 @@ final class MobileDataJourneyTests: XCTestCase {
             let device = Device(shipper.link.mobile(pressed: false), charging: false, spare: 95_000_000_000)
             return await pass.run(.wake(.foreground), device: device, bringingIn: false, home: await .of(shipper))
         }
+        func filesPerPhotosBundle() -> [Int] {
+            var groups: [Int] = [], files = 0
+            for request in rig.home.requests {
+                if request.file != nil { files += 1 } else if request.sources.contains(Home.photos) {
+                    groups.append(files)
+                    files = 0
+                }
+            }
+            return groups
+        }
         _ = await take(0, from: 0)
         await shipper.reconcile(.foreground)
 
         let taken = await take(25, from: 0)
         XCTAssertEqual(taken?.files, 25, "what the change history reports is now: its files are read on a costly path")
         await shipper.reconcile(.foreground)
-        let first = rig.puts(of: Home.photos)
-        XCTAssertEqual(first.count, 1, "the app is in front, so the long wake holds nothing: one bundle, requested at once")
-        XCTAssertGreaterThanOrEqual(first.first?.bytes ?? 0, Int64(25 * Self.photoBytes))
-        XCTAssertEqual(first.first?.kind, "new")
-        XCTAssertEqual(first.first?.crossing, MobileData.Crossing(costly: true, lowData: false),
-                       "it may cross a costly path, never a Low Data Mode one")
-        XCTAssertEqual(rig.home.received(Home.photos), 1)
+        XCTAssertEqual(filesPerPhotosBundle(), [8, 8, 8, 1], "150 MB of photos as bundles of the 50 MB bound, each landing sealing the next")
+        XCTAssertEqual(rig.home.received(Home.photos), 4, "all in the one send")
+        XCTAssertEqual(Set(rig.home.files.map(\.kind)), ["new"])
+        XCTAssertTrue(rig.home.files.allSatisfy { $0.crossing == .any }, "a photo of 6 MB may cross any path")
         rig.home.importAll()
 
         rig.path = .lowData
         let lowData = await take(9, from: 25)
         XCTAssertEqual(lowData?.files, 9)
         await shipper.reconcile(.foreground)
-        XCTAssertEqual(rig.puts(of: Home.photos).count, 1, "54 MB on Low Data Mode is no request")
-        XCTAssertEqual(shipper.waits, [.network(.lowData)])
-        XCTAssertEqual(shipper.shippingDescription, MobileData.Wait.lowData.words)
-        let held = await shipper.unsent()
-        XCTAssertTrue(held.waitsForNetwork)
-
-        rig.date.addTimeInterval(60)
-        rig.path = .costly
-        try await until("Low Data Mode off is due at once") { rig.alarms.next == rig.date }
-        rig.alarms.ring(rig.date)
-        try await until("the held bundle is requested") { rig.puts(of: Home.photos).count == 2 }
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.crossing, MobileData.Crossing(costly: true, lowData: false))
-        try await until("the held bundle landed") { rig.home.received(Home.photos) == 2 }
+        XCTAssertEqual(filesPerPhotosBundle(), [8, 8, 8, 1, 8, 1], "54 MB of small photos goes on Low Data Mode, photo by photo")
+        XCTAssertEqual(rig.home.received(Home.photos), 6)
+        XCTAssertEqual(shipper.waits, [])
         rig.home.importAll()
 
+        rig.path = .costly
         let unit = try XCTUnwrap(shipper.link.unit)
         let key = "devices.\(unit).mobile_data"
         XCTAssertEqual(shipper.link.mobile(pressed: false).past, .waits(.past), "on mobile data the past waits for Wi-Fi")
@@ -72,7 +69,7 @@ final class MobileDataJourneyTests: XCTestCase {
         XCTAssertEqual(everything, .taken(.string("everything")))
         XCTAssertEqual(rig.home.exchanges, exchanges, "the setting's answer is the choice: no exchange came between")
         XCTAssertTrue(shipper.link.mobile(pressed: false).past.moves, "\"Everything\" lets the past cross mobile data")
-        XCTAssertEqual(rig.puts(of: Home.photos).map(\.kind), ["new", "new"], "phone bundles stay new")
+        XCTAssertEqual(Set(rig.puts(of: Home.photos).map(\.kind)), ["new"], "phone bundles stay new")
         try rig.artifact("mobile-data")
     }
 }

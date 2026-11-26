@@ -288,10 +288,15 @@ test('L7: OpenRouter typed and added, Connected and Remove; the other server is 
   const page = settings({ models: MODELS_BARE, opened: { ...OPENED, pages: ['address'] } });
   assert.deepEqual([page.name, page.back], ['Providers', { label: 'Providers' }]);
   assert.deepEqual(part(page, 'Other server')?.acts.map(act => [act.label, act.disabled, act.do]), [['Save', true, { save: 'address' }]]);
-  assert.deepEqual(part(page, 'Other server')?.panel?.rows.map(row => row.label), ['Server URL'], 'no model and no Takes: the server lists its own');
+  assert.deepEqual(part(page, 'Other server')?.panel?.rows.map(row => row.label), ['Server URL', 'API key'], 'no model and no Takes: the server lists its own');
+  const keyRow = part(page, 'Other server')?.panel?.rows.find(row => row.label === 'API key');
+  assert.deepEqual([keyRow?.line, /** @type {any} */ (keyRow?.end).field.kind], ['Only if the server asks for one.', 'secret']);
   const address = { ...OPENED, pages: ['address'], fields: { [TYPED.url]: ' http://127.0.0.1:11434/v1 ' } };
   assert.deepEqual(savedAct('address', address), { act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1' });
   assert.equal(savedAct('address', { ...address, fields: { [TYPED.url]: ' ' } }), null);
+  const keyed = { ...address, fields: { ...address.fields, [TYPED.addressKey]: ' sk-fake0000 ' } };
+  assert.deepEqual(savedAct('address', keyed), { act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', key: 'sk-fake0000' });
+  assert.equal(savedAct('address', { ...keyed, fields: { [TYPED.addressKey]: 'sk-fake0000' } }), null, 'a key alone sets no server');
 
   const full = settings({});
   const connected = rowsOf(full, 'Accounts').find(row => row.label === 'OpenRouter');

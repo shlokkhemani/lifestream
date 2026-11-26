@@ -276,6 +276,48 @@ final class WiFiTests: XCTestCase {
     }
 
 
+    func testAnEmptyPutStatesItsLengthAndAStreamFromAnOffsetSendsTheRest() async throws {
+        let transport = URLSessionTransport()
+        let cases: [(String, HomeRequest.Body, String, Data)] = [
+            ("an empty body", .empty, "0", Data()),
+            ("the rest of a file", .stream(size: 6, open: HomeRequest.Opener { Pieces([Data("456".utf8), Data("789".utf8)]) }), "6", Data("456789".utf8)),
+        ]
+        for (what, body, length, bytes) in cases {
+            let door = try await Plain.start()
+            defer { door.stop() }
+            let request = HomeRequest(method: "PUT", url: URL(string: "http://127.0.0.1:\(door.port)/v1/files/sha256:00aa")!,
+                                      headers: ["Upload-Offset": "4"], body: body, timeout: 30)
+            let response = try await transport.perform(request)
+            XCTAssertEqual(response.status, 201, what)
+            let heard = try XCTUnwrap(door.heard, what)
+            XCTAssertEqual(heard.headers["content-length"], length, what)
+            XCTAssertEqual(heard.headers["upload-offset"], "4", what)
+            XCTAssertEqual(heard.body, bytes, what)
+        }
+    }
+
+    func testARefusedPinIsNoCut() async throws {
+        let home = try LanHome()
+        defer { home.stop() }
+        let ready = try await home.ready()
+        let impostor = try XCTUnwrap(ready["impostor"] as? Int)
+        let measured = expectation(description: "the refused request's metrics reached the app")
+        let ending = Ending()
+        let transport = URLSessionTransport { _, _, said in
+            ending.set(said)
+            measured.fulfill()
+        }
+        var request = HomeRequest(method: "PUT", url: URL(string: "https://127.0.0.1:\(impostor)/v1/files/sha256:00aa")!,
+                                  headers: [:], body: .empty, timeout: 30)
+        request.pin = String(repeating: "A", count: 52)
+        do {
+            _ = try await transport.perform(request)
+            XCTFail("a server with another key answered")
+        } catch is NotTheHome {}
+        await fulfillment(of: [measured], timeout: 30)
+        XCTAssertEqual(ending.value, .unanswered, "a refused pin reads as cancelled, and is no cut")
+    }
+
     private static func link(_ text: String, port: Int, at: [String]) throws -> PairingLink {
         var parts = try XCTUnwrap(URLComponents(string: text))
         let kept = (parts.queryItems ?? []).filter { $0.name != "at" }.map { $0.name == "port" ? URLQueryItem(name: "port", value: String(port)) : $0 }
@@ -383,6 +425,95 @@ private final class Relay: @unchecked Sendable {
             }
             pipe(from, to)
         }
+    }
+}
+
+private final class Ending: @unchecked Sendable {
+    private let lock = NSLock()
+    private var said: URLSessionTransport.Ending?
+    var value: URLSessionTransport.Ending? { lock.withLock { said } }
+    func set(_ ending: URLSessionTransport.Ending) { lock.withLock { said = ending } }
+}
+
+private final class Plain: @unchecked Sendable {
+    struct Heard {
+        let headers: [String: String]
+        let body: Data
+    }
+
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "wifi-tests.plain")
+    private let lock = NSLock()
+    private var taken: [NWConnection] = []
+    private var kept: Heard?
+    private var ready: CheckedContinuation<UInt16, Error>?
+    private(set) var port: UInt16 = 0
+
+    var heard: Heard? { lock.withLock { kept } }
+
+    private init() throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [weak self] connection in self?.take(connection) }
+        listener.stateUpdateHandler = { [weak self] state in self?.changed(state) }
+    }
+
+    static func start() async throws -> Plain {
+        let door = try Plain()
+        door.port = try await withCheckedThrowingContinuation { (done: CheckedContinuation<UInt16, Error>) in
+            door.lock.withLock { door.ready = done }
+            door.listener.start(queue: door.queue)
+        }
+        return door
+    }
+
+    private func changed(_ state: NWListener.State) {
+        let answer: Result<UInt16, Error>? = switch state {
+        case .ready: .success(listener.port!.rawValue)
+        case .failed(let error): .failure(error)
+        default: nil
+        }
+        guard let answer, let done = lock.withLock({ () -> CheckedContinuation<UInt16, Error>? in defer { ready = nil }; return ready }) else { return }
+        done.resume(with: answer)
+    }
+
+    private func take(_ connection: NWConnection) {
+        lock.withLock { taken.append(connection) }
+        connection.start(queue: queue)
+        read(connection, Data())
+    }
+
+    private func read(_ connection: NWConnection, _ so: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, done, error in
+            guard let self else { return }
+            let now = so + (data ?? Data())
+            if let heard = Self.request(now) {
+                lock.withLock { self.kept = heard }
+                let answer = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+                connection.send(content: Data(answer.utf8), isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+                return
+            }
+            guard !done, error == nil else { return connection.cancel() }
+            read(connection, now)
+        }
+    }
+
+    private static func request(_ data: Data) -> Heard? {
+        guard let end = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        var headers: [String: String] = [:]
+        for line in String(decoding: data[..<end.lowerBound], as: UTF8.self).components(separatedBy: "\r\n").dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        }
+        let body = data[end.upperBound...]
+        guard body.count >= Int(headers["content-length"] ?? "0") ?? 0 else { return nil }
+        return Heard(headers: headers, body: Data(body))
+    }
+
+    func stop() {
+        listener.cancel()
+        lock.withLock { taken.forEach { $0.cancel() } }
     }
 }
 
@@ -595,4 +726,12 @@ private final class LanHome: @unchecked Sendable {
             }
         }
     }
+}
+
+private final class Pieces: HomeRequest.Chunks {
+    private var left: [Data]
+
+    init(_ pieces: [Data]) { left = pieces }
+
+    func next() throws -> Data? { left.isEmpty ? nil : left.removeFirst() }
 }

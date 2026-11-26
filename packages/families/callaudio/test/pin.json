@@ -1,0 +1,12 @@
+{
+  "family": "callaudio",
+  "key": {
+    "code": "1",
+    "adapters": {
+      "callaudio/audio": "1",
+      "calls/test-calls": "1"
+    }
+  },
+  "rows": 3,
+  "digest": "sha256:f5937949068b670263f5454e7b915acb1be6edc4a5e74151fb80a0f890b6e500"
+}

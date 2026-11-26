@@ -125,6 +125,7 @@ export interface DayLine {
   heading?: true;
   video?: { duration_ms: number | null };
   live?: true;
+  joins?: RecordRef;
 }
 
 
@@ -296,7 +297,7 @@ export function made(makers: Makers, fed: Fed): Family[] {
 
 export function fedNone(): Fed {
   return {
-    messages: [], mail: [], ai: [], calls: [], calendar: [], notes: [], listening: [], health: [], money: [], photos: [], physical: [],
+    messages: [], mail: [], ai: [], calls: [], callaudio: [], calendar: [], notes: [], listening: [], health: [], money: [], photos: [], physical: [],
     web: [], voice: [], phone: [], screen: [], labels: [], line: [],
   };
 }
@@ -309,7 +310,7 @@ export interface Family {
   touched(changes: readonly Change[], view: View): Touched[];
   extract(unit: string, view: View, files: BlobReader): Extracted | null;
   days(extract: ExtractRow, settings: DaySettings): string[];
-  plan?(extract: ExtractRow, answered: ReadonlyMap<string, Reply>): Plan;
+  plan?(extract: ExtractRow, answered: ReadonlyMap<string, Reply>, given_up?: ReadonlySet<string>): Plan;
   prompts?: Readonly<Record<string, Prompt>>;
   readers?: Readonly<Record<string, (value: Json) => string | null>>;
   works?: Readonly<Record<string, SourceSelector>>;

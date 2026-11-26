@@ -1,11 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
-import { HIDING_META } from "./copies.js";
+import { AUDIO_LINE, HIDING_META } from "./copies.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { admit, admittedNone, imports, vendorOf, declarations, Refused, type Connector, type HeldSite, type KindExport } from "@lifestreamprotocol/connect";
 import { openLedger, type Abilities, type RunnerFile, type RunnerListing, type UseId } from "@lifestreamprotocol/model";
-import { openHome, openHomeFolder, readTables, type DaySettings, type Guard, type Json, type JsonObject, type ReaderOutput } from "@lifestreamprotocol/core";
+import { openHome, openHomeFolder, readTables, type DaySettings, type Guard, type Json, type JsonObject, type ReaderOutput, type Tx } from "@lifestreamprotocol/core";
 import { CAPTION_PROMPT, MESSAGES_FAMILY, TRANSCRIPT_PROMPT } from "@lifestreamprotocol/families";
 import { readPrivacySettings } from "@lifestreamprotocol/privacy";
 import { DAYS, FILES, HELD, IMPORT_OF, LISTING, type HeldImport, type KeptListing, type Tally } from "./imports.js";
@@ -1430,6 +1430,41 @@ describe("the streams report", () => {
     if (WRITE_FIXTURES) writeFileSync(join(FIXTURES, "made.json"), fixture);
     expect(readFileSync(join(FIXTURES, "made.json"), "utf8"), "homelink/Tests/Fixtures/made.json is these items: LIFESTREAM_FIXTURES=write writes it").toBe(fixture);
   });
+  it("28b. a voice note whose audio can't be hidden says so, with the models that keep audio on this Mac, never In the queue; choosing one of them clears it", () => {
+    const WHATSAPP = `whatsapp:+15550000001:${MAC_B}`;
+    const HEARD: ModelRoute = { ...PARAKEET, state: "ready", line: null };
+    const runner = { ...RUNNER, files: RUNNER.files.map((file) => file.id === PARAKEET.model ? { ...file, state: "ready" as const, fetched_bytes: file.bytes } : file) };
+    const at = home("lifestream-report-unhideable-", { ...DEFAULTS, "model.defaults.audio": PLAN.id });
+    at.source(WHATSAPP, "whatsapp-mac").models([VISION, PLAN, QWEN, HEARD, NEMOTRON], [runner]).asks("whatsapp/voice", TRANSCRIPT_PROMPT, [{ item: chatFile(5), at_ms: NOW - 3 * HOUR }]).done();
+    const write = <T>(work: (tx: Tx) => T): T => {
+      const home = openHome(openHomeFolder(at.root), "migrate");
+      try {
+        return home.commit(work);
+      } finally {
+        home.close();
+      }
+    };
+    write((tx) => tx.tables.asks.unhideable(MESSAGES_FAMILY, chatFile(5), TRANSCRIPT_PROMPT, AUDIO_LINE));
+    const { connectors: blocks, defaults, runners } = effective(at.root).settings;
+    const input = { connectors: DECLARED, blocks, defaults, runners, day: DAY, now_ms: NOW };
+    const made = () => {
+      const read = openHome(openHomeFolder(at.root), "read");
+      const view = read.view();
+      try {
+        return openMade(view, { ...input, reply: () => undefined })({ family: MESSAGES_FAMILY, item: chatFile(5) });
+      } finally {
+        view.close();
+        read.close();
+      }
+    };
+    expect(made()).toMatchObject({ state: "needs", line: AUDIO_LINE, choose: [{ value: HEARD.id, words: "Parakeet", note: "Stays on MacBook Pro" }] });
+    write((tx) => {
+      const found = chooseFor(tx.tables, readRouting(tx.tables, input), { family: MESSAGES_FAMILY, item: chatFile(5), prompt: TRANSCRIPT_PROMPT, route: HEARD.id });
+      if ("choice" in found) tx.tables.itemRoutes.set(found.choice);
+    });
+    expect(made()).toMatchObject({ state: "waiting", line: "In the queue", choose: [] });
+  });
+
   it("29. LLM processing counts what is still to come: a step whose span a unit still to plan, a statement of the stream's own past its family's extract, or the stream's history still arriving reaches says so far, or Counting…, never Nothing to read; its work is never Up to date while it counts; a reply waiting for its re-plan, a unit set aside, another family's or another stream's, a start's extract with nothing to read, or a history done holds no count open", () => {
     const WHATSAPP = `whatsapp:+15550000001:${MAC_B}`;
     const IMESSAGE = `imessage:person-a@example.com:${MAC_B}`;

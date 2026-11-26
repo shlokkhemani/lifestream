@@ -166,9 +166,16 @@ export function planUnit(family: Family, extract: ExtractRow, asker: Asker, look
   let refused = new Set<string>();
   const refusedKeys = new Set<string>();
   let last = new Set<string>();
+  let given_up = new Set<string>();
+  const givenUp = ({ ask, shown, waits }: Standing): boolean => {
+    if (shown !== null || waits !== null) return false;
+    const known = asker.known(ask);
+    const stored = look.stored(ask);
+    return stored?.state === "given-up" && stored.version === known.version && stored.input_hash === known.input_hash;
+  };
   for (let round = 0; round < ROUNDS; round++) {
     const answers = new Map([...standing].flatMap(([item, each]) => each.shown === null ? [] : [[item, each.shown.reply] as const]));
-    const plan = family.plan!(extract, answers);
+    const plan = family.plan!(extract, answers, given_up);
     last = new Set([...plan.asks.map((ask) => ask.item), ...(plan.answers ?? []).map((answer) => answer.item)]);
     let more = false;
     refused = new Set();
@@ -196,6 +203,9 @@ export function planUnit(family: Family, extract: ExtractRow, asker: Asker, look
       standing.set(ask.item, each);
       if (each.shown !== null) more = true;
     }
+    const now = new Set([...standing].filter(([, each]) => givenUp(each)).map(([item]) => item));
+    if (now.size > given_up.size) more = true;
+    given_up = now;
     if (!more) break;
   }
   for (const [item, { shown }] of standing) if (shown !== null && !refused.has(item)) asker.accept(shown.reply);

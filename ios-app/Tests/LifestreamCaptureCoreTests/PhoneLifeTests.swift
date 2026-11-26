@@ -90,7 +90,7 @@ final class PhoneLifeTests: XCTestCase {
         XCTAssertNil(manifest.files["notes.jsonl"], "restored notes never ship again")
         XCTAssertEqual(manifest.files["location.jsonl"]?.firstSequence, 1, "this install's own entries ship from its first")
 
-        try await custody.applied(try await link.send(bundle: custody.file(pending), id: pending.id, kind: .new))
+        try await custody.applied(try await link.deliver(pending, of: custody))
         home.importAll()
         try await custody.applied(try await link.exchange())
 
@@ -237,7 +237,7 @@ final class PhoneLifeTests: XCTestCase {
 
         let sealed = try await custody.seal(told, hardware: .synthetic, appVersion: "1.0.0", now: clock.now).bundles.first
         let pending = try XCTUnwrap(sealed)
-        try await custody.applied(try await link.send(bundle: custody.file(pending), id: pending.id, kind: .new))
+        try await custody.applied(try await link.deliver(pending, of: custody))
         let shipped = try await link.exchange()
         holds = try await custody.holdsNothingMore(shipped)
         XCTAssertFalse(holds, "a seal the home has not imported is not handed over")

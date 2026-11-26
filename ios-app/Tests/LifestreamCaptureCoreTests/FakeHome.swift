@@ -10,6 +10,7 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
         let lost: [String: [Lost]]
         let ranges: [String: [UInt64]]
         let blobs: Set<String>
+        var named: Set<String> = []
         var kinds: [String: [String]] = [:]
         var satOut: [String] = []
     }
@@ -60,6 +61,11 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
     private var restoreSince: [String: Int] = [:]
     private var restoreTypes: [String: [String]] = [:]
     private var blobs: [String: Data] = [:]
+    private var staged: [String: Data] = [:]
+    private var parts: [String: Data] = [:]
+    private var fileCut: Int?
+    private var dropsStage = false
+    private var filesPut: [(name: String, offset: Int)] = []
     private var replaced: [String: String] = [:]
     private var delivered: Set<String>
     private var placeRows: [String: [String: Any]] = [:]
@@ -131,6 +137,11 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
     func loseAnswers(_ count: Int) { lock.withLock { losing = count } }
     func cutNextAct() { lock.withLock { cutting = 1 } }
     func refuse(name: String) { lock.withLock { _ = refusedNames.insert(name) } }
+    func dropStaged() { lock.withLock { staged = [:]; parts = [:] } }
+    func dropStagedAtNextBundle() { lock.withLock { dropsStage = true } }
+    func cutNextFile(after bytes: Int) { lock.withLock { fileCut = bytes } }
+    var fileSends: [(name: String, offset: Int)] { lock.withLock { filesPut } }
+    var stagedFiles: Set<String> { lock.withLock { Set(staged.keys) } }
 
     func name(_ slug: String, _ name: String, latitude: Double, longitude: Double, radius: Double,
               also: [(Double, Double, Double)] = [], ids: [String] = []) {
@@ -249,8 +260,15 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
             }
             if request.method == "POST", path == "/v1/blobs/held" {
                 let asked = (try? request.body.jsonObject())?["blobs"] as? [String] ?? []
-                let holds = sealed.values.reduce(Set(blobs.keys)) { $0.union($1.blobs) }
-                return HomeResponse(status: 200, body: Self.json(["held": asked.filter(holds.contains)]))
+                let holds = storeHolds()
+                let unheld = asked.filter { !holds.contains($0) }
+                return HomeResponse(status: 200, body: Self.json([
+                    "held": asked.filter(holds.contains), "staged": unheld.filter { staged[$0] != nil },
+                    "partly": Dictionary(uniqueKeysWithValues: unheld.compactMap { name in parts[name].map { (name, $0.count) } }),
+                ]))
+            }
+            if request.method == "PUT", path.hasPrefix("/v1/files/") {
+                return try putFile(String(path.dropFirst("/v1/files/".count)), offset: request.headers["Upload-Offset"], body: request.body)
             }
             if request.method == "GET", path.hasPrefix("/v1/blobs/") {
                 guard let bytes = blobs[String(path.dropFirst("/v1/blobs/".count))] else { return Self.refusal(404, "BLOB_UNKNOWN") }
@@ -299,7 +317,51 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
         return response
     }
 
+    private func storeHolds() -> Set<String> {
+        sealed.values.reduce(Set(blobs.keys)) { $0.union($1.blobs) }
+    }
+
+    private func putFile(_ name: String, offset stated: String?, body: HomeRequest.Body) throws -> HomeResponse {
+        guard let offset = Int(stated ?? "0"), offset >= 0 else { return Self.refusal(422, "UPLOAD_HEADERS") }
+        if storeHolds().contains(name) || staged[name] != nil { return HomeResponse(status: 200, body: Self.json(["file": name, "held": true])) }
+        let had = parts[name] ?? Data()
+        guard offset == had.count else {
+            return HomeResponse(status: 409, body: Self.json(["code": "UPLOAD_OFFSET", "message": "go on from what the door holds",
+                                                              "held": had.count]))
+        }
+        filesPut.append((name, offset))
+        let sent = try Self.bytes(of: body)
+        if let cut = fileCut {
+            fileCut = nil
+            parts[name] = had + sent.prefix(cut)
+            throw URLError(.networkConnectionLost)
+        }
+        parts[name] = nil
+        let whole = had + sent
+        guard SHA256Digest.tagged(whole) == name else { return Self.refusal(422, "FILE_BAD") }
+        staged[name] = whole
+        return HomeResponse(status: 201, body: Self.json(["file": name]))
+    }
+
+    private static func bytes(of body: HomeRequest.Body) throws -> Data {
+        switch body {
+        case .empty: return Data()
+        case .json(let data), .bytes(let data): return data
+        case .file(let url): return try Data(contentsOf: url)
+        case .stream(_, let open):
+            let reader = try open.open()
+            var data = Data()
+            while let piece = try reader.next() { data.append(piece) }
+            return data
+        }
+    }
+
     private func put(_ file: URL, id: String, pass: String) throws -> HomeResponse {
+        if dropsStage {
+            dropsStage = false
+            staged = [:]
+            parts = [:]
+        }
         if sealed[id] != nil { return HomeResponse(status: 200, body: Self.json(answer(pass))) }
         let manifest = try StoredZIPWriter.readManifest(from: file)
         guard manifest.bundleID == id else { return Self.refusal(422, "IOS_BUNDLE_ID_MISMATCH") }
@@ -331,20 +393,25 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
             }
         }
         let bundled = Set(manifest.files.keys.filter { $0.hasPrefix("blobs/") }.map { "sha256:" + $0.dropFirst(6) })
-        let held = sealed.values.reduce(bundled.union(blobs.keys)) { $0.union($1.blobs) }
+        let lacked = carried.subtracting(storeHolds().union(bundled))
+        let fromStage = lacked.filter { staged[$0] != nil }
+        let missing = lacked.subtracting(fromStage)
         let stated = manifest.custody.values.flatMap { $0.lost ?? [] }.reduce(0) { $0 + $1.items }
-        if carried.subtracting(held).count > stated {
-            return Self.refusal(422, "IOS_BUNDLE_BLOB_MISSING", "a file an entry carries is neither carried nor stated lost")
+        if missing.count > stated {
+            return HomeResponse(status: 409, body: Self.json([
+                "code": "FILES_MISSING", "message": "The home lacks files this bundle names: send them, then the bundle again.",
+                "missing": ["files": missing.sorted()]]))
         }
         let stale = manifest.custody.filter { $0.value.seal != (custody[pass]?[$0.key]?.received ?? 0) + 1 }
         if !stale.isEmpty {
             return HomeResponse(status: 409, body: Self.json(["code": "STALE", "message": "seal again", "answer": answer(pass)]))
         }
         for (source, stated) in manifest.custody { custody[pass, default: [:]][source, default: Custody()].received = stated.seal }
+        for name in fromStage { staged[name] = nil }
         sealed[id] = Delivery(
             id: id, seals: manifest.custody.mapValues(\.seal), lost: manifest.custody.compactMapValues(\.lost),
             ranges: manifest.files.compactMapValues { file in file.firstSequence.map { [$0, file.lastSequence ?? $0] } },
-            blobs: bundled, kinds: kinds, satOut: satOut)
+            blobs: bundled.union(fromStage), named: carried, kinds: kinds, satOut: satOut)
         order.append(id)
         return HomeResponse(status: 201, body: Self.json(answer(pass)))
     }

@@ -1996,6 +1996,31 @@ extension HomeLink {
             }
         }
 
+        public struct CallRecording: Decodable, Sendable, Equatable {
+            public let summary: String?
+            public let stoppedMs: Int?
+            public let turns: [MomentTurn]
+            public let made: Made?
+            public let summarised: Made?
+
+            private enum Keys: String, CodingKey {
+                case summary
+                case stoppedMs = "stopped_ms"
+                case turns
+                case made
+                case summarised
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.summary = try container.decodeNil(forKey: .summary) ? nil : container.decode(String.self, forKey: .summary)
+                self.stoppedMs = try container.decodeNil(forKey: .stoppedMs) ? nil : container.decode(Int.self, forKey: .stoppedMs)
+                self.turns = try container.decode([MomentTurn].self, forKey: .turns)
+                self.made = try container.decodeNil(forKey: .made) ? nil : container.decode(Made.self, forKey: .made)
+                self.summarised = try container.decodeNil(forKey: .summarised) ? nil : container.decode(Made.self, forKey: .summarised)
+            }
+        }
+
         public struct CallWeek: Decodable, Sendable, Equatable {
             public let current: Bool
             public let calls: [WeekCall]
@@ -3888,6 +3913,9 @@ extension HomeLink {
             public let remove: String
             public let field: String
             public let placeholder: String
+            public let keyField: String
+            public let keyAbout: String
+            public let keyPlaceholder: String
             public let save: String
 
             private enum Keys: String, CodingKey {
@@ -3896,6 +3924,9 @@ extension HomeLink {
                 case remove
                 case field
                 case placeholder
+                case keyField = "key_field"
+                case keyAbout = "key_about"
+                case keyPlaceholder = "key_placeholder"
                 case save
             }
 
@@ -3906,6 +3937,9 @@ extension HomeLink {
                 self.remove = try container.decode(String.self, forKey: .remove)
                 self.field = try container.decode(String.self, forKey: .field)
                 self.placeholder = try container.decode(String.self, forKey: .placeholder)
+                self.keyField = try container.decode(String.self, forKey: .keyField)
+                self.keyAbout = try container.decode(String.self, forKey: .keyAbout)
+                self.keyPlaceholder = try container.decode(String.self, forKey: .keyPlaceholder)
                 self.save = try container.decode(String.self, forKey: .save)
             }
         }
@@ -4263,31 +4297,37 @@ extension HomeLink {
         public struct MomentTurn: Decodable, Sendable, Equatable {
             public let atMs: Int?
             public let mine: Bool
+            public let who: String?
             public let words: String
             public let full: Bool
             public let files: [String]
             public let tools: [String]
             public let marked: Bool
+            public let heard: TurnHeard?
 
             private enum Keys: String, CodingKey {
                 case atMs = "at_ms"
                 case mine
+                case who
                 case words
                 case full
                 case files
                 case tools
                 case marked
+                case heard
             }
 
             public init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: Keys.self)
                 self.atMs = try container.decodeNil(forKey: .atMs) ? nil : container.decode(Int.self, forKey: .atMs)
                 self.mine = try container.decode(Bool.self, forKey: .mine)
+                self.who = try container.decodeNil(forKey: .who) ? nil : container.decode(String.self, forKey: .who)
                 self.words = try container.decode(String.self, forKey: .words)
                 self.full = try container.decode(Bool.self, forKey: .full)
                 self.files = try container.decode([String].self, forKey: .files)
                 self.tools = try container.decode([String].self, forKey: .tools)
                 self.marked = try container.decode(Bool.self, forKey: .marked)
+                self.heard = try container.decodeNil(forKey: .heard) ? nil : container.decode(TurnHeard.self, forKey: .heard)
             }
         }
 
@@ -4311,7 +4351,7 @@ extension HomeLink {
             case thread(chat: String?, group: Bool)
             case quiet(chat: String)
             case ai(work: [String], turns: [MomentTurn])
-            case call(figure: CallFigure?, group: String, name: String, others: [OtherCall], week: CallWeek?)
+            case call(figure: CallFigure?, group: String, name: String, others: [OtherCall], week: CallWeek?, recording: CallRecording?)
             case mail(list: Bool, letters: [Letter])
             case stay(todayMs: Int, unit: String, note: String?, inside: [MomentTimed])
             case move(km: String?, lengthMs: Int?, from: String, to: String, mode: String?, legs: [MomentTimed], note: String?)
@@ -4338,6 +4378,7 @@ extension HomeLink {
                 case name
                 case others
                 case week
+                case recording
                 case list
                 case letters
                 case todayMs = "today_ms"
@@ -4397,7 +4438,8 @@ extension HomeLink {
                         group: try container.decode(String.self, forKey: .group),
                         name: try container.decode(String.self, forKey: .name),
                         others: try container.decode([OtherCall].self, forKey: .others),
-                        week: try container.decodeNil(forKey: .week) ? nil : container.decode(CallWeek.self, forKey: .week)
+                        week: try container.decodeNil(forKey: .week) ? nil : container.decode(CallWeek.self, forKey: .week),
+                        recording: try container.decodeNil(forKey: .recording) ? nil : container.decode(CallRecording.self, forKey: .recording)
                     )
                 case "mail":
                     self = .mail(
@@ -5181,6 +5223,7 @@ extension HomeLink {
             case messages
             case mail
             case calls
+            case callaudio
             case calendar
             case notes
             case ai
@@ -6171,6 +6214,22 @@ extension HomeLink {
                 let container = try decoder.container(keyedBy: Keys.self)
                 self.day = try container.decode(String.self, forKey: .day)
                 self.line = try container.decode(String.self, forKey: .line)
+            }
+        }
+
+        public struct TurnHeard: Decodable, Sendable, Equatable {
+            public let record: MomentRecord
+            public let fromMs: Int
+
+            private enum Keys: String, CodingKey {
+                case record
+                case fromMs = "from_ms"
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.record = try container.decode(MomentRecord.self, forKey: .record)
+                self.fromMs = try container.decode(Int.self, forKey: .fromMs)
             }
         }
 

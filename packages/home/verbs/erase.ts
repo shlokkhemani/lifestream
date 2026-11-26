@@ -6,6 +6,7 @@ import { holdCalls, type Scrub } from "@lifestreamprotocol/model";
 import { scrub } from "@lifestreamprotocol/privacy";
 import { readRef } from "../refs.js";
 import { openStage, stagedFile } from "../ask-files.js";
+import { openStagedFiles } from "../staged-files.js";
 import { findingsDirOf, forgetFindings } from "../engine-pictures.js";
 import { dayFile } from "../derive.js";
 import { DOOR_LOCK, type Removed } from "../erasable-streams.js";
@@ -360,6 +361,7 @@ export async function applyErasure(ctx: ErasureContext, intent: Intent, plan: Pl
       }
       const stage = openStage(ctx.folder);
       const staged = stage.erase([...erased.blobs, ...pending.files]);
+      openStagedFiles(ctx.folder).erase([...erased.blobs, ...pending.files]);
       for (const directory of staged.folders) removed.add(directory);
       parts.blobs = part();
       failpoint("erase.blobs");

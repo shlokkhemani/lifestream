@@ -1,4 +1,5 @@
 import Foundation
+import HomeLink
 
 public struct SealedSource: Sendable, Equatable {
     public let domain: CaptureDomain
@@ -29,6 +30,7 @@ public struct CaptureExporter: Sendable {
     public static let clearedPhotoCopies = "photo copies this phone cleared once Lifestream had imported them"
     public static let missingFiles = "files this phone no longer holds"
     public static let sharedBytes: UInt64 = 8_000_000
+    public static let namedBytes = UInt64(MobileData.largeBytes)
     static let fileOverheadBytes: UInt64 = 1024
     static let bundleOverheadBytes: UInt64 = 64 * 1024
 
@@ -40,19 +42,43 @@ public struct CaptureExporter: Sendable {
         appVersion: String,
         now: Date? = nil
     ) async throws -> ExportSeal {
-        try await build(sources.map { Part(domain: $0.domain, after: $0.after, sealed: ($0.source, $0.seal)) },
-                        unspoken: unspoken, held: held, hardware: hardware, appVersion: appVersion, now: now)
+        try await build(sources.map(Part.init), use: .shipping, unspoken: unspoken, held: held, hardware: hardware,
+                        appVersion: appVersion, now: now)
+    }
+
+    public func share(_ sources: [SealedSource], into folder: URL, hardware: DeviceHardware, appVersion: String,
+                      now: Date? = nil) async throws -> [BuiltExportBundle] {
+        try await build(sources.map(Part.init), use: .sharing(folder), unspoken: [], held: [], hardware: hardware,
+                        appVersion: appVersion, now: now).bundles
     }
 
     public func copy(hardware: DeviceHardware, appVersion: String, now: Date? = nil) async throws -> BuiltExportBundle? {
-        try await build(CaptureDomain.allCases.map { Part(domain: $0, after: 0, sealed: nil) }, unspoken: [], held: [],
+        try await build(CaptureDomain.allCases.map { Part(domain: $0, after: 0, sealed: nil) }, use: .copy, unspoken: [], held: [],
                         hardware: hardware, appVersion: appVersion, now: now).bundles.first
+    }
+
+    private enum Use {
+        case shipping
+        case sharing(URL)
+        case copy
+
+        var carrying: Bool { if case .shipping = self { false } else { true } }
+        var namedBytes: UInt64? { carrying ? nil : CaptureExporter.namedBytes }
+        var whole: Bool { carrying }
     }
 
     private struct Part {
         let domain: CaptureDomain
         let after: UInt64
         let sealed: (source: String, seal: Int)?
+
+        init(domain: CaptureDomain, after: UInt64, sealed: (source: String, seal: Int)?) {
+            self.domain = domain; self.after = after; self.sealed = sealed
+        }
+
+        init(_ source: SealedSource) {
+            self.init(domain: source.domain, after: source.after, sealed: (source.source, source.seal))
+        }
     }
 
     private struct Staged {
@@ -60,13 +86,17 @@ public struct CaptureExporter: Sendable {
         let slice: StagedCaptureLogSlice
         let blobs: [CaptureStore.VerifiedBlob]
         let lost: [Lost]
+        let carrying: Bool
         var weight: UInt64 {
-            blobs.reduce(slice.bytes + CaptureExporter.fileOverheadBytes) { $0 + $1.bytes + CaptureExporter.fileOverheadBytes }
+            let records = slice.bytes + CaptureExporter.fileOverheadBytes
+            guard carrying else { return records }
+            return blobs.reduce(records) { $0 + $1.bytes + CaptureExporter.fileOverheadBytes }
         }
+        var alone: Bool { !carrying && !blobs.isEmpty }
     }
 
-    private func build(_ parts: [Part], unspoken: Set<String>, held: Set<String>, hardware: DeviceHardware, appVersion: String,
-                       now: Date?) async throws -> ExportSeal {
+    private func build(_ parts: [Part], use: Use, unspoken: Set<String>, held: Set<String>, hardware: DeviceHardware,
+                       appVersion: String, now: Date?) async throws -> ExportSeal {
         let points = try await store.readPoints()
         let captured = try await store.capturedThrough()
         var due = parts.filter { (captured[$0.domain] ?? 0) > $0.after }
@@ -81,7 +111,8 @@ public struct CaptureExporter: Sendable {
 
         let staging = try await store.createExportStagingDirectory()
         defer { try? FileDurability.removePrivateDirectoryIfPresent(at: staging) }
-        let slices = try await store.stageExportSlices(due.map { ($0.domain, $0.after) }, in: staging)
+        let slices = try await store.stageExportSlices(due.map { ($0.domain, $0.after) }, namedBytes: use.namedBytes, held: held,
+                                                       in: staging)
         var staged: [Staged] = []
         var checked: [String: CaptureStore.VerifiedBlob] = [:]
         for part in due {
@@ -89,16 +120,18 @@ public struct CaptureExporter: Sendable {
                 guard let result = slices[part.domain] else { throw CaptureError.corruptState("\(part.domain.rawValue) was not staged") }
                 let slice = try result.get()
                 try Self.checkObserved(slice)
-                let cleared = try await store.clearedPhotoCopies(part.domain, after: part.after).subtracting(held)
-                let wanted = slice.blobHashes.subtracting(cleared).subtracting(held)
-                for blob in try await store.validatedBlobInventory(archiveChecksum: true, hashes: wanted.subtracting(checked.keys)) {
+                let cleared = try await store.clearedPhotoCopies(part.domain, after: part.after,
+                                                                 through: slice.lastSequence ?? part.after).subtracting(held)
+                let wanted = slice.blobs.filter { !cleared.contains($0) && !held.contains($0) }
+                let unchecked = Set(wanted).subtracting(checked.keys)
+                for blob in try await store.validatedBlobInventory(archiveChecksum: use.carrying, hashes: unchecked) {
                     checked[blob.hash] = blob
                 }
-                let carried = wanted.compactMap { checked[$0] }.sorted { $0.hash < $1.hash }
-                let missing = wanted.count - carried.count
+                let verified = wanted.compactMap { checked[$0] }
+                let missing = wanted.count - verified.count
                 let lost = [cleared.isEmpty ? nil : Lost(items: cleared.count, what: Self.clearedPhotoCopies),
                             missing == 0 ? nil : Lost(items: missing, what: Self.missingFiles)].compactMap { $0 }
-                staged.append(Staged(part: part, slice: slice, blobs: carried, lost: lost))
+                staged.append(Staged(part: part, slice: slice, blobs: verified, lost: lost, carrying: use.carrying))
             } catch let error where !(error is CancellationError) && part.sealed != nil {
                 satOut[part.sealed!.source] = String(describing: error)
             }
@@ -113,16 +146,18 @@ public struct CaptureExporter: Sendable {
         let createdAt = CaptureTime.rfc3339(now ?? AppClock.now)
         var bundles: [BuiltExportBundle] = []
         var toFree: Int64?
+        let destination = if case .sharing(let folder) = use { folder } else { exportsDirectory }
         for group in groups {
             let short = store.volume.toFree(.new, bytes: Int64(clamping: Self.weight(group)))
             guard short == 0 else {
-                if group.contains(where: { $0.part.sealed == nil }) { throw CaptureError.full }
+                if use.whole { throw CaptureError.full }
                 toFree = max(toFree ?? 0, short)
                 continue
             }
             let mine = Set(group.compactMap(\.part.sealed?.source))
             let left = unspoken.union(satOut.keys).union(carried).subtracting(mine)
-            bundles.append(try zip(group, satOut: left.isEmpty || group.contains { $0.part.sealed == nil } ? nil : left.sorted(),
+            bundles.append(try zip(group, into: destination,
+                                   satOut: left.isEmpty || group.contains { $0.part.sealed == nil } ? nil : left.sorted(),
                                    points: points, hardware: hardware, appVersion: appVersion, createdAt: createdAt))
         }
         return ExportSeal(bundles: bundles, satOut: satOut, toFree: toFree)
@@ -140,9 +175,10 @@ public struct CaptureExporter: Sendable {
     private static func grouped(_ staged: [Staged]) -> [[Staged]] {
         if staged.contains(where: { $0.part.sealed == nil }) { return [staged] }
         let bound = sharedBytes - bundleOverheadBytes
-        let alone = staged.filter { $0.weight >= bound }
+        let apart = { (staged: Staged) in staged.alone || staged.weight >= bound }
+        let alone = staged.filter(apart)
             .sorted { ($0.weight, $0.part.domain.rawValue) < ($1.weight, $1.part.domain.rawValue) }
-        let together = staged.filter { $0.weight < bound }.sorted { a, b in
+        let together = staged.filter { !apart($0) }.sorted { a, b in
             if (a.part.domain == .location) != (b.part.domain == .location) { return a.part.domain == .location }
             return (a.weight, b.part.domain.rawValue) > (b.weight, a.part.domain.rawValue)
         }
@@ -158,9 +194,10 @@ public struct CaptureExporter: Sendable {
         return shared.map(\.parts) + alone.map { [$0] }
     }
 
-    private func zip(_ group: [Staged], satOut: [String]?, points: [CaptureDomain: CaptureStore.ReadPoint], hardware: DeviceHardware,
-                     appVersion: String, createdAt: String) throws -> BuiltExportBundle {
+    private func zip(_ group: [Staged], into folder: URL, satOut: [String]?, points: [CaptureDomain: CaptureStore.ReadPoint],
+                     hardware: DeviceHardware, appVersion: String, createdAt: String) throws -> BuiltExportBundle {
         var files: [String: URL] = [:]
+        var named: [PendingBundle.File] = []
         var crc32: [String: UInt32] = [:]
         var manifests: [String: BundleFileManifest] = [:]
         var custody: [String: SourceCustody] = [:]
@@ -174,6 +211,10 @@ public struct CaptureExporter: Sendable {
                 sha256: slice.sha256, bytes: slice.bytes, observations: slice.observations,
                 firstSequence: slice.firstSequence, lastSequence: slice.lastSequence)
             for blob in staged.blobs {
+                guard staged.carrying else {
+                    if !named.contains(where: { $0.name == blob.hash }) { named.append(PendingBundle.File(name: blob.hash, bytes: blob.bytes)) }
+                    continue
+                }
                 let name = "blobs/\(blob.url.lastPathComponent)"
                 files[name] = blob.url
                 crc32[name] = blob.crc32
@@ -205,14 +246,14 @@ public struct CaptureExporter: Sendable {
         try FileDurability.writeNewRegularFileDurably(try encoder.encode(manifest), to: manifestURL)
         files["manifest.json"] = manifestURL
 
-        try FileDurability.createDirectoryDurably(at: exportsDirectory)
-        let destination = exportsDirectory.appendingPathComponent(Self.filename(for: bundleID))
+        try FileDurability.createDirectoryDurably(at: folder)
+        let destination = folder.appendingPathComponent(Self.filename(for: bundleID))
         try FileDurability.removeRegularFileIfPresentDurably(at: destination)
         let prepared = try StoredZIPWriter.prepare(
             fileURLs: files, to: destination, precomputedCRC32: crc32, expectedSHA256: expectedBlobHashes)
         defer { try? StoredZIPWriter.removeTemporary(prepared) }
         try StoredZIPWriter.publish(prepared)
-        return BuiltExportBundle(url: destination, manifest: manifest)
+        return BuiltExportBundle(url: destination, manifest: manifest, files: named)
     }
 
     private func slices(_ group: [Staged]) -> URL {

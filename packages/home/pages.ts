@@ -411,15 +411,23 @@ const Made = named("Made", object({
   ask: nullable(named("MadeAsk", object({ family: label, item: id, prompt: id }))), choose: list(named("MadeStep", object({ value: id, words, note: nullable(words) }))),
 }));
 
+const MomentTurn = named("MomentTurn", object({
+  at_ms: nullable(int()), mine: bool, who: nullable(name), words: excerpt, full: bool, files: list(words), tools: list(words), marked: bool,
+  heard: nullable(named("TurnHeard", object({ record: MomentRecord, from_ms: int() }))),
+}));
+
 const MomentView = named("MomentView", tagged("view", {
   thread: { chat: nullable(id), group: bool },
   quiet: { chat: id },
-  ai: { work: list(excerpt), turns: list(named("MomentTurn", object({ at_ms: nullable(int()), mine: bool, words: excerpt, full: bool, files: list(words), tools: list(words), marked: bool }))) },
+  ai: { work: list(excerpt), turns: list(MomentTurn) },
   call: {
     figure: nullable(named("CallFigure", object({ length_ms: nullable(int()), words: nullable(words), label: words }))), group: words, name,
     others: list(named("OtherCall", object({ at_ms: int(), way: words, length_ms: nullable(int()) }))),
     week: nullable(named("CallWeek", object({
       current: bool, calls: list(named("WeekCall", object({ day, at_ms: int(), title: words, icon: label, length_ms: nullable(int()), focus: id }))),
+    }))),
+    recording: nullable(named("CallRecording", object({
+      summary: nullable(excerpt), stopped_ms: nullable(int()), turns: list(MomentTurn), made: nullable(Made), summarised: nullable(Made),
     }))),
   },
   mail: {
@@ -547,7 +555,7 @@ const ModelFile = named("ModelFile", object({
 const ModelFound = named("ModelFound", object({ name, size: words, from: label }));
 const ModelSwitch = named("ModelSwitch", object({ label, on: bool, line: nullable(words) }));
 const ModelKeyField = named("ModelKeyField", object({ label, placeholder: words, add: label, remove: label }));
-const ModelServerWords = named("ModelServerWords", object({ about: words, add: label, remove: label, field: label, placeholder: words, save: label }));
+const ModelServerWords = named("ModelServerWords", object({ about: words, add: label, remove: label, field: label, placeholder: words, key_field: label, key_about: words, key_placeholder: words, save: label }));
 const ModelConnection = named("ModelConnection", tagged("kind", {
   plan: { id, name, line: nullable(words), signed: bool, words: label },
   key: { id, name, line: nullable(words), held: bool, words: nullable(label), key: ModelKeyField },

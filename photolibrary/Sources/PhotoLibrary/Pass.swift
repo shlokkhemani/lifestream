@@ -84,6 +84,7 @@ public actor PhotoPass {
     }
 
     public static let owedAsked = 200
+    public static let largeBytes: Int64 = 50_000_000
 
     private let library: PhotoLibrary
     private let store: any PhotoPassStore
@@ -173,8 +174,8 @@ public actor PhotoPass {
                 mayPage = false
                 report.paged = true
             } else {
-                try await writeNew(fromStart, backlog: page.mark.backlog, room: device.changeRoom, kept: &kept, open: open,
-                                   until: deadline, state: &state, report: &report)
+                try await writeNew(fromStart, backlog: page.mark.backlog, room: device.changeRoom, costly: !device.pastMoves,
+                                   kept: &kept, open: open, until: deadline, state: &state, report: &report)
                 report.gone += try await writeGone(page.gone)
             }
             if let listed = page.listed, let stated = (try? await store.statedLive()) ?? nil {
@@ -208,8 +209,9 @@ public actor PhotoPass {
         if pastFetches { state.left = wanted.left }
         state.owed.subtract(owed.intersection(wanted.settled))
         let owedRoom = device.changeRoom.map { max(0, $0 - kept) } ?? device.spare
-        guard let owedBytes = try await fetchOwed(wanted.photos.filter { owed.contains($0.asset) }, room: owedRoom, open: open,
-                                                  until: deadline, state: &state, report: &report),
+        guard let owedBytes = try await fetchOwed(wanted.photos.filter { owed.contains($0.asset) }, room: owedRoom,
+                                                  costly: !device.pastMoves, open: open, until: deadline, state: &state,
+                                                  report: &report),
               pastFetches, open() else { return }
         device.spare = max(0, device.spare - owedBytes)
         switch PhotoLibrary.due(device: device, bringingIn: bringingIn) {
@@ -228,10 +230,11 @@ public actor PhotoPass {
         listed = true
     }
 
-    private func writeNew(_ snapshots: [PhotoSnapshot], backlog: [String]?, room: Int64?, kept: inout Int64,
+    private func writeNew(_ snapshots: [PhotoSnapshot], backlog: [String]?, room: Int64?, costly: Bool, kept: inout Int64,
                           open: () -> Bool, until deadline: Date, state: inout PhotoPassState,
                           report: inout Report) async throws {
         var entries: [PhotoEntry] = []
+        var large: [PhotoEntry] = []
         let backlog = snapshots.isEmpty ? [] : Set(backlog ?? [])
         for snapshot in snapshots {
             let id = snapshot.localIdentifier
@@ -246,7 +249,8 @@ public actor PhotoPass {
             state.owed.insert(id)
             state.later.remove(id)
             guard let room, open() else { continue }
-            guard let files = try await files(of: id, only: only, network: false, room: max(0, room - kept), until: deadline) else {
+            guard let files = try await files(of: id, only: only, network: false, costly: costly, room: max(0, room - kept),
+                                              until: deadline) else {
                 state.owed.remove(id)
                 continue
             }
@@ -256,11 +260,11 @@ public actor PhotoPass {
             }
             if files.files.contains(.noRoom) { report.waits = .space }
             guard let more = try await availability(files, report: &report) else { continue }
-            entries.append(more.entry)
+            if more.largest >= Self.largeBytes { large.append(more.entry) } else { entries.append(more.entry) }
             kept += more.bytes
             state.owed.remove(id)
         }
-        try await store.append(entries)
+        try await store.append(entries + large)
     }
 
     private enum Road {
@@ -289,12 +293,13 @@ public actor PhotoPass {
         return stated.resources.filter { $0.blob != nil }.map(HeldFile.init)
     }
 
-    private func fetchOwed(_ owed: [PhotosWanted.Photo], room: Int64, open: () -> Bool, until deadline: Date,
+    private func fetchOwed(_ owed: [PhotosWanted.Photo], room: Int64, costly: Bool, open: () -> Bool, until deadline: Date,
                            state: inout PhotoPassState, report: inout Report) async throws -> Int64? {
         var bytes: Int64 = 0
         for photo in owed {
             guard open() else { return bytes }
-            switch try await take(photo, network: false, room: room - bytes, until: deadline, report: &report) {
+            switch try await take(photo, network: false, costly: costly, room: room - bytes, until: deadline,
+                                  report: &report) {
             case .gone:
                 state.owed.remove(photo.asset)
             case .noRoom:
@@ -304,7 +309,7 @@ public actor PhotoPass {
                 bytes += more
                 state.owed.remove(photo.asset)
             case .missed(let files):
-                if open(), !files.writing { state.owed.remove(photo.asset) }
+                if open(), !files.waiting { state.owed.remove(photo.asset) }
             }
         }
         return bytes
@@ -326,7 +331,8 @@ public actor PhotoPass {
         var bytes: Int64 = 0
         for photo in wanted where network || !state.later.contains(photo.asset) {
             guard open(), bytes < most else { return }
-            switch try await take(photo, network: network, room: room - bytes, until: deadline, report: &report) {
+            switch try await take(photo, network: network, costly: false, room: room - bytes, until: deadline,
+                                  report: &report) {
             case .gone:
                 continue
             case .noRoom:
@@ -347,10 +353,11 @@ public actor PhotoPass {
         case missed(PhotoFiles)
     }
 
-    private func take(_ photo: PhotosWanted.Photo, network: Bool, room: Int64, until deadline: Date,
+    private func take(_ photo: PhotosWanted.Photo, network: Bool, costly: Bool, room: Int64, until deadline: Date,
                       report: inout Report) async throws -> Taken {
         let id = photo.asset
-        guard let files = try await files(of: id, only: Set(photo.files), network: network, room: room, until: deadline) else {
+        guard let files = try await files(of: id, only: Set(photo.files), network: network, costly: costly, room: room,
+                                          until: deadline) else {
             guard let stated = try await store.written(prefix: "photos:\(id):").last(where: { $0.kind == .asset }) else { return .gone }
             try await store.append([try PhotoEntry.refusal(ofAsset: stated.payload, .notFound, now: now())])
             report.refused += 1
@@ -370,33 +377,38 @@ public actor PhotoPass {
         return more.map { .landed($0.bytes) } ?? .missed(files)
     }
 
-    private func availability(_ files: PhotoFiles, report: inout Report) async throws -> (entry: PhotoEntry, bytes: Int64)? {
+    private func availability(_ files: PhotoFiles, report: inout Report) async throws
+        -> (entry: PhotoEntry, bytes: Int64, largest: Int64)? {
         var unstored = files.files.compactMap { if case .file(let url) = $0 { url } else { nil } }
         defer { for url in unstored { try? FileManager.default.removeItem(at: url) } }
-        guard files.files.contains(where: { $0 != .unasked }), !files.files.contains(.later), !files.files.contains(.noRoom)
+        if files.files.contains(.waits) { report.waits = report.waits ?? .network }
+        guard files.files.contains(where: { $0 != .unasked }),
+              !files.files.contains(where: { $0 == .later || $0 == .noRoom || $0 == .waits })
         else { return nil }
         var states: [ResourceState] = []
         var bytes: Int64 = 0
-        for fetched in files.files {
+        var largest: Int64 = 0
+        for (resource, fetched) in zip(files.snapshot.resources, files.files) {
             switch fetched {
             case .file(let url):
                 let blob = try await store.store(url)
                 unstored.removeAll { $0 == url }
                 states.append(.blob(hash: blob.hash, bytes: blob.bytes))
                 bytes += Int64(blob.bytes)
+                largest = max(largest, resource.size ?? Int64(blob.bytes))
             case .refused(let refusal): states.append(.absent(refusal))
             case .unasked: states.append(.absent(nil))
-            case .later, .noRoom: return nil
+            case .later, .noRoom, .waits: return nil
             }
         }
         if states.contains(where: \.isRefused) { report.refused += 1 } else { report.files += 1 }
-        return (files.snapshot.availability(states, now: now()), bytes)
+        return (files.snapshot.availability(states, now: now()), bytes, largest)
     }
 
-    private func files(of id: String, only types: Set<String>? = nil, network: Bool, room: Int64 = .max,
+    private func files(of id: String, only types: Set<String>? = nil, network: Bool, costly: Bool, room: Int64 = .max,
                        until deadline: Date) async throws -> PhotoFiles? {
         try await cut(at: deadline) { [library, exports] in
-            try await library.files(of: id, only: types, network: network, room: room, into: exports)
+            try await library.files(of: id, only: types, network: network, costly: costly, room: room, into: exports)
         }
     }
 
@@ -643,7 +655,7 @@ private struct Bound: Decodable {
 }
 
 private extension PhotoFiles {
-    var writing: Bool { zip(snapshot.resources, files).contains { $1 == .later && $0.size == 0 } }
+    var waiting: Bool { files.contains(.waits) || zip(snapshot.resources, files).contains { $1 == .later && $0.size == 0 } }
 }
 
 private extension PhotoResource {

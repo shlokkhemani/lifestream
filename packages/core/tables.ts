@@ -1167,6 +1167,7 @@ export function tables(sql: Sql): Tables {
         if (sql.run(`UPDATE asks SET state = 'pending', given_up = NULL WHERE ${ONE_ASK} AND state = 'given-up'`, row.family, row.item, row.prompt).changes === 1) {
           countAsks(sql, 1, "asks", ONE_ASK, row.family, row.item, row.prompt);
         }
+        sql.run(`DELETE FROM asks_unhideable WHERE ${ONE_ASK}`, row.family, row.item, row.prompt);
         sql.run(
           `INSERT INTO dirty_units (family, unit, end_ms, woken) SELECT e.family, e.unit, e.end_ms, 1 FROM extract_items i
              JOIN extracts e ON e.family = i.family AND e.unit = i.unit WHERE i.family = ? AND i.item = ?

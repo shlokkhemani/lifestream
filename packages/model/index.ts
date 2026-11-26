@@ -40,7 +40,7 @@ export { bare, compatible, faults, readAnswer, type Read } from "./answer-types.
 export { askIdentity, openAsker, type Answer, type Asker, type AskerOptions, type AskState, type By, type Candidate, type Known, type Pending, type RoutedAsk, type Sending } from "./asker.js";
 export { CALL_EXIT, LEDGER_DAMAGED_EXIT, readRouteId, REST_MS, restsOf, routeId, runCall, type CallOptions, type CallOutcome, type CallResult, type CallRoute } from "./call.js";
 export { unfit, type Unfit, type UseNeed } from "./fit.js";
-export { isTimedSchema, keptSegments, PAST_END_S, TIMED_TRANSCRIPT, type KeptSegment, type KeptTranscript, type TimedSegment, type TimedTranscript } from "./transcript.js";
+export { isTimedSchema, TIMED_TRANSCRIPT, type TimedSegment, type TimedTranscript } from "./transcript.js";
 export { inputHash, promptHash, requestKey, retryIdentity, type Sampling } from "./digest.js";
 export {
   callCopiesOf,
@@ -100,6 +100,7 @@ export { checkClaude, claudeEnv, signOutClaude } from "./transports/claude.js";
 export { checkCodex, codexEnv } from "./transports/codex.js";
 export { fakeTransport, type FakeOptions } from "./transports/fake.js";
 export { priced, transportSecret, transportsOf, type Found } from "./transports/index.js";
+export { ADDRESS_SECRET } from "./transports/address.js";
 export { OPENROUTER_SECRET } from "./transports/openrouter.js";
 export { CALL_PASS, listRunners, RUNNER_TRANSPORT, runnerTransport, warmRunner, type RunnerOptions } from "./transports/runner.js";
 export type { ProgramAt } from "./transports/program.js";

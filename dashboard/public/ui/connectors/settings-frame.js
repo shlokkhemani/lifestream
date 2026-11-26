@@ -285,7 +285,7 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
      */
     saved(form, opened, report) {
       const act = savedAct(form, opened, report);
-      return act && { act, forget: act.act === 'seal' ? TYPED.key : '' };
+      return act && { act, forget: act.act === 'seal' ? TYPED.key : act.act === 'models' && 'key' in act ? TYPED.addressKey : '' };
     },
   };
 }

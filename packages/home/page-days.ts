@@ -1,6 +1,6 @@
 import { dayBounds, DAYS_MARK, digest, sha256, type DayRow as ListedDay, type DaySettings, type ExtractRow, type OpenView, type RecordRef } from "@lifestreamprotocol/core";
 import {
-  dayPage, moment, namesOf, PHYSICAL, REACH_DAYS, resolvedPlace, saidOf, where,
+  CALLAUDIO_FAMILY, callAudioAnswers, callAudioView, dayPage, moment, namesOf, PHYSICAL, REACH_DAYS, resolvedPlace, saidOf, where,
   type Block, type CallParty, type Chapter, type ChapterHead, type Conversation, type DayDocument, type DayExtras, type DayName, type DayPage, type DayRow,
   type DayWords, type EpisodesExtras, type KnownPerson, type KnownPlace, type Labels, type MomentMade, type Piece, type RecordText, type SidePlace, type WherePiece,
 } from "@lifestreamprotocol/families";
@@ -56,6 +56,7 @@ export interface DaysReads {
   text(view: OpenView, ref: RecordRef): RecordText | null;
   account(view: OpenView, item: string): unknown;
   transcribed(view: OpenView, ref: RecordRef, now_ms: number): MomentMade | null;
+  made(view: OpenView, asked: readonly { family: string; item: string }[], now_ms: number): MomentMade[];
   open(labels: Labels, chat: string): { readonly label: string; readonly href: string } | null;
   chat(view: OpenView, chat: string, day: string): { readonly chat: string; readonly conversation: Conversation | null };
 }
@@ -375,6 +376,13 @@ export function momentPage(reads: DaysReads): PageHandler<MomentAnswer> {
           calls: (other) => {
             const head = reads.dayHead(other);
             return head === null ? [] : [...needsOf(other, head)?.calls ?? []];
+          },
+          callAudio: (unit) => {
+            const extract = view.extract(CALLAUDIO_FAMILY, unit);
+            const heard = extract === undefined ? null : callAudioView(extract, callAudioAnswers(unit, (item, prompt) => view.enrichment(CALLAUDIO_FAMILY, item, prompt)), labels);
+            if (heard === null) return null;
+            const [summary, ...parts] = reads.made(view, [heard.summary_item, ...heard.asked].map((item) => ({ family: CALLAUDIO_FAMILY, item })), ask.now_ms);
+            return { view: heard, parts, summary: summary?.ask ? summary : null };
           },
           people: () => people === null ? [] : people.list(),
         }, now);

@@ -488,8 +488,6 @@ final class AppOwnedRecorder: NSObject, @preconcurrency CLLocationManagerDelegat
         coordinator?.recordServiceEvent("engine_b_state", detail: detail)
     }
 
-    var keepsProcessRunning: Bool { !updating.isEmpty && coordinator?.backgroundRecordingAllowed == true }
-
     private func setUpdating(_ manager: CLLocationManager, _ on: Bool) {
         asked?(manager, on)
         guard coordinator?.platformServicesEnabled == true else { return }

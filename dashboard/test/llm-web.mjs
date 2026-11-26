@@ -510,12 +510,13 @@ test('W4: Settings: every act of Default models and Providers, This Mac and Upda
   await page().until(`${DIALOG}.querySelector('.cn-set__back')?.textContent.trim() === 'Providers'`, 'the other server\'s page');
   assert.deepEqual(await sent(), [{ act: 'ask-login', do: 'cancel', of: 'chatgpt' }], 'the download hidden is cancelled');
   assert.equal(await page().evaluate(`${DIALOG}.querySelectorAll('[data-item] .ck-srow__label').length`), 0, 'no Subscriptions on the address page');
-  assert.equal(await page().evaluate(`${DIALOG}.querySelectorAll('.cn-set__main input').length`), 1, 'its URL alone');
+  assert.equal(await page().evaluate(`${DIALOG}.querySelectorAll('.cn-set__main input').length`), 2, 'its URL and its key');
   await page().type('.ck-dialog input[placeholder="http://localhost:11434/v1"]', 'http://127.0.0.1:11434/v1');
+  await page().type('.ck-dialog input[placeholder="sk-…"]', 'sk-fake0000');
   await page().until(`${BUTTON('Save')} && !${BUTTON('Save')}.disabled`);
   await shot('settings-custom-address');
   await click(BUTTON('Save'));
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', label: 'Save' }]);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', key: 'sk-fake0000', label: 'Save' }]);
   await page().until(`${DIALOG}.querySelector('.cn-set__title')?.textContent === 'Providers'`, 'back from the server\'s page');
 
   await page().evaluate(`window.setHostState(${JSON.stringify({ ...HOST_STATE, setup: { state: 'done', error: null }, ask_login: SUBSCRIBED.mixed })})`);

@@ -68,7 +68,8 @@ const inputsOf = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsIn
 const page = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsInputs> = {}) => modelDefaults(inputsOf(settings, more));
 const providers = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsInputs> = {}) => modelProviders(inputsOf(settings, more));
 const KEY_FIELD = { label: WORDS.keyField("OpenRouter"), placeholder: WORDS.keyPlaceholder, add: WORDS.addKey, remove: WORDS.remove };
-const SERVER_WORDS = { about: WORDS.serverAbout, add: WORDS.addServer, remove: WORDS.remove, field: WORDS.serverField, placeholder: WORDS.serverPlaceholder, save: WORDS.save };
+const SERVER_WORDS = { about: WORDS.serverAbout, add: WORDS.addServer, remove: WORDS.remove, field: WORDS.serverField, placeholder: WORDS.serverPlaceholder,
+  key_field: WORDS.serverKey, key_about: WORDS.serverKeyAbout, key_placeholder: WORDS.serverKeyPlaceholder, save: WORDS.save };
 const useOf = (answer: ReturnType<typeof page>, use: UseId) => answer.uses.find((each) => each.use === use)!;
 const listed = (menu: Pick<ModelMenu, "rows" | "local">): string[] => [...menu.rows, ...menu.local?.rows ?? []].map((row) => row.value);
 

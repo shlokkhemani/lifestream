@@ -17,7 +17,6 @@ final class ShippingService {
     private var network: Task<Void, Never>?
     private var started = false
     private let power = OnPower()
-    private var processing = false
     lazy var link = makeLink()
     lazy var shipper = makeShipper()
     lazy var backgroundSync = BackgroundSync { [weak self] kind in
@@ -29,8 +28,6 @@ final class ShippingService {
         EnergyLedger.shared.wake(name)
         runtime.recordLifecycle(name)
         if kind == .processing {
-            processing = true
-            defer { processing = false }
             await shipper.send(.processing)
             if !Task.isCancelled { await runtime.sweepHistoriesInBackground() }
             if !Task.isCancelled { await runtime.refreshCheckIns() }
@@ -142,7 +139,6 @@ final class ShippingService {
 
     private func makeShipper() -> PhoneShipper {
         let exports = runtime.exporter.exportsDirectory
-        let power = power
         let custody = PhoneCustody(exporter: runtime.exporter)
         let shipper = PhoneShipper(
             stateURL: exports.appendingPathComponent("shipper.json"), link: link,
@@ -150,11 +146,6 @@ final class ShippingService {
             now: { AppClock.now },
             hardware: { HardwareIdentity.current },
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1",
-            conditions: { [weak self, power, runtime] in
-                PhoneShipper.Conditions(
-                    long: UIApplication.shared.applicationState == .active || power.on || self?.processing == true
-                        || runtime.locationRecorder.keepsProcessRunning)
-            },
             clear: { [runtime] answer in
                 try await runtime.launched()
                 try await PhotosServices.shared.pass.clearImported(by: answer, custody: custody)
@@ -258,7 +249,8 @@ private final class Budget {
 }
 
 enum SendCount: String {
-    case requests, bundles = "bundles_sent", bytes = "send_bytes", unanswered = "send_unanswered"
+    case requests, bundles = "bundles_sent", files = "files_sent", bytes = "send_bytes", unanswered = "send_unanswered",
+         cut = "send_cut"
 
     func key(onPower: Bool) -> String { rawValue + (onPower ? "_power" : "_battery") }
 }
@@ -294,7 +286,7 @@ extension PhotoPass.Grant {
 
 extension ShippingService {
     nonisolated static func metering(_ ledger: EnergyLedger, power: OnPower) -> URLSessionTransport.Metrics {
-        { request, metrics, status in
+        { request, metrics, ending in
             let onPower = power.on(at: metrics.taskInterval.start)
             ledger.count(SendCount.requests.key(onPower: onPower))
             var body: Int64 = 0
@@ -307,10 +299,13 @@ extension ShippingService {
             }
             guard request.method == "PUT" else { return }
             if body > 0 { ledger.count(SendCount.bytes.key(onPower: onPower), Int(body)) }
-            switch status {
-            case 200, 201: ledger.count(SendCount.bundles.key(onPower: onPower))
-            case nil: ledger.count(SendCount.unanswered.key(onPower: onPower))
-            default: break
+            switch ending {
+            case .answered(200), .answered(201):
+                let file = request.url.path.hasPrefix("/v1/files/")
+                ledger.count((file ? SendCount.files : SendCount.bundles).key(onPower: onPower))
+            case .answered: break
+            case .unanswered: ledger.count(SendCount.unanswered.key(onPower: onPower))
+            case .cut: ledger.count(SendCount.cut.key(onPower: onPower))
             }
         }
     }

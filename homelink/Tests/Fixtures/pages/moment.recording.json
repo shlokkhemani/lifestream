@@ -1,0 +1,221 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-10-06",
+  "day": "2026-10-05",
+  "state": "found",
+  "moment": {
+    "key": "e1",
+    "row": "e1",
+    "kind": "call",
+    "icon": "call",
+    "title": "Zoom",
+    "name": "Zoom",
+    "near": null,
+    "start_ms": 1791968400000,
+    "end_ms": 1791968400000,
+    "untimed": null,
+    "length_ms": null,
+    "products": [
+      "Zoom"
+    ],
+    "people": [],
+    "place": null,
+    "out": null,
+    "record": {
+      "source": "audio:local:macbook-pro-0001",
+      "kind": "mic-recording",
+      "key": "20261005T083000.000Z"
+    },
+    "letter": null,
+    "marks": [],
+    "pictures": [],
+    "source": {
+      "records": [
+        {
+          "source": "audio:local:macbook-pro-0001",
+          "kind": "mic-recording",
+          "key": "20261005T083000.000Z",
+          "at_ms": 1791968400000
+        },
+        {
+          "source": "audio:local:macbook-pro-0001",
+          "kind": "sound-recording",
+          "key": "20261005T083000.000Z",
+          "at_ms": 1791968400000
+        },
+        {
+          "source": "audio:local:macbook-pro-0001",
+          "kind": "mic-recording",
+          "key": "20261005T084000.000Z",
+          "at_ms": 1791968400000
+        },
+        {
+          "source": "audio:local:macbook-pro-0001",
+          "kind": "sound-recording",
+          "key": "20261005T084000.000Z",
+          "at_ms": 1791968400000
+        }
+      ],
+      "more": 0,
+      "units": [
+        {
+          "family": "callaudio",
+          "unit": "audio:local:macbook-pro-0001/mic-recording/20261005T083000.000Z"
+        }
+      ],
+      "atoms": 7,
+      "start_ms": 1791968400000,
+      "end_ms": 1791968400000
+    },
+    "view": {
+      "figure": {
+        "length_ms": 1200000,
+        "words": null,
+        "label": "Call"
+      },
+      "group": "",
+      "name": "Zoom",
+      "others": [],
+      "week": null,
+      "recording": {
+        "summary": "You and they went over the lease renewal; you will send the signed copy.",
+        "stopped_ms": null,
+        "turns": [
+          {
+            "at_ms": 1791968400000,
+            "mine": true,
+            "who": "You",
+            "words": "Hello, can you hear me?",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "mic-recording",
+                "key": "20261005T083000.000Z"
+              },
+              "from_ms": 1000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": false,
+            "who": "Them",
+            "words": "Yes, I can hear you.",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "sound-recording",
+                "key": "20261005T083000.000Z"
+              },
+              "from_ms": 11000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": true,
+            "who": "You",
+            "words": "Good. Shall we go over the lease?",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "mic-recording",
+                "key": "20261005T083000.000Z"
+              },
+              "from_ms": 21000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": false,
+            "who": "Them",
+            "words": "Sure, the renewal is due next month.",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "sound-recording",
+                "key": "20261005T083000.000Z"
+              },
+              "from_ms": 31000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": true,
+            "who": "You",
+            "words": "I will send the signed copy tonight.",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "mic-recording",
+                "key": "20261005T084000.000Z"
+              },
+              "from_ms": 2000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": false,
+            "who": "Them",
+            "words": "Great, thanks.",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "sound-recording",
+                "key": "20261005T084000.000Z"
+              },
+              "from_ms": 8000
+            }
+          }
+        ],
+        "made": {
+          "by": "Model A",
+          "at_ms": 1791968400000,
+          "state": "done",
+          "line": "Model A · today",
+          "ask": {
+            "family": "callaudio",
+            "item": "stretch:audio:local:macbook-pro-0001/mic-recording/20261005T083000.000Z",
+            "prompt": "call-transcript"
+          },
+          "choose": []
+        },
+        "summarised": {
+          "by": "Model A",
+          "at_ms": 1791968400000,
+          "state": "done",
+          "line": "Model A · today",
+          "ask": {
+            "family": "callaudio",
+            "item": "stretch:audio:local:macbook-pro-0001/mic-recording/20261005T083000.000Z",
+            "prompt": "call-summary"
+          },
+          "choose": []
+        }
+      },
+      "view": "call"
+    }
+  }
+}

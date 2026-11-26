@@ -10,7 +10,7 @@ import type { Change } from "../family.js";
 import { nameId, type Party } from "../shared/cast.js";
 import { LABELS_CODE, readLabels, resolvedChat, resolvedName } from "../shared/labels.js";
 import {
-  CAPTION_PROMPT, MESSAGES_FAMILY, MESSAGES_PROMPTS, messagesFamily, parseMessagesUnit, QUIET_TITLE, transcriptIdentity,
+  CAPTION_PROMPT, MESSAGES_FAMILY, MESSAGES_PROMPTS, messagesFamily, parseMessagesUnit, QUIET_TITLE, TRANSCRIPT_PROMPT, transcriptIdentity,
 } from "./family.js";
 import { isGroupChat, networksOf } from "./networks.js";
 import { FED, NETWORKED } from "../test/fed.js";
@@ -884,6 +884,12 @@ describe("messages family", () => {
     expect(printed).toMatch(/message unsent/u);
     expect(printed).toMatch(/message deleted/u);
     write(home, "withdrawn.txt", printed);
+  });
+
+  it("a voice note's transcript, version 2, in Latin letters, keeps version 1's as they are: a note transcribed before is not asked again", () => {
+    const prompt = MESSAGES_PROMPTS[TRANSCRIPT_PROMPT]!;
+    expect([prompt.version, prompt.type, prompt.keeps, prompt.converters]).toEqual([2, "text", [{ version: 1, type: "text" }], undefined]);
+    expect(prompt.text).toMatch(/Hindi and Hinglish in Latin letters/u);
   });
 
   it("a voice note or an image with bytes has no ask", () => {

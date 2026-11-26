@@ -60,7 +60,7 @@ final class CameraCoreTests: XCTestCase {
       store: recovered,
       exportsDirectory: root.appendingPathComponent("exports")
     )
-    .sealEverything(appVersion: "1.0.0")
+    .copy(hardware: .synthetic, appVersion: "1.0.0")
     let bundle = try XCTUnwrap(sealed)
     let blobPath = "blobs/\(hash.dropFirst("sha256:".count))"
     XCTAssertEqual(bundle.manifest.files[blobPath]?.sha256, SHA256Digest.tagged(bytes))

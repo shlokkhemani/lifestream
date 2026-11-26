@@ -7,7 +7,7 @@ import { WHERE_VERSION } from "./physical/where.js";
 import { GEOGRAPHY_VERSION } from "./shared/geography.js";
 import { LABELS_CODE, LABELS_FAMILY, labelsFrom, type DayLabels } from "./shared/labels.js";
 
-export const RENDERER_VERSION = `13/${GEOGRAPHY_VERSION}/${WHERE_VERSION}`;
+export const RENDERER_VERSION = `14/${GEOGRAPHY_VERSION}/${WHERE_VERSION}`;
 
 export type DayReader = Pick<View, "extractsOn" | "enrichment" | "sources" | "since">;
 
@@ -74,6 +74,7 @@ export interface DayAtom {
   type?: Type;
   video?: { duration_ms: number | null };
   live?: true;
+  joins?: RecordRef;
 }
 
 export interface DayFileFact {
@@ -139,6 +140,7 @@ export const DAY_FILE_SHAPE = {
     "type?": "string",
     "video?": { duration_ms: "integer|null" },
     "live?": "true",
+    "joins?": { source: "string", kind: "string", key: "string" },
   }],
   facts: [{
     id: "string",
@@ -568,6 +570,7 @@ function numbered(drafts: Draft[]): DayAtom[] {
       ...(line.type === undefined ? {} : { type: line.type }),
       ...(line.video === undefined ? {} : { video: { duration_ms: line.video.duration_ms } }),
       ...(line.live === true ? { live: true as const } : {}),
+      ...(line.joins === undefined ? {} : { joins: { source: line.joins.source, kind: line.joins.kind, key: line.joins.key } }),
     };
   });
 }

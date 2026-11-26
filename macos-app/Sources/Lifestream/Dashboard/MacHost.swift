@@ -524,7 +524,11 @@ import Shipping
             try await serially { try await self.needs.seal("openrouter", key) }
             return nil
         case .models(let act):
-            try await serially { try await self.home().models(act) }
+            try await serially {
+                if case .address(_, _, let key?) = act { try await self.needs.seal(HostAct.ModelsAct.addressSecret, key) }
+                try await self.home().models(act)
+                if case .addressNone = act { try await self.needs.seal(HostAct.ModelsAct.addressSecret, nil) }
+            }
             return nil
         case .process(let family, let item, let prompt, let route):
             try await serially { try await self.home().process(family: family, item: item, prompt: prompt, route: route) }

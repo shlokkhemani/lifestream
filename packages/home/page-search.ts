@@ -41,7 +41,7 @@ const WINDOW: readonly [string, string] = ["window", "windows"];
 const SEE_OR_CURSOR = "a kind's page names its `see`, or the `cursor` a page of it gave";
 
 const FAMILY_TITLES: Readonly<Record<Family, string>> = {
-  messages: "Messages", mail: "Mail", calls: "Calls", calendar: "Calendar", notes: "Notes", ai: "AI chats", web: "Browsing", screen: "Mac",
+  messages: "Messages", mail: "Mail", calls: "Calls", callaudio: "Call recordings", calendar: "Calendar", notes: "Notes", ai: "AI chats", web: "Browsing", screen: "Mac",
   photos: "Photos", health: "Health", money: "Payments", physical: "Places", listening: "Listening", voice: "Voice notes", phone: "Phone",
 };
 

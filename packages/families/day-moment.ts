@@ -3,7 +3,8 @@ import type { DayAtom } from "./days.js";
 import { episodes, photosOf, workoutMs, type DayEpisodes, type Episode, type EpisodesExtras, type EpisodesFile, type Kind } from "./day-episodes.js";
 import { iconOf, recordFocus } from "./day-page.js";
 import { peopleBy, type KnownPerson, type PeopleBy } from "./day-side.js";
-import { appMinutes, callOf, capital, checkInOf, counted, mailOf, paymentOf, productOf, quietLineOf, type QuietLine } from "./day-words.js";
+import type { CallAudioView } from "./callaudio/view.js";
+import { appMinutes, callHeadOf, callOf, capital, checkInOf, counted, mailOf, paymentOf, productOf, quietLineOf, type QuietLine } from "./day-words.js";
 import type { RecordText } from "./family.js";
 
 type Atom = DayAtom;
@@ -24,6 +25,12 @@ export interface MomentMade {
   choose: { value: string; words: string; note: string | null }[];
 }
 
+export interface CallHeard {
+  view: CallAudioView;
+  parts: MomentMade[];
+  summary: MomentMade | null;
+}
+
 export interface MomentReads {
   text(ref: RecordRef): RecordText | null;
   account(item: string): unknown;
@@ -32,6 +39,7 @@ export interface MomentReads {
   place(unit: string): string | null;
   made(ref: RecordRef): MomentMade | null;
   calls(day: string): Atom[];
+  callAudio(unit: string): CallHeard | null;
   people(): readonly KnownPerson[];
 }
 
@@ -70,11 +78,21 @@ export interface Letter {
 export interface Turn {
   at_ms: number | null;
   mine: boolean;
+  who: string | null;
   words: string;
   full: boolean;
   files: string[];
   tools: string[];
   marked: boolean;
+  heard: { record: RecordRef; from_ms: number } | null;
+}
+
+export interface CallRecording {
+  summary: string | null;
+  stopped_ms: number | null;
+  turns: Turn[];
+  made: MomentMade | null;
+  summarised: MomentMade | null;
 }
 
 export interface Step {
@@ -118,6 +136,7 @@ export type MomentView =
   | {
     view: "call"; figure: { length_ms: number | null; words: string | null; label: string } | null; group: string; name: string;
     others: { at_ms: number; way: string; length_ms: number | null }[]; week: { current: boolean; calls: WeekCall[] } | null;
+    recording: CallRecording | null;
   }
   | { view: "mail"; list: boolean; letters: Letter[] }
   | { view: "stay"; today_ms: number; unit: string; note: string | null; inside: Timed[] }
@@ -197,6 +216,9 @@ const WITH_SHOWN = 6;
 const UNANSWERED: Readonly<Record<string, string>> = { Missed: "They called", "No answer": "You called" };
 const AWAY_PRESENT = new Set(["yes"]);
 const CALLS = "calls";
+const CALL = "Call";
+const CALLAUDIO = "callaudio";
+const CALL_TRANSCRIPT = "call-transcript";
 
 interface Model {
   file: EpisodesFile;
@@ -279,7 +301,7 @@ function titleOf(episode: Episode): string {
     case "sitting": return episode.title ? appNames(episode.title) : LABELS[episode.kind];
     case "workout": return episode.title ? capital(episode.title) : LABELS.workout;
     case "mail_sent": return episode.title ?? "(no subject)";
-    case "call": return episode.title ?? "Unknown caller";
+    case "call": return episode.title ?? (episode.family === CALLAUDIO ? LABELS.call : "Unknown caller");
     case "check_in":
     case "stay": return episode.row.name;
     default: return episode.title ?? LABELS[episode.kind];
@@ -399,7 +421,14 @@ function picturesOf(atoms: Atom[]): Picture[] {
 }
 
 function sourceOf(atoms: Atom[]): MomentSource {
-  const records = atoms.flatMap((atom) => atom.record ? [{ ...atom.record, at_ms: atom.start_ms }] : []);
+  const listed = new Set<string>();
+  const records = atoms.flatMap((atom) => {
+    if (!atom.record) return [];
+    const key = `${atom.record.source} ${atom.record.kind} ${atom.record.key}`;
+    if (listed.has(key)) return [];
+    listed.add(key);
+    return [{ ...atom.record, at_ms: atom.start_ms }];
+  });
   const units = [...new Map(atoms.map((atom) => [`${atom.family} ${atom.unit}`, { family: atom.family, unit: atom.unit }])).values()];
   const times = atoms.filter((atom) => atom.start_ms !== null);
   const last = Math.max(...times.map((atom) => (atom.end_ms ?? atom.start_ms)!));
@@ -423,7 +452,10 @@ function namedIn(episode: Episode, atoms: Atom[]): Named[] {
     }
     return [...said].sort((left, right) => right[1] - left[1]).map(([name]) => ({ name, chat: null, call: null }));
   }
-  if (episode.kind === "call") return callOf(first.text).who.split(", ").map((name) => ({ name, chat: null, call: first.record ?? null }));
+  if (episode.kind === "call") {
+    const call = callAtomOf(atoms);
+    return call === undefined ? [] : callOf(call.text).who.split(", ").map((name) => ({ name, chat: null, call: call.record ?? null }));
+  }
   if (episode.kind === "mail_received" && atoms.length === 1) return [{ name: mailOf(first.text).from, chat: null, call: null }];
   if (episode.kind === "mail_sent") return mailOf(first.text).to.split(", ").map((name) => ({ name, chat: null, call: null }));
   return [];
@@ -438,7 +470,7 @@ function peopleOf(episode: Episode, atoms: Atom[], reads: MomentReads): MomentPe
   const named = namedIn(episode, atoms).filter((person) => shown(person.name)).slice(0, PEOPLE_SHOWN);
   if (!named.length) return [];
   const by = peopleBy(reads.people());
-  const record = atoms[0]!.record;
+  const record = (episode.kind === "call" ? callAtomOf(atoms) : atoms[0])?.record;
   const handled = episode.kind === "call" || episode.kind === "mail_received";
   const handles = handled && named.length === 1 && record !== undefined ? reads.text(record)?.who ?? [] : [];
   return named.map((person) => ({ name: person.name, person: personOf(by, person, handles), chat: person.chat, call: person.call }));
@@ -485,25 +517,79 @@ function weekOf(model: Model, own: RecordRef, ids: ReadonlySet<string>, reads: M
   return { current: first === mondayOf(today), calls: calls.sort((left, right) => left.at_ms - right.at_ms) };
 }
 
-function callView(model: Model, episode: Episode, atoms: Atom[], reads: MomentReads, today: string): MomentView {
-  const first = atoms[0]!;
-  const call = callOf(first.text);
+const callAtomOf = (atoms: Atom[]): Atom | undefined => atoms[0]?.family === CALLS ? atoms[0] : undefined;
+
+interface Recorded {
+  holder: string;
+  camera: boolean;
+  recording: CallRecording | null;
+}
+
+function transcriptsOf(parts: readonly MomentMade[], item: string): MomentMade | null {
+  if (!parts.length) return null;
+  const ask = { family: CALLAUDIO, item, prompt: CALL_TRANSCRIPT };
+  const done = parts.filter((part) => part.state === "done");
+  const failed = parts.filter((part) => part.state === "failed");
+  const stuck = parts.find((part) => part.state === "off" || part.state === "needs");
+  if (stuck !== undefined) return { ...stuck, ask };
+  const waiting = parts.find((part) => part.state === "waiting");
+  if (waiting !== undefined) return { ...waiting, ask, line: `Transcribing, ${done.length} of ${parts.length} parts` };
+  if (failed.length) return { ...failed[0]!, ask, line: `${failed.length} ${failed.length === 1 ? "part" : "parts"} couldn't be read` };
+  return { ...done.reduce((latest, part) => (part.at_ms ?? 0) > (latest.at_ms ?? 0) ? part : latest), ask };
+}
+
+function recordedOf(atoms: Atom[], reads: MomentReads, marks: ReadonlySet<number>): Recorded | null {
+  const head = atoms.find((atom) => callHeadOf(atom) !== null);
+  if (head === undefined) return null;
+  const holder = callHeadOf(head)!.holder;
+  const heard = reads.callAudio(head.unit);
+  if (heard === null) return { holder, camera: false, recording: null };
+  const marked = new Set(atoms.filter((atom) => marks.has(atom.n) && atom.family === CALLAUDIO).map((atom) => `${atom.item} ${atom.start_ms}`));
+  const { view } = heard;
+  return {
+    holder,
+    camera: view.camera,
+    recording: {
+      summary: view.summary?.summary || null,
+      stopped_ms: view.stopped_ms,
+      turns: view.turns.map((turn): Turn => ({
+        at_ms: turn.at_ms, mine: turn.mine, who: turn.who, words: turn.words, full: true, files: [], tools: [],
+        marked: marked.has(`${turn.heard.item} ${turn.at_ms}`), heard: { record: turn.heard.record, from_ms: turn.heard.from_ms },
+      })),
+      made: transcriptsOf(heard.parts, view.summary_item),
+      summarised: heard.summary,
+    },
+  };
+}
+
+function callView(model: Model, episode: Episode, atoms: Atom[], reads: MomentReads, today: string, recorded: Recorded | null): MomentView {
   const lasted = lengthOf(episode);
-  const figure = lasted !== null ? { length_ms: lasted, words: null, label: call.way || "Call" }
+  const first = callAtomOf(atoms);
+  const recording = recorded?.recording ?? null;
+  if (first === undefined) {
+    return {
+      view: "call", figure: lasted === null ? null : { length_ms: lasted, words: null, label: CALL }, group: "", name: recorded?.holder || CALL,
+      others: [], week: null, recording,
+    };
+  }
+  const call = callOf(first.text);
+  const figure = lasted !== null ? { length_ms: lasted, words: null, label: call.way || CALL }
     : UNANSWERED[call.way] ? { length_ms: null, words: call.way, label: UNANSWERED[call.way]! } : null;
+  const recordOf = (other: Episode): RecordRef | undefined => callAtomOf(atomsOf(model, other))?.record;
   const others = first.record === undefined ? [] : model.result.episodes.filter((other) => other.kind === "call" && other.id !== episode.id
-    && other.start_ms !== null && atomsOf(model, other)[0]!.record !== undefined);
+    && other.start_ms !== null && recordOf(other) !== undefined);
   const mine = first.record === undefined ? null : reads.text(first.record);
   const ids = new Set(mine?.who ?? []);
-  const same = mine === null ? [] : others.filter((other) => (reads.text(atomsOf(model, other)[0]!.record!)?.who ?? []).some((id) => ids.has(id)))
+  const same = mine === null ? [] : others.filter((other) => (reads.text(recordOf(other)!)?.who ?? []).some((id) => ids.has(id)))
     .sort((left, right) => left.start_ms! - right.start_ms!);
   return {
     view: "call", figure, group: call.group, name: call.who || (others.length ? mine?.title : undefined) || "them",
     others: same.map((other) => {
-      const each = callOf(atomsOf(model, other)[0]!.text);
+      const each = callOf(callAtomOf(atomsOf(model, other))!.text);
       return { at_ms: other.start_ms!, way: capital(each.way || each.kind), length_ms: lengthOf(other) };
     }),
     week: first.record === undefined ? null : weekOf(model, first.record, ids, reads, today),
+    recording,
   };
 }
 
@@ -522,7 +608,7 @@ function aiView(atoms: Atom[], reads: MomentReads, marks: ReadonlySet<number>): 
       const full = Boolean(turn?.words);
       const files = full ? [...(turn!.attachments ?? []).map((file) => file.name), ...(turn!.images ? [counted(turn!.images, "image")] : [])] : [];
       const mine = full ? turn!.role === "user" : line.mine;
-      return { at_ms: atom.start_ms, mine, words: full ? turn!.words : line.words, full, files, tools: full ? turn!.tools ?? [] : [], marked: marks.has(atom.n) };
+      return { at_ms: atom.start_ms, mine, who: null, words: full ? turn!.words : line.words, full, files, tools: full ? turn!.tools ?? [] : [], marked: marks.has(atom.n), heard: null };
     }),
   };
 }
@@ -640,13 +726,13 @@ function paymentView(atoms: Atom[]): MomentView {
   };
 }
 
-function viewOf(model: Model, episode: Episode, atoms: Atom[], reads: MomentReads, marks: ReadonlySet<number>, now: number | null, today: string): MomentView {
+function viewOf(model: Model, episode: Episode, atoms: Atom[], reads: MomentReads, marks: ReadonlySet<number>, now: number | null, today: string, recorded: Recorded | null): MomentView {
   const quiet = model.quiet.get(episode.id);
   if (quiet) return { view: "quiet", chat: quiet.chat };
   switch (episode.kind) {
     case "conversation": return { view: "thread", chat: atoms.find((atom) => atom.block)?.block?.key ?? null, group: Boolean(episode.group) };
     case "ai": return aiView(atoms, reads, marks);
-    case "call": return callView(model, episode, atoms, reads, today);
+    case "call": return callView(model, episode, atoms, reads, today, recorded);
     case "mail_sent":
     case "mail_received": {
       const list = episode.kind === "mail_received" && atoms.length > 1;
@@ -696,19 +782,22 @@ export function moment(file: EpisodesFile, extras: EpisodesExtras, ask: MomentAs
   const quiet = model.quiet.get(episode.id);
   const also = model.result.also.includes(episode.id);
   const letter = episode.kind === "mail_received" && mark !== null && marked.has(mark) ? atoms.findIndex((atom) => atom.n === mark) : -1;
-  const products = episode.kind === "call" ? [callOf(first.text).kind] : quiet ? [productOf(extras.products, quiet.chat).name]
+  const recorded = episode.kind === "call" ? recordedOf(atoms, reads, marked) : null;
+  const call = episode.kind === "call" ? callAtomOf(atoms) : undefined;
+  const products = episode.kind === "call" ? call !== undefined ? [callOf(call.text).kind] : recorded?.holder ? [recorded.holder] : [] : quiet ? [productOf(extras.products, quiet.chat).name]
     : [...new Set(atoms.flatMap((atom) => atom.record ? [productOf(extras.products, atom.record.source).name] : []))];
   const named = quiet ? quiet.title : titleOf(episode);
   const single = episode.kind === "mail_received" && atoms.length === 1 ? first : null;
   const title = single ? mailOf(single.text).subject || "(no subject)" : VOICED.has(episode.kind) && episode.title !== null ? `“${named}”` : named;
   const chat = episode.kind === "conversation" && !episode.group ? first.block?.key ?? "" : "";
   const out = episode.kind === "conversation" ? (episode.group ? null : reads.open(chat)) : null;
-  const record = episode.kind === "conversation" || (episode.kind === "mail_received" && atoms.length > 1) ? null : atoms.find((atom) => atom.record)?.record ?? null;
+  const record = episode.kind === "conversation" || (episode.kind === "mail_received" && atoms.length > 1) ? null
+    : (call ?? atoms.find((atom) => atom.record))?.record ?? null;
   return {
     key: episode.id,
     row: id,
     kind: episode.kind,
-    icon: quiet ? "meeting" : iconOf(episode, extras.products),
+    icon: quiet ? "meeting" : call === undefined && recorded?.camera ? "video" : iconOf(episode, extras.products),
     title,
     name: named,
     near: episode.kind === "stay" ? rowLine(episode) || null : null,
@@ -725,6 +814,6 @@ export function moment(file: EpisodesFile, extras: EpisodesExtras, ask: MomentAs
     marks: [...marked].flatMap((n) => model.atoms.get(n)?.record?.key ?? []),
     pictures: picturesOf(atoms),
     source: sourceOf(atoms),
-    view: viewOf(model, episode, atoms, reads, marked, now, ask.today),
+    view: viewOf(model, episode, atoms, reads, marked, now, ask.today, recorded),
   };
 }

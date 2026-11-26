@@ -74,7 +74,7 @@ extension OptimizationBenchmarks {
         var before = rusage()
         getrusage(RUSAGE_SELF, &before)
         let exporter = CaptureExporter(store: store, exportsDirectory: exports)
-        let sealed = try await exporter.sealEverything(appVersion: "1.0.0")
+        let sealed = try await exporter.copy(hardware: .synthetic, appVersion: "1.0.0")
         let first = try XCTUnwrap(sealed)
         XCTAssertEqual(first.manifest.files["blobs/" + String(blob.hash.dropFirst(7))]?.bytes,
             UInt64(mib) * 1_048_576)

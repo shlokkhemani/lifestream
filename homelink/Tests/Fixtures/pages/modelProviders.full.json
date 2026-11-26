@@ -171,6 +171,9 @@
         "remove": "Remove",
         "field": "Server URL",
         "placeholder": "http://localhost:11434/v1",
+        "key_field": "API key",
+        "key_about": "Only if the server asks for one.",
+        "key_placeholder": "sk-…",
         "save": "Save"
       },
       "kind": "address"

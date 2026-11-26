@@ -8,7 +8,7 @@ export type { AcquirerSettings, Dependencies, ImapClient, ImapConnection, ImapMa
 export type { Recipe } from "./shared/recipe.js";
 export type {
   Activity, Adapter, Adapters, AdapterSource, AdapterVersion, AiAdapter, AiFile, AiLine, AiSaid, AiSession, AiTurn, CalendarAdapter, CalendarCopy, CalendarEvent, CalendarParty,
-  CalendarWords, Call, CallParty, CallsAdapter, Copy, Cycle, DaySummary, Dictation, Fix, Focus, HealthAdapter, HealthItem, How, InputRecord,
+  CalendarWords, Call, CallAudioAdapter, CallAudioPart, CallLoudness, CallOutput, CallParty, CallsAdapter, CallTrack, Copy, Cycle, DaySummary, Dictation, Fix, Focus, HealthAdapter, HealthItem, How, InputRecord,
   InstrumentWorkout, LabelsAdapter, Line, LineAdapter, ListeningAdapter, MailAdapter, MailItem, Meeting, MessageFact, MessageImages, MessageLabel,
   MessagePart, MessageParty, MessagesAdapter, MoneyAdapter, Months, Motion, Note, NotesAdapter, PartyKind, PhoneAdapter, PhotoFile, PhotoHead, PhotoPosition,
   PhotoResource, PhotosAdapter, PhotoView, PhysioDay, Play, PlayEntry, PlayHeard, PlayItem, Recording, Recovery, RecoveryFacts, Reminder, Report,

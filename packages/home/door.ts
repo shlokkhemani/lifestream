@@ -12,7 +12,7 @@ import {
 } from "@lifestreamprotocol/core";
 import { ask as askConnector, chromeSites, extensionOf, faces, iosDomainOf, isLibrary, siteOrigins, googlePlaces, ownerReaders, Refused, STATEMENTS_FILE, statedAt, tabClaim, type Connector, type OwnerReader, type Pictures, type TabClaim } from "@lifestreamprotocol/connect";
 import { fedNone } from "@lifestreamprotocol/families";
-import { BLOB_NAME, CHAT_ID, missingFiles, NOTE_ID, openStage, PHOTO_BYTES, PHOTO_TOO_LARGE, SECOND_BYTES, stagedOrStored, type Taken } from "./ask-files.js";
+import { BLOB_NAME, CHAT_ID, missingFiles, NOTE_ID, openStage, PHOTO_BYTES, PHOTO_TOO_LARGE, QUESTION_FILES, SECOND_BYTES, stagedOrStored, type Taken } from "./ask-files.js";
 import { openAcquisitionBundle, sealAcquisitionBundle, type AcquisitionBundle } from "./bundle.js";
 import { allowExtension, connectFrom } from "./connecting.js";
 import { catalogOf } from "./catalog.js";
@@ -35,6 +35,7 @@ import { isProgramName } from "./subscriptions.js";
 import { routeOf } from "./log-route.js";
 import { PeerGuesses, type PairRefusal } from "./pairing.js";
 import { sealPhoneBundle } from "./phone.js";
+import { openStagedFiles, type AdmittedBody, type Put, type StagedFiles } from "./staged-files.js";
 import { assertAllowed, assertThroughServer, authenticate, deviceOf, hiddenReader, readPrincipals, SERVER_HEADER, tokenTag, turnPasses, type HiddenReader, type Principal, type Reach } from "./principals.js";
 import { refreshRoute } from "./door-refresh.js";
 import type { Ran, Short, Timed } from "./reader.js";
@@ -61,7 +62,7 @@ import { ask, askHome, NoHomeError, socketPath, type HomeSocket } from "./socket
 import { nudges, type Nudges } from "./nudges.js";
 import { NO_SLOT_KEY, type SlotHanded } from "./vault.js";
 import { chatRoute, CHAT_BODY_BYTES, CHAT_ROUTE, type Reached } from "./chat-route.js";
-import { bodyOf, CutShort, LINGER_MS, moving, refuseCut, refusedOn } from "./silence.js";
+import { bodyOf, LINGER_MS, moving, refuseCut, refusedOn } from "./silence.js";
 import { openStations, type Stations } from "./stations.js";
 import type { PeerWire } from "./peers.js";
 import { openRunners, wantedOn } from "./runners.js";
@@ -191,9 +192,12 @@ export const ACTS: Readonly<Record<Act, Relayed>> = {
 const isAgentAct = (key: string): key is AgentAct => Object.hasOwn(AGENT_ROUTES, key);
 const ACQUISITION_ROUTE = /^\/v1\/acquisitions\/([^/]+)\/(\d{8}T\d{6}(?:\.\d{1,9})?Z)(?:\.([0-9a-f]{12}))?$/u;
 const PHONE_ROUTE = /^\/v1\/bundles\/(sha256:[a-f0-9]{64})$/u;
+const FILE_ROUTE = /^\/v1\/files\/(sha256:[a-f0-9]{64})$/u;
+const OFFSET_HEADER = "upload-offset";
+const OFFSET = /^(?:0|[1-9][0-9]{0,15})$/u;
 const STREAM_ROUTE = /^\/v1\/connectors\/([^/]+)$/u;
 const DELIVERING = (method: string | undefined, pathname: string): boolean =>
-  (method === "POST" && (pathname === "/v1/exchange" || pathname === HELD_ROUTE || pathname === IMPORTS_HELD_ROUTE)) || (method === "PUT" && (PHONE_ROUTE.test(pathname) || ACQUISITION_ROUTE.test(pathname)));
+  (method === "POST" && (pathname === "/v1/exchange" || pathname === HELD_ROUTE || pathname === IMPORTS_HELD_ROUTE)) || (method === "PUT" && (PHONE_ROUTE.test(pathname) || FILE_ROUTE.test(pathname) || ACQUISITION_ROUTE.test(pathname)));
 const KIND_HEADER = "lifestream-kind";
 interface LandRule {
   readonly what: string;
@@ -202,11 +206,6 @@ interface LandRule {
   readonly head: number;
   kind(head: Buffer): boolean;
   readonly kindWords: string;
-}
-interface AdmittedBody {
-  readonly kind: WriteKind;
-  need: number;
-  landed: number;
 }
 export const QUIET = "Lifestream is stopped for a move or a check of its files: try again in a minute.";
 const REQUEST_TIMEOUT_MS = 6 * 3_600_000;
@@ -440,6 +439,9 @@ interface Intake {
   readonly active: Set<string>;
   readonly admitted: Set<AdmittedBody>;
   readonly inBody: Set<IncomingMessage>;
+  readonly received: WeakMap<IncomingMessage, number>;
+  readonly files: StagedFiles;
+  room(kind: WriteKind, more: number): void;
   readonly guesses: PeerGuesses;
   serve(serving: Serving): () => void;
   close(): void;
@@ -450,7 +452,7 @@ export class AnotherDoor extends Error {}
 const DOOR_LOCK_WAIT_MS = 2_000;
 
 
-function openIntake(folder: string, options: DoorOptions, where: () => string[], erasable: ErasableStreams): Intake {
+function openIntake(folder: string, options: DoorOptions, where: () => string[], erasable: ErasableStreams, mark: () => void): Intake {
   const clock = options.clock ?? Date.now;
   const log = options.log ?? ((line: string) => { process.stdout.write(`${line}\n`); });
   const say = (line: JsonObject) => log(JSON.stringify({ at: new Date(clock()).toISOString(), ...line }));
@@ -471,6 +473,24 @@ function openIntake(folder: string, options: DoorOptions, where: () => string[],
     const uploads = join(folder, "door", "uploads");
     rmSync(uploads, { recursive: true, force: true });
     makeUnder(folder, uploads);
+    const admitted = new Set<AdmittedBody>();
+    const inBody = new Set<IncomingMessage>();
+    const received = new WeakMap<IncomingMessage, number>();
+    const taken = (): number => [...admitted].reduce((sum, body) => sum + body.need - body.landed, 0);
+    const room = (kind: WriteKind, more: number): void => {
+      const need = taken() + more;
+      const free = freeOf(folder);
+      if (fits(free, kind, need)) return;
+      if (free !== null && files.spare(need + lineOf(kind) - free) > 0 && fits(freeOf(folder), kind, taken() + more)) return;
+      refuse(503, "DISK_LOW", `${free ?? "unknown"} bytes free, ${need} taken by the bodies landing; a ${kind} upload keeps ${lineOf(kind)} free`, RETRY_FULL_S);
+    };
+    const files: StagedFiles = openStagedFiles(handle, {
+      clock,
+      receiving: {
+        stored: handle.blobs(join(folder, "blobs"), { reading: true }), admitted, inBody, silentMs: options.silentMs ?? SILENT_MS, recheckBytes: options.recheckBytes ?? RECHECK_BYTES,
+        room, received: (request, bytes) => received.set(request, bytes), mark,
+      },
+    });
     const seated: Serving[] = [];
     let stated: StatedStore | undefined;
     const custody = openCustody({
@@ -487,7 +507,7 @@ function openIntake(folder: string, options: DoorOptions, where: () => string[],
     nudged.owe();
     const held = stated;
     return {
-      folder, handle, erasable, root, custody, stated: held, nudges: nudged, socket, active: new Set(), admitted: new Set(), inBody: new Set(), guesses: new PeerGuesses(clock),
+      folder, handle, erasable, root, custody, stated: held, nudges: nudged, socket, active: new Set(), admitted, inBody, received, files, room, guesses: new PeerGuesses(clock),
       serve(serving) {
         seated.push(serving);
         return () => {
@@ -515,7 +535,7 @@ function openIntake(folder: string, options: DoorOptions, where: () => string[],
 
 function openFolder(intake: Intake, folder: string, settings: DoorAddress, options: DoorOptions, failed: (why: string) => void,
   reachOf: (socket: Socket) => Reach, mark: () => void, asked: (pass: string) => void): Opened {
-  const { handle, root, custody, stated, active, admitted, inBody, guesses, nudges: nudged, erasable, socket } = intake;
+  const { handle, root, custody, stated, active, admitted, inBody, received, files, room, guesses, nudges: nudged, erasable, socket } = intake;
   const clock = options.clock ?? Date.now;
   const at = options.machine ?? machine();
   const uploads = join(folder, "door", "uploads");
@@ -589,6 +609,12 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       if (removed.length > 0) log(JSON.stringify({ at: new Date(clock()).toISOString(), stage: "swept", removed: removed.length }));
     } catch (error) {
       log(JSON.stringify({ at: new Date(clock()).toISOString(), stage: "sweep failed", error: errorText(error) }));
+    }
+    try {
+      const removed = files.sweep(stored);
+      if (removed > 0) log(JSON.stringify({ at: new Date(clock()).toISOString(), files: "swept", removed }));
+    } catch (error) {
+      log(JSON.stringify({ at: new Date(clock()).toISOString(), files: "sweep failed", error: errorText(error) }));
     }
   };
   void sweepStage();
@@ -673,7 +699,6 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     head: () => readers.read<Position | undefined>({ feed: "head" }), page: (after) => readers.read<Page | undefined>({ feed: { after } }),
   }, log, options.beats?.feed, mark), (opened) => opened.close());
   const settling: Settling = { feed, ...(options.beats?.settled === undefined ? {} : { bound: options.beats.settled }) };
-  const received = new WeakMap<IncomingMessage, number>();
   const viewed = async <T>(short: Short): Promise<T> => {
     let read: T | null;
     try {
@@ -812,7 +837,9 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     const asked = (await body(request)).blobs;
     if (!Array.isArray(asked) || asked.some((blob) => typeof blob !== "string" || !BLOB_NAME.test(blob))) refuse(422, "BAD_REQUEST", "blobs is a list of sha256:<64 hex>");
     if (asked.length > HELD_MOST) refuse(422, "BAD_REQUEST", `at most ${HELD_MOST} blobs a request`);
-    return [200, { held: [...new Set(asked as string[])].filter((blob) => stored.has(blob)) }];
+    const names = [...new Set(asked as string[])];
+    const held = new Set(names.filter((blob) => stored.has(blob)));
+    return [200, { held: [...held], ...files.held(names.filter((blob) => !held.has(blob))) }];
   };
 
   const heldImports = async (principal: Principal, request: IncomingMessage): Promise<[number, JsonObject]> => {
@@ -873,14 +900,6 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     if (!custody.delivers(principal).includes(source)) refuse(403, "PRINCIPAL_SCOPE", `${source} is turned off: the home takes none of it`);
   };
 
-  const taken = (): number => [...admitted].reduce((sum, body) => sum + body.need - body.landed, 0);
-  const room = (kind: WriteKind, more: number): void => {
-    const free = freeOf(folder);
-    if (fits(free, kind, taken() + more)) return;
-    refuse(503, "DISK_LOW", `${free ?? "unknown"} bytes free, ${taken() + more} taken by the bodies landing; a ${kind} upload keeps ${lineOf(kind)} free`,
-      RETRY_FULL_S);
-  };
-
   const admit = (request: IncomingMessage): AdmittedBody => {
     const length = request.headers["content-length"];
     if (length === undefined) refuse(411, "LENGTH_REQUIRED", "an upload states its length (Content-Length)");
@@ -904,7 +923,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     try {
       await file.writing((async function* () {
         try {
-          for await (const chunk of moving(request as AsyncIterable<Buffer>, silentMs, () => { silent = true; request.destroy(); })) {
+          for await (const chunk of moving(request.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>, silentMs, () => { silent = true; request.destroy(); })) {
             body.landed += chunk.byteLength;
             received.set(request, body.landed);
             if (body.landed - checked >= recheckBytes) {
@@ -1621,7 +1640,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       const voiced = new Set(unstaged.length === 0 ? [] : await voicedOf(unstaged));
       for (const blob of unstaged) if (!voiced.has(blob)) holds.delete(blob);
       const missing = [...named].filter((blob) => !bundle.blobs.has(blob.slice(7)) && !stage.has(blob) && !kept.has(blob));
-      if (missing.length > 0) missingFiles({ photos: missing.filter((blob) => !audio.has(blob)), audio: missing.filter((blob) => audio.has(blob)) });
+      if (missing.length > 0) missingFiles({ photos: missing.filter((blob) => !audio.has(blob)), audio: missing.filter((blob) => audio.has(blob)) }, QUESTION_FILES);
     }
     const pictures: Pictures = {
       carried: (blob) => {
@@ -1706,7 +1725,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
             const carried = await stage.carry(owned.files, inboxLane(handle, source), owned.kept);
             if (carried.missing.length > 0) {
               carried.undo();
-              missingFiles({ photos: carried.missing.filter((blob) => !owned.audio.includes(blob)), audio: carried.missing.filter((blob) => owned.audio.includes(blob)) });
+              missingFiles({ photos: carried.missing.filter((blob) => !owned.audio.includes(blob)), audio: carried.missing.filter((blob) => owned.audio.includes(blob)) }, QUESTION_FILES);
             }
             try {
               await sealAcquisitionBundle(handle, bundle, stamp, { name, facts: { ...owned.facts, blobs_carried: bundle.blobs.size + carried.carried.length } });
@@ -1753,7 +1772,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
         write: (stamp) => sealing(async () => {
           const delivery = openSealing(handle, { source: lane, name: bundleId, feeder: "ios-bundle", fetched_at: stamp.sealed_at });
           try {
-            await sealPhoneBundle(handle, partial, bundle, delivery, { lane: inboxLane(handle, lane), home: stored, custody: seals, stamp });
+            await sealPhoneBundle(handle, partial, bundle, delivery, { lane: inboxLane(handle, lane), home: stored, files, custody: seals, stamp });
           } catch (error) { delivery.abandon(); throw error; }
         }),
       });
@@ -1761,6 +1780,25 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     });
     nudged.owe(id);
     return [201, await custody.answer(principal, reach)];
+  };
+
+  const putFile = async (principal: Principal, name: string, request: IncomingMessage): Promise<Put> => {
+    const lane = principal.kind === "phone" ? laneOf("phone", principal.unit)! : refuse(403, "PRINCIPAL_SCOPE", `pass ${principal.id} is no phone's: a phone sends its files on their own`);
+    assertAllowed(principal, "deliver", lane);
+    const length = request.headers["content-length"];
+    if (length === undefined) refuse(411, "LENGTH_REQUIRED", "a file states its length (Content-Length)");
+    const said = request.headers[OFFSET_HEADER] ?? "0";
+    if (typeof said !== "string" || !OFFSET.test(said) || !Number.isSafeInteger(Number(said))) refuse(422, "UPLOAD_HEADERS", "Upload-Offset is the bytes the sender skips, a decimal integer");
+    const stated = { offset: Number(said), length: Number(length), kind: request.headers[KIND_HEADER] === "new" ? "new" as const : "later" as const };
+    if (stated.offset + stated.length > settings.max_bundle_bytes) {
+      refuse(413, "FILE_TOO_LARGE", `the file is ${stated.offset + stated.length} bytes; the door takes at most ${settings.max_bundle_bytes}`);
+    }
+    try {
+      return await files.put(name, request, stated);
+    } catch (error) {
+      if (outOfRoom(error)) refuse(503, "DISK_LOW", `the disk filled as the file landed: ${(error as Error).message}`, RETRY_FULL_S);
+      throw error;
+    }
   };
 
   const working = new Map<Promise<unknown>, { socket: Socket; kind: () => keyof Cut; unanswered: () => boolean }>();
@@ -1787,9 +1825,9 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
         ...(timed === null ? {} : { slowest: { sql: timed.slowest.sql, ms: Math.round(timed.slowest.ms) }, statements: timed.statements, statements_ms: Math.round(timed.ms) }),
       }),
     });
-    const answer = (status: number, body: JsonObject, retryAfter?: number, cut = false): void => {
+    const answer = (status: number, body: JsonObject, retryAfter?: number): void => {
       const headers = { "content-type": "application/json", ...(retryAfter === undefined ? {} : { "retry-after": String(retryAfter) }) };
-      if (cut) return refuseCut(request, response, status, headers, JSON.stringify(body), lingerMs);
+      if (!request.complete && !request.destroyed && (Number(request.headers["content-length"] ?? 0) > 0 || request.headers["transfer-encoding"] !== undefined)) return refuseCut(request, response, status, headers, JSON.stringify(body), lingerMs);
       response.writeHead(status, headers);
       response.end(JSON.stringify(body));
     };
@@ -1929,6 +1967,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
           device(principal.kind, request);
           if (request.method === "PUT" && retired(folder)) notNow("busy", MOVED_AWAY, RETRY_FULL_S);
           const phone = request.method === "PUT" ? PHONE_ROUTE.exec(pathname) : null;
+          const sent = request.method === "PUT" ? FILE_ROUTE.exec(pathname) : null;
           const streamed = request.method === "POST" ? STREAM_ROUTE.exec(pathname) : null;
           const acquisition = request.method === "PUT" ? ACQUISITION_ROUTE.exec(pathname) : null;
           const source = acquisition === null ? null : decodeSegment(acquisition[1]!);
@@ -2001,6 +2040,15 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
             result = [200, { stated: stated.held() }];
           }
           else if (phone !== null) result = await putPhone(principal, reach, phone[1]!, request);
+          else if (sent !== null) {
+            const put = await putFile(principal, sent[1]!, request);
+            if ("cut" in put) {
+              response.destroy();
+              line(499, put.cut);
+              return;
+            }
+            result = "held" in put ? [200, { file: sent[1]!, held: true }] : [201, { file: sent[1]! }];
+          }
           else if (source !== null) result = await putAcquisition(principal, reach, source, acquisition![2]!, acquisition![3], request);
           else result = [404, { message: "unknown endpoint" }];
         }
@@ -2017,7 +2065,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
           response.destroy();
           line(response.statusCode, { message: scrub((error as Error).message ?? String(error)) });
         } else if (error instanceof Refusal) {
-          answer(error.status, { code: error.code, message: error.words, ...error.extra }, error.retryAfter, error instanceof CutShort);
+          answer(error.status, { code: error.code, message: error.words, ...error.extra }, error.retryAfter);
           line(error.status, { code: error.code, ...(error.status === 503 ? { message: scrub(error.words) } : {}),
             ...(error.status === 401 ? { token: tokenTag(request.headers.authorization) } : {}) });
         } else {
@@ -2208,7 +2256,7 @@ export async function serveDoor(named: string | null, settings: DoorAddress, opt
     let seat: Intake | null = reused;
     let part: Opened | null = null;
     try {
-      seat ??= openIntake(folder, options, () => reach(at, lan?.port ?? null), erasable);
+      seat ??= openIntake(folder, options, () => reach(at, lan?.port ?? null), erasable, mark);
       const mine = seat;
       part = openFolder(mine, folder, settings, options, (failed) => {
         if (intake !== mine) return say({ door: "storage failed", why: failed });
@@ -2380,12 +2428,13 @@ export async function serveDoor(named: string | null, settings: DoorAddress, opt
       ...deviceLine(request, sockets.get(request.socket) ?? "lan"), code: LOCKED });
   };
   const server: Server = createServer({ requestTimeout: REQUEST_TIMEOUT_MS }, (request, response) => {
-    if (refusedOn(request.socket)) return;
-    busy.add(request.socket);
+    const socket = request.socket;
+    if (refusedOn(socket)) return;
+    busy.add(socket);
     mark();
     response.on("close", () => {
-      busy.delete(request.socket);
-      if (closing !== undefined) request.socket.destroySoon();
+      busy.delete(socket);
+      if (closing !== undefined) socket.destroySoon();
     });
     allowExtension(request, response);
     if (pathOf(request) === null) {

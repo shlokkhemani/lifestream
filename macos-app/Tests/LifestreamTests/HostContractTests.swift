@@ -247,8 +247,9 @@ final class HostContractTests: XCTestCase {
                                        ["use": "pictures", "model": "claude:claude-opus-5-5", "route": "claude:claude-opus-5-5"]] {
             XCTAssertEqual(act((["act": "models", "do": "default"] as [String: Any]).merging(refused) { $1 }), .failure(.unreadable(nil)), "\(refused)")
         }
-        XCTAssertEqual(HostAct.ModelsAct.default(use: .chat, model: "claude:claude-opus-5-5", thinking: "high").args,
-                       ["default", "chat", "claude:claude-opus-5-5", "--thinking", "high"])
+        let thinking = HostAct.ModelsAct.default(use: .chat, model: "claude:claude-opus-5-5", thinking: "high")
+        XCTAssertEqual(thinking.options + ["--"] + thinking.args, ["--thinking", "high", "--", "default", "chat", "claude:claude-opus-5-5"],
+                       "a flag after -- reaches the verb as a word of its own")
         XCTAssertEqual(HostAct.ModelsAct.default(use: .search, model: "none").args, ["default", "search", "none"])
         XCTAssertEqual(act(["act": "models", "do": "file", "runner": "runner-macbook-pro-0001", "id": "qwen3.5-4b", "to": "fetch"]),
                        .success(.models(.file(runner: "runner-macbook-pro-0001", id: "qwen3.5-4b", fetch: true))))
@@ -277,6 +278,16 @@ final class HostContractTests: XCTestCase {
         XCTAssertEqual(HostAct.ModelsAct.address(url: "http://127.0.0.1:11434/v1", input: [.text, .image]).args,
                        ["address", "http://127.0.0.1:11434/v1", "text,image"])
         XCTAssertEqual(HostAct.ModelsAct.address(url: "http://127.0.0.1:11434/v1", input: nil).args, ["address", "http://127.0.0.1:11434/v1"])
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "https://api.example.com/v1", "key": "sk-fake0000"]),
+                       .success(.models(.address(url: "https://api.example.com/v1", input: nil, key: "sk-fake0000"))))
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "https://api.example.com/v1", "input": ["text"], "key": "sk-fake0000"]),
+                       .success(.models(.address(url: "https://api.example.com/v1", input: [.text], key: "sk-fake0000"))))
+        for key: Any in ["", "sk fake", 7, NSNull()] {
+            XCTAssertEqual(act(["act": "models", "do": "address", "url": "https://api.example.com/v1", "key": key]), .failure(.unreadable(nil)), "\(key)")
+        }
+        let keyed = HostAct.ModelsAct.address(url: "https://api.example.com/v1", input: nil, key: "sk-fake0000")
+        XCTAssertEqual(keyed.options + ["--"] + keyed.args, ["--key", "--", "address", "https://api.example.com/v1"],
+                       "the key goes to the vault, never into the verb's arguments")
         XCTAssertEqual(act(["act": "process", "family": "photos", "item": "ph-0001", "prompt": "describe", "route": "openrouter:fake-model"]),
                        .success(.process(family: "photos", item: "ph-0001", prompt: "describe", route: "openrouter:fake-model")))
         XCTAssertEqual(act(["act": "general-login", "on": kCFBooleanTrue as Any]), .success(.general(.login(on: true))))

@@ -3,8 +3,8 @@
   "zone": "America/New_York",
   "day_start_hour": 4,
   "window": {"start_ms":1792828800000,"end_ms":1792915200000},
-  "renderer": "13/3-7414146adf6d/7",
-  "inputs": "sha256:cee1769342f7e75d04fbad239ed8b3f8e6c78edf525bf918c587a88cf2642fd2",
+  "renderer": "14/3-7414146adf6d/7",
+  "inputs": "sha256:b6543da4a7d479e4aeb6399ce7a954b44cb4c718770ee9d5981d1fa94c42d0ec",
   "counts": {"total":1,"per_family":{"tally":1}},
   "coverage": [{"family":"tally","sources":[{"source":"example-tally:acct-aa01:mac-0001","read":"none"}]}],
   "atoms": [

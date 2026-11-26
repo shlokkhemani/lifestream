@@ -48,6 +48,7 @@ type Shape = { readonly parts: readonly (string | Shows)[]; readonly tail?: true
 const SHAPES: readonly Shape[] = [
   { parts: ["acquisitions", source, delivery] },
   { parts: ["bundles", blob] },
+  { parts: ["files", blob] },
   { parts: ["connectors", id] },
   { parts: ["days", day] },
   { parts: ["blobs", blob] },

@@ -181,7 +181,7 @@ export function checkDocs(root: string): Break[] {
         }
         const absolute = join(root, to);
         if (pathPart !== "" && !existsSync(absolute)) {
-          if (secret(page) && newer(to)) continue;
+          if (secret(page) && (newer(to) || newer(dirname(to)))) continue;
           breaks.push({ file: page, line, what: `link ${target}: no ${to}` });
           continue;
         }

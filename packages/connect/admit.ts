@@ -83,7 +83,7 @@ function editDistance(a: string, b: string): number {
 }
 
 const FAMILIES: Readonly<Record<keyof Adapters, true>> = {
-  messages: true, mail: true, ai: true, calls: true, calendar: true, notes: true, listening: true, health: true, money: true, photos: true, physical: true,
+  messages: true, mail: true, ai: true, calls: true, callaudio: true, calendar: true, notes: true, listening: true, health: true, money: true, photos: true, physical: true,
   web: true, voice: true, phone: true, screen: true, labels: true, line: true,
 };
 
@@ -93,7 +93,7 @@ type RequiredCalls<A> = { [K in keyof A]-?: {} extends Pick<A, K> ? never : A[K]
 type CallsOf = { readonly [F in keyof Adapters]-?: readonly RequiredCalls<NonNullable<Adapters[F]>>[] };
 
 const CALLS = {
-  messages: ["message", "group", "members"], mail: ["mail"], ai: [], calls: ["call"], calendar: ["words"], notes: ["note"], listening: ["play"],
+  messages: ["message", "group", "members"], mail: ["mail"], ai: [], calls: ["call"], callaudio: ["part"], calendar: ["words"], notes: ["note"], listening: ["play"],
   health: ["item"], money: [], photos: ["rank", "copy", "files", "image", "placedBy", "position"], physical: [], web: ["item"], voice: [], phone: ["focus"],
   screen: [], labels: [], line: ["line"],
 } as const satisfies CallsOf;

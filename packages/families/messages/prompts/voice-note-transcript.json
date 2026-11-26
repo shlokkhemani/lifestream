@@ -1,5 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "type": "text",
-  "keeps": []
+  "keeps": [
+    {
+      "version": 1,
+      "type": "text"
+    }
+  ]
 }

@@ -22,10 +22,6 @@ final class PhoneShipper: ObservableObject {
         }
     }
 
-    struct Conditions: Sendable {
-        var long: Bool
-    }
-
     struct Unsent: Equatable {
         var fix: Date?
         var other: Date?
@@ -33,12 +29,6 @@ final class PhoneShipper: ObservableObject {
         var waitsForNetwork = false
     }
 
-    enum Wait: Hashable, Sendable {
-        case longWake
-        case network(MobileData.Wait)
-    }
-
-    nonisolated static let aloneBytes = CaptureExporter.sharedBytes
     nonisolated static let tooOldSeconds: TimeInterval = 3600
     static let photoGap: TimeInterval = 300
     static let photoBackstop: TimeInterval = 1800
@@ -48,7 +38,7 @@ final class PhoneShipper: ObservableObject {
     @Published private(set) var unit: String?
     @Published private(set) var saved: SavedAnswer?
     @Published private(set) var pending: [PendingBundle] = []
-    @Published private(set) var waits: Set<Wait> = []
+    @Published private(set) var waits: Set<MobileData.Wait> = []
     @Published private(set) var sendFailure: String?
     @Published private(set) var lifecycle: Lifecycle
     private(set) var clock = SendClock()
@@ -61,7 +51,6 @@ final class PhoneShipper: ObservableObject {
     private let now: @MainActor () -> Date
     private let hardware: @MainActor () -> DeviceHardware
     private let appVersion: String
-    private let conditions: @MainActor () -> Conditions
     private let ledger: EnergyLedger
     private let clear: @MainActor (FreshAnswer) async throws -> Void
     private let settings: @MainActor (FreshAnswer) async -> Bool
@@ -97,7 +86,6 @@ final class PhoneShipper: ObservableObject {
     init(stateURL: URL, link: HomeLink, custody: PhoneCustody, warnings: HomeWarnings,
          now: @escaping @MainActor () -> Date, hardware: @escaping @MainActor () -> DeviceHardware, appVersion: String,
          ledger: EnergyLedger = .shared,
-         conditions: @escaping @MainActor () -> Conditions,
          clear: @escaping @MainActor (FreshAnswer) async throws -> Void,
          settings: @escaping @MainActor (FreshAnswer) async -> Bool,
          settingWaits: @escaping @MainActor () -> Bool,
@@ -112,7 +100,7 @@ final class PhoneShipper: ObservableObject {
          contactsStarted: @escaping @MainActor () async -> Date?) {
         self.stateURL = stateURL; self.link = link; self.custody = custody
         self.warnings = warnings; self.now = now; self.hardware = hardware; self.appVersion = appVersion
-        self.ledger = ledger; self.conditions = conditions; self.clear = clear; self.settings = settings
+        self.ledger = ledger; self.clear = clear; self.settings = settings
         self.settingWaits = settingWaits; self.exchange = exchange; self.uploads = uploads
         self.stopRecording = stopRecording; self.sleep = sleep; self.ready = ready; self.budget = budget
         self.photoPass = photoPass; self.contactsPass = contacts; self.contactsStarted = contactsStarted
@@ -533,6 +521,7 @@ final class PhoneShipper: ObservableObject {
         }
 
         fileprivate func notYet(until deadline: Date? = nil) {
+            guard !cancelled else { return }
             backsOff = true
             if let deadline { notBefore = max(notBefore ?? deadline, deadline) }
             hear(.notYet)
@@ -593,16 +582,12 @@ final class PhoneShipper: ObservableObject {
 
     private var shareFolder: URL { custody.exporter.exportsDirectory.appendingPathComponent("share", isDirectory: true) }
 
-    private static func clone(_ files: [URL], into folder: URL) async throws -> [URL] {
+    private static func emptied(_ folder: URL) async throws -> URL {
         try await Task.detached {
             let manager = FileManager.default
             if manager.fileExists(atPath: folder.path) { try manager.removeItem(at: folder) }
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
-            return try files.map { file in
-                let copy = folder.appendingPathComponent(file.lastPathComponent)
-                try manager.copyItem(at: file, to: copy)
-                return copy
-            }
+            return folder
         }.value
     }
 
@@ -832,10 +817,10 @@ final class PhoneShipper: ObservableObject {
             }
         }
         if !sealed.bundles.isEmpty { ledger.count("bundles_sealed", sealed.bundles.count) }
-        if send.exporting, send.copies == nil {
+        if send.exporting, send.copies == nil, let saved = link.saved {
             do {
-                let files = try await custody.pending().map(custody.file)
-                send.copies = .success(try await Self.clone(files, into: shareFolder))
+                send.copies = .success(try await custody.exportCopies(for: saved, into: Self.emptied(shareFolder),
+                                                                      hardware: hardware(), appVersion: appVersion, now: send.start))
             } catch {
                 send.copies = .failure(error)
             }
@@ -852,21 +837,18 @@ final class PhoneShipper: ObservableObject {
     private enum Startable {
         case now
         case at(Date)
-        case waits(Set<Wait>)
+        case waits(Set<MobileData.Wait>)
     }
 
-    private func startable(_ bundle: PendingBundle, pressed: Bool, _ conditions: Conditions, at date: Date) -> Startable {
+    private func startable(_ bundle: PendingBundle, pressed: Bool, at date: Date) -> Startable {
         if let last = bundle.last, let ends = Self.waitEnds(last) {
             if last.heard == .refused { return .at(ends) }
             if last.heard == .held, !pressed, date < ends { return .at(ends) }
         }
         if pressed { return .now }
-        let bytes = (try? FileDurability.regularFileSize(at: custody.file(bundle))) ?? 0
-        var waits = Set<Wait>()
-        if bytes >= Self.aloneBytes, !conditions.long { waits.insert(.longWake) }
-        if case .waits(let wait) = link.mobile(pressed: false).decide(.new, bytes: Int64(clamping: bytes)) {
-            waits.insert(.network(wait))
-        }
+        let own = (try? FileDurability.regularFileSize(at: custody.file(bundle))) ?? 0
+        let largest = bundle.files.map(\.bytes).max() ?? 0
+        let waits = Set([own, largest].compactMap { link.mobile(pressed: false).decide(.new, bytes: Int64(clamping: $0)).wait })
         return waits.isEmpty ? .now : .waits(waits)
     }
 
@@ -881,7 +863,6 @@ final class PhoneShipper: ObservableObject {
 
     private func start(_ send: Send) {
         guard !send.cancelled, custodyKnown else { return }
-        let conditions = conditions()
         let date = now()
         let ordered = pending.enumerated().sorted { a, b in
             func rank(_ bundle: PendingBundle) -> Int {
@@ -891,7 +872,7 @@ final class PhoneShipper: ObservableObject {
             return (rank(a.element), a.offset) < (rank(b.element), b.offset)
         }.map(\.element)
         for bundle in ordered where send.sends(bundle) && requests[bundle.id] == nil && send.requests[bundle.id] == nil {
-            switch startable(bundle, pressed: send.presses(bundle), conditions, at: date) {
+            switch startable(bundle, pressed: send.presses(bundle), at: date) {
             case .now: request(bundle, send)
             case .at: send.hear(.held(bundle.last?.code ?? "HELD"))
             case .waits: continue
@@ -901,11 +882,20 @@ final class PhoneShipper: ObservableObject {
 
     private func request(_ bundle: PendingBundle, _ send: Send) {
         let file = custody.file(bundle)
-        let requesting = step { [custody, now] in try await custody.requesting(bundle, at: now()) }
+        let requesting = step { [custody, now] in
+            try await custody.requesting(bundle, at: now())
+            var files: [HomeLink.File] = []
+            for named in bundle.files {
+                files.append(HomeLink.File(name: named.name, url: try await custody.blobFile(named.name),
+                                           bytes: Int64(clamping: named.bytes)))
+            }
+            return files
+        }
         let task = Task { [link] in
             defer { requests[bundle.id] = nil }
+            let files: [HomeLink.File]
             do {
-                try await withTaskCancellationHandler {
+                files = try await withTaskCancellationHandler {
                     try await requesting.value
                 } onCancel: {
                     requesting.cancel()
@@ -918,8 +908,9 @@ final class PhoneShipper: ObservableObject {
                 return
             }
             do {
-                _ = try await link.send(bundle: file, id: bundle.id, kind: .new, pressed: send.presses(bundle))
-                await delivered(bundle, send)
+                let answer = try await link.send(bundle: file, id: bundle.id, files: files, kind: .new,
+                                                 pressed: send.presses(bundle))
+                await delivered(bundle, answer, send)
             } catch {
                 await failed(bundle, error, send)
             }
@@ -939,10 +930,17 @@ final class PhoneShipper: ObservableObject {
         if case .failure(let error) = await step.result { storeFailed(error, send) }
     }
 
-    private func delivered(_ bundle: PendingBundle, _ send: Send) async {
+    private func delivered(_ bundle: PendingBundle, _ answer: FreshAnswer, _ send: Send) async {
         send.hear(.delivered)
         await settle(bundle, .taken, code: nil, send)
         failing { failures in for source in bundle.sources { failures.ended(source, .delivery) } }
+        let newest = link.fresh ?? answer
+        do {
+            if try await custodial({ try await self.custody.owesMore(bundle.sources, newest) }) { send.resealOwed = true }
+        } catch is CancellationError {
+        } catch {
+            storeFailed(error, send)
+        }
     }
 
     private func failed(_ bundle: PendingBundle, _ error: any Error, _ send: Send) async {
@@ -982,6 +980,8 @@ final class PhoneShipper: ObservableObject {
             send.hear(.decided(.held(LinkFailure.homeTooOld.code)))
             await settle(bundle, .homeTooOld, code: LinkFailure.homeTooOld.code, send)
             failing { $0.sendFailed(code: LinkFailure.homeTooOld.code, message: LinkFailure.homeTooOld.description, at: date) }
+        case LinkFailure.waits:
+            break
         default:
             send.notYet()
         }
@@ -991,7 +991,8 @@ final class PhoneShipper: ObservableObject {
         defer { closed(send) }
         guard send.ran else { return }
         await requestsEnded(send)
-        if send.resealOwed, !send.cancelled {
+        while send.resealOwed, !send.cancelled {
+            send.resealOwed = false
             do { try await seal(send) } catch is CancellationError {} catch {
                 storeFailed(error, send)
             }
@@ -1036,9 +1037,9 @@ final class PhoneShipper: ObservableObject {
 
     func unsent() async -> Unsent {
         guard custodyKnown, let saved = link.saved else { return Unsent() }
-        let date = now(), conditions = conditions()
+        let date = now()
         var unsent = Unsent()
-        var waits = Set<Wait>()
+        var waits = Set<MobileData.Wait>()
         defer { if waits != self.waits { self.waits = waits } }
         var skipping = Set<String>()
         for bundle in pending {
@@ -1046,7 +1047,7 @@ final class PhoneShipper: ObservableObject {
                 skipping.formUnion(bundle.sources)
                 continue
             }
-            switch startable(bundle, pressed: false, conditions, at: date) {
+            switch startable(bundle, pressed: false, at: date) {
             case .now: break
             case .at(let ends):
                 skipping.formUnion(bundle.sources)
@@ -1054,9 +1055,9 @@ final class PhoneShipper: ObservableObject {
             case .waits(let holding):
                 skipping.formUnion(bundle.sources)
                 waits.formUnion(holding)
-                if holding.contains(where: { if case .network = $0 { true } else { false } }) { unsent.waitsForNetwork = true }
             }
         }
+        unsent.waitsForNetwork = !waits.isEmpty
         if let oldest = try? await custody.unsent(saved, skipping: skipping) {
             unsent.fix = oldest.fix
             unsent.other = oldest.other

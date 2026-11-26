@@ -6,6 +6,9 @@ import { FED } from "../test/fed.js";
 import { factsConform, insertKeepsFacts } from "../test/facts.js";
 import { dayInput, type Content } from "../test/day-input.js";
 import { messagesFamily, type ChatDay } from "../messages/family.js";
+import { calendarFamily } from "../calendar/family.js";
+import { callaudioFamily } from "../callaudio/family.js";
+import { notesFamily } from "../notes/family.js";
 import { callsFamily, type Call } from "./family.js";
 
 const SETTINGS: DaySettings = { zone: "America/New_York", day_start_hour: 4 };
@@ -44,8 +47,10 @@ const input = (day: string, contents: readonly Content[] = RECORD) => dayInput(C
 const stated = (day: string) => dayFacts(CALLS, CALLS.day(input(day)), day, SETTINGS, (line) => line);
 
 describe("calls facts", () => {
-  it("declares collections that hold together", () => {
-    expect(collectionsFault([CALLS])).toEqual([]);
+  it("declares collections that hold together: calls.minutes and callaudio.minutes are two readings of one length, each naming the other", () => {
+    expect(collectionsFault([CALLS])).toEqual(["calls.minutes names callaudio.minutes, which no family declares"]);
+    const callaudio = callaudioFamily({ books: FED.labels, zone: SETTINGS.zone, calls: FED.calls })(FED.callaudio);
+    expect(collectionsFault([CALLS, callaudio, notesFamily(FED.notes), calendarFamily({ books: FED.labels })(FED.calendar)])).toEqual([]);
   });
 
   it("a 60-minute call across the day's edge is one call of 60, whole, on the day it began, and no fact of the next day", () => {

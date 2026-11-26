@@ -1,4 +1,4 @@
-import type { DayAtom, DayDocument, DayFileFact } from "@lifestreamprotocol/families";
+import { CALLAUDIO_FAMILY, NOT_JOINED, type DayAtom, type DayDocument, type DayFileFact } from "@lifestreamprotocol/families";
 
 
 export const BRIEF_LINES = 40;
@@ -26,7 +26,7 @@ type Part = "where" | "people" | "mail" | "screen" | "ai" | "calendar" | "days" 
 
 const PARTS: Readonly<Record<Part, number>> = { where: 6, people: 8, mail: 4, screen: 4, ai: 3, calendar: 3, days: 3, workouts: 2, money: 4, photos: 1, rest: 2 };
 
-const FAMILY = { where: "physical", messages: "messages", calls: "calls", mail: "mail", screen: "screen", ai: "ai", calendar: "calendar", photos: "photos" } as const;
+const FAMILY = { where: "physical", messages: "messages", calls: "calls", callaudio: CALLAUDIO_FAMILY, mail: "mail", screen: "screen", ai: "ai", calendar: "calendar", photos: "photos" } as const;
 const LABEL: Partial<Record<Part, string>> = { days: "the day", workouts: "workout", money: "payment" };
 const OWN: ReadonlySet<string> = new Set([...Object.values(FAMILY), "health", "money"]);
 
@@ -34,9 +34,13 @@ export function briefOf(day: Pick<DayDocument, "day" | "atoms" | "facts">, windo
   const atoms = day.atoms;
   const of = (family: string) => atoms.filter((atom) => atom.family === family);
   const known = new Set(atoms.map((atom) => atom.n));
+  const calls = unjoinedCalls(day.facts);
   const parts: Record<Part, BriefLine[]> = {
     where: of(FAMILY.where).map((atom) => atomLine("where", atom)),
-    people: [...blockLines("people", of(FAMILY.messages), "message"), ...of(FAMILY.calls).map((atom) => atomLine("people", atom))],
+    people: [
+      ...blockLines("people", of(FAMILY.messages), "message"),
+      ...atoms.filter((atom) => atom.family === FAMILY.calls || calls.has(atom.n)).map((atom) => atomLine("people", atom)),
+    ],
     mail: of(FAMILY.mail).map((atom) => atomLine("mail", atom)),
     screen: of(FAMILY.screen).map((atom) => atomLine("screen", atom)),
     ai: blockLines("ai", of(FAMILY.ai), "turn"),
@@ -49,6 +53,10 @@ export function briefOf(day: Pick<DayDocument, "day" | "atoms" | "facts">, windo
   };
   const lines = (Object.keys(PARTS) as Part[]).flatMap((part) => [...capped(parts[part], PARTS[part], part), ...part === "screen" ? windowLines(windows) : []]);
   return { day: day.day, lines };
+}
+
+function unjoinedCalls(facts: readonly DayFileFact[]): ReadonlySet<number> {
+  return new Set(facts.filter((fact) => fact.of === FAMILY.callaudio && fact.keys.call === NOT_JOINED).flatMap((fact) => fact.lines));
 }
 
 function windowLines(windows: readonly BriefWindow[]): BriefLine[] {

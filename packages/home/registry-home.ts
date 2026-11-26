@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { digest, openMemo, type Adapter, type Adapters, type JsonObject } from "@lifestreamprotocol/core";
 import { openLedger, type NewOutbound } from "@lifestreamprotocol/model";
 import {
-  aiFamily, calendarFamily, callsFamily, healthFamily, labelsFamily, listeningFamily, mailFamily, messagesFamily, moneyFamily, notesFamily, phoneFamily, photosFamily,
+  aiFamily, calendarFamily, callaudioFamily, callsFamily, healthFamily, labelsFamily, listeningFamily, mailFamily, messagesFamily, moneyFamily, notesFamily, phoneFamily, photosFamily,
   bigHints, fedNone, made, physicalFamily, plainFamily, screenFamily, voiceFamily, webFamily, type Family, type Fed, type Given, type Maker,
 } from "@lifestreamprotocol/families";
 import { switchOf } from "./catalog.js";
@@ -79,7 +79,7 @@ export function families(settings: Settings, folder: string, folders: readonly F
   const books = { books: fed.labels };
   return made({
     messages: messagesFamily(books), mail: mailFamily(books), ai: aiFamily, screen, photos: photosFamily({ faces: facesRun(settings, folder) }), voice: voiceFamily, calendar: calendarFamily(books),
-    notes: notesFamily, money: moneyFamily, calls: callsFamily({ ...books, messages: fed.messages }), health: healthFamily, listening: listeningFamily, web: webFamily({ cutover_ms: settings.screen_cutover_ms, screen: fed.screen }),
+    notes: notesFamily, money: moneyFamily, calls: callsFamily({ ...books, messages: fed.messages }), callaudio: callaudioFamily({ ...books, zone: settings.day.zone, calls: fed.calls }), health: healthFamily, listening: listeningFamily, web: webFamily({ cutover_ms: settings.screen_cutover_ms, screen: fed.screen }),
     phone: phoneFamily({}), physical: physicalFamily({ photos: fed.photos }), labels: labelsFamily({ home: settings.unit, messages: fed.messages, mail: fed.mail }), line: plainFamily,
   }, fed);
 }

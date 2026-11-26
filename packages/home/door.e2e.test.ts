@@ -4,7 +4,7 @@ import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import fs, { chmodSync, closeSync, constants, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { createServer as createHttpServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { Agent as HttpAgent, createServer as createHttpServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createConnection, createServer as createSocketServer, type AddressInfo, type Socket } from "node:net";
 import { dirname, join } from "node:path";
@@ -17,6 +17,8 @@ import { BOTTOM_BYTES, KEEP_BYTES, openHome, openHomeFolder, tryLock, type JsonO
 import { DEVICES, releaseFloors } from "./devices.js";
 import { modelReaches, MOVED_AWAY, QUIET, serveDoor, stalls, type Door, type DoorOptions } from "./door.js";
 import { nudges, NUDGES_OWED } from "./nudges.js";
+import { PHONE_FILES } from "./phone.js";
+import { openStagedFiles } from "./staged-files.js";
 import { callsLock, listRunners, openLedger, RUNNER_EXCHANGE } from "@lifestreamprotocol/model";
 import { readPrivacySettings } from "@lifestreamprotocol/privacy";
 import { Models, MODELS_META } from "./models.js";
@@ -140,6 +142,7 @@ function putUnread(url: string, path: string, headers: Record<string, string>): 
 }
 
 const sized = (bytes: Buffer): Record<string, string> => ({ "content-length": String(bytes.length) });
+const HELD = "/v1/blobs/held";
 
 function held(bytes: Buffer): { body: ReadableStream<Uint8Array>; started: Promise<void>; release(): void } {
   let release!: () => void, started!: () => void;
@@ -391,7 +394,7 @@ describe("a device request today's door accepts is refused, or the reverse", () 
         custody: { [PHOTOS]: { seal } } });
       return put(url, `/v1/bundles/${bundle.id}`, auth(at, "phone"), bundle.bytes).then((answer) => { if (answer.status === 201) seal++; return answer; });
     };
-    expect(await ship(1, false)).toMatchObject({ status: 422, body: { code: "IOS_BUNDLE_BLOB_MISSING", message: expect.stringContaining(hash) } });
+    expect(await ship(1, false)).toMatchObject({ status: 409, body: { code: "FILES_MISSING", message: PHONE_FILES, missing: { files: [hash] } } });
     const carried = await ship(1, true);
     expect(carried.status).toBe(201);
     const store = join(at.root, "inbox", PHONE_SOURCE, "blobs", sha256(blob));
@@ -400,6 +403,27 @@ describe("a device request today's door accepts is refused, or the reverse", () 
     rmSync(store); mkdirSync(store);
     expect(await ship(3, false)).toMatchObject({ status: 422, body: { code: "IOS_BUNDLE_BLOB_MISMATCH" } });
     expect(custodyOf((await exchange(url, auth(at, "phone"))).body)[PHOTOS]).toEqual([2, 0]);
+  });
+
+  it("seals a bundle naming a file the door staged with it in the lane, the stage's copy gone and counted carried; one naming a file absent past its lost is FILES_MISSING, every link undone", async () => {
+    const at = home();
+    const { url } = await serve(at);
+    const [staged, absent] = [Buffer.from("synthetic photo sent on its own"), Buffer.from("synthetic photo never sent")];
+    const [hash, gone] = [`sha256:${sha256(staged)}`, `sha256:${sha256(absent)}`];
+    const lane = join(at.root, "inbox", PHONE_SOURCE, "blobs", sha256(staged));
+    const sent = await put(url, `/v1/files/${hash}`, { ...auth(at, "phone"), ...sized(staged), "lifestream-kind": "new" }, staged);
+    expect(sent).toMatchObject({ status: 201, body: { file: hash } });
+    const missing = phoneBundle({ domains: { "photos.jsonl": [1, 2] }, names: { 1: hash, 2: gone }, second: 1, custody: { [PHOTOS]: { seal: 1 } } });
+    expect(await put(url, `/v1/bundles/${missing.id}`, auth(at, "phone"), missing.bytes)).toMatchObject({ status: 409, body: { code: "FILES_MISSING", message: PHONE_FILES, missing: { files: [gone] } } });
+    expect([existsSync(lane), sealedNames(at, PHONE_SOURCE)]).toEqual([false, []]);
+    expect((await post(url, HELD, auth(at, "phone"), { blobs: [hash, gone] })).body).toEqual({ held: [], staged: [hash], partly: {} });
+    const within = phoneBundle({ domains: { "photos.jsonl": [1, 2] }, names: { 1: hash, 2: gone }, second: 2,
+      custody: { [PHOTOS]: { seal: 1, lost: [{ items: 1, what: "photo copies this phone cleared once the home had imported them" }] } } });
+    expect((await put(url, `/v1/bundles/${within.id}`, auth(at, "phone"), within.bytes)).status).toBe(201);
+    expect(readFileSync(lane)).toEqual(staged);
+    expect((await post(url, HELD, auth(at, "phone"), { blobs: [hash] })).body).toEqual({ held: [], staged: [], partly: {} });
+    const facts = (JSON.parse(readFileSync(join(at.root, "inbox", PHONE_SOURCE, within.id, "manifest.json"), "utf8")) as { facts: JsonObject }).facts;
+    expect([facts.blobs_carried, facts.blobs_referenced]).toEqual([1, 2]);
   });
 
   it("refuses a bundle naming a blob the sweep moved from the lane to the home's blobs/", async () => {
@@ -3822,5 +3846,141 @@ describe("Chat's own loop reaching a model through the door", () => {
     expect(upstream.heard.map((each) => each.ended)).toEqual([false]);
     leaving.abort();
     await until("the provider saw its request end", () => upstream.heard[0]!.ended);
+  });
+});
+
+interface Heard {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  readonly connection: string | undefined;
+}
+
+function sending(url: string, path: string, headers: Record<string, string>): { write(chunk: Buffer): void; end(): void; answer: Promise<Heard | null> } {
+  let request!: ReturnType<typeof httpRequest>;
+  const agent = new HttpAgent({ keepAlive: true });
+  onTestFinished(() => agent.destroy());
+  const answer = new Promise<Heard | null>((resolve) => {
+    request = httpRequest(`${url}${path}`, { method: "PUT", agent, headers }, (response) => {
+      let text = "";
+      response.on("data", (chunk: Buffer) => { text += chunk.toString("utf8"); });
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: JSON.parse(text) as Record<string, unknown>, connection: response.headers.connection }));
+    });
+    request.on("error", () => resolve(null));
+    request.flushHeaders();
+  });
+  return { write: (chunk) => void request.write(chunk), end: () => void request.end(), answer };
+}
+
+function cutAfter(url: string, path: string, headers: Record<string, string>, length: number, bytes: Buffer): Promise<void> {
+  const socket = createConnection({ host: "127.0.0.1", port: Number(new URL(url).port) });
+  socket.on("error", () => undefined);
+  socket.resume();
+  const lines = Object.entries({ ...headers, "content-length": String(length) }).map(([name, value]) => `${name}: ${value}\r\n`).join("");
+  socket.write(`PUT ${path} HTTP/1.1\r\nHost: ${new URL(url).host}\r\n${lines}\r\n`);
+  socket.end(bytes);
+  return new Promise((resolve) => socket.once("close", () => resolve()));
+}
+
+const lineOf = (logs: string[], status: number) => logs.map((line) => JSON.parse(line) as Record<string, unknown>).find((line) => String(line.path).startsWith("/v1/files/") && line.status === status);
+
+describe("a phone's file sent on its own", () => {
+  it("refuses a file without its length, with an offset not a number, past the door's bound, or from a Mac's pass or a reader's", async () => {
+    const at = home();
+    const { url } = await serve(at, { max_bundle_bytes: 1_000 });
+    const bytes = Buffer.alloc(600, "a"), name = `sha256:${sha256(bytes)}`;
+    const path = `/v1/files/${name}`;
+    const answers = {
+      length: await putUnread(url, path, auth(at, "phone")),
+      offset: await putUnread(url, path, { ...auth(at, "phone"), ...sized(bytes), "upload-offset": "ten" }),
+      large: await putUnread(url, path, { ...auth(at, "phone"), ...sized(bytes), "upload-offset": "500" }),
+      mac: await putUnread(url, path, { ...auth(at, "mac"), ...sized(bytes) }),
+      reader: await putUnread(url, path, { ...auth(at, "reader"), ...sized(bytes) }),
+    };
+    expect(Object.fromEntries(Object.entries(answers).map(([what, answer]) => [what, [answer.status, answer.body.code]]))).toEqual({
+      length: [411, "LENGTH_REQUIRED"], offset: [422, "UPLOAD_HEADERS"], large: [413, "FILE_TOO_LARGE"], mac: [403, "PRINCIPAL_SCOPE"], reader: [403, "PRINCIPAL_SCOPE"],
+    });
+  });
+
+  it("keeps every byte of a body cut over a socket, logged 499 with its offset and the bytes held, and the next PUT goes on from them", async () => {
+    const at = home();
+    const { url, logs } = await serve(at);
+    const bytes = randomBytes(64 * 1024), name = `sha256:${sha256(bytes)}`;
+    const headers = { ...auth(at, "phone"), "lifestream-kind": "new" };
+    await cutAfter(url, `/v1/files/${name}`, headers, bytes.length, bytes.subarray(0, 40_000));
+    await until("the cut's 499 line", () => lineOf(logs, 499) !== undefined);
+    expect(lineOf(logs, 499)).toMatchObject({ offset: 0, held: 40_000, bytes: 40_000 });
+    expect((await post(url, HELD, auth(at, "phone"), { blobs: [name] })).body).toEqual({ held: [], staged: [], partly: { [name]: 40_000 } });
+    const rest = bytes.subarray(40_000);
+    const resent = await put(url, `/v1/files/${name}`, { ...auth(at, "phone"), ...sized(rest), "upload-offset": "40000", "lifestream-kind": "new" }, rest);
+    expect(resent).toMatchObject({ status: 201, body: { file: name } });
+    expect((await post(url, HELD, auth(at, "phone"), { blobs: [name] })).body).toEqual({ held: [], staged: [name], partly: {} });
+  });
+
+  it("answers before a body's end over a socket still sending, closing it, and keeps the socket of an answer after a whole body", async () => {
+    const at = home();
+    const { url } = await serve(at);
+    const bytes = randomBytes(256 * 1024), name = `sha256:${sha256(bytes)}`;
+    const phone = { ...auth(at, "phone"), "lifestream-kind": "new" };
+    const sent = sending(url, `/v1/files/${name}`, { ...phone, ...sized(bytes) });
+    sent.write(bytes);
+    sent.end();
+    expect(await sent.answer).toEqual({ status: 201, body: { file: name }, connection: "keep-alive" });
+    const early = async (path: string, headers: Record<string, string>) => {
+      const going = sending(url, path, { ...phone, ...headers });
+      going.write(bytes.subarray(0, 1_024));
+      return await going.answer;
+    };
+    const fresh = randomBytes(1_024), freshName = `sha256:${sha256(fresh)}`;
+    const answers = {
+      held: await early(`/v1/files/${name}`, sized(bytes)),
+      offset: await early(`/v1/files/${freshName}`, { ...sized(fresh), "upload-offset": "10" }),
+    };
+    expect(answers).toEqual({
+      held: { status: 200, body: { file: name, held: true }, connection: "close" },
+      offset: { status: 409, body: expect.objectContaining({ code: "UPLOAD_OFFSET", held: 0 }), connection: "close" },
+    });
+    freeSpace(BOTTOM_BYTES);
+    const low = await early(`/v1/files/${freshName}`, sized(fresh));
+    expect([low?.status, low?.body.code, low?.connection]).toEqual([503, "DISK_LOW", "close"]);
+  });
+
+  it("answers a bundle's UPLOAD_ACTIVE before its body ends, over a socket still sending", async () => {
+    const at = home();
+    const { url } = await serve(at);
+    const bundle = phoneBundle({ domains: { "location.jsonl": [1] }, custody: { [LOCATION]: { seal: 1 } } });
+    const first = held(bundle.bytes);
+    onTestFinished(() => first.release());
+    const landing = put(url, `/v1/bundles/${bundle.id}`, { ...auth(at, "phone"), ...sized(bundle.bytes) }, first.body);
+    await first.started;
+    await until("the first upload's partial", () => leftovers(at).length === 1);
+    const second = sending(url, `/v1/bundles/${bundle.id}`, { ...auth(at, "phone"), ...sized(bundle.bytes) });
+    second.write(bundle.bytes.subarray(0, 10));
+    const active = await second.answer;
+    expect([active?.status, active?.body.code, active?.connection]).toEqual([409, "UPLOAD_ACTIVE", "close"]);
+    first.release();
+    expect((await landing).status).toBe(201);
+  });
+
+  it("keeps the bytes of a body the drain cuts, and a door's start keeps door/files while it clears door/uploads", async () => {
+    const at = home();
+    let drain!: () => void;
+    const drained = new Promise<void>((resolve) => { drain = resolve; });
+    const { url, logs, door } = await serve(at, {}, undefined, { drain: () => drained });
+    const bytes = randomBytes(32 * 1024), name = `sha256:${sha256(bytes)}`;
+    const going = sending(url, `/v1/files/${name}`, { ...auth(at, "phone"), ...sized(bytes), "lifestream-kind": "new" });
+    going.write(bytes.subarray(0, 10_000));
+    const parts = join(at.root, "door", "files", "parts", sha256(bytes));
+    const landing = () => readdirSync(parts, { withFileTypes: true }).filter((entry) => entry.name.startsWith(".")).map((entry) => statSync(join(parts, entry.name)).size);
+    await until("the body's first bytes written", () => existsSync(parts) && landing()[0] === 10_000);
+    const closing = door.close();
+    drain();
+    await closing;
+    expect(await going.answer).toBe(null);
+    expect(lineOf(logs, 499)).toMatchObject({ offset: 0, held: 10_000 });
+    expect(openStagedFiles(openHomeFolder(at.root)).held([name])).toEqual({ staged: [], partly: { [name]: 10_000 } });
+    writeFileSync(join(at.root, "door", "uploads", "left.zip.partial"), "synthetic");
+    const again = await serve(at);
+    expect(leftovers(at)).toEqual([]);
+    expect((await post(again.url, HELD, auth(at, "phone"), { blobs: [name] })).body).toEqual({ held: [], staged: [], partly: { [name]: 10_000 } });
   });
 });

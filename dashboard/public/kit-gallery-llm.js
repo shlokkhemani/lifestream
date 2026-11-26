@@ -183,7 +183,7 @@ const runnerOf = (unit, name, said) => ({ kind: 'runner', id: `runner:${unit}`, 
 
 const KEY = { label: 'OpenRouter key', placeholder: 'sk-or-…', add: 'Add key', remove: 'Remove' };
 const SERVER = { about: 'Any OpenAI-compatible server, like vLLM or another Mac.', add: 'Add server', remove: 'Remove', field: 'Server URL',
-  placeholder: 'http://localhost:11434/v1', save: 'Save' };
+  placeholder: 'http://localhost:11434/v1', key_field: 'API key', key_about: 'Only if the server asks for one.', key_placeholder: 'sk-…', save: 'Save' };
 
 /**
  * @param {boolean} held

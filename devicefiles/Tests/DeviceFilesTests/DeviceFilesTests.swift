@@ -418,6 +418,19 @@ final class DeviceFilesTests: FilesTestCase {
         }
     }
 
+    func testAReaderFromAnOffsetReadsTheRestInBothForms() throws {
+        let data = vectorPlain(200_000)
+        for (form, files) in forms() {
+            let url = file("bundle", form)
+            let writer = try files.writer(url, flush: .data)
+            try writer.write(data)
+            try writer.finish()
+            for offset in [0, 1, 65_537, 199_999, 200_000] {
+                XCTAssertEqual(try readAll(try files.reader(url, from: Int64(offset))), data.dropFirst(offset), "\(form) from \(offset)")
+            }
+        }
+    }
+
     func testAReaderReadsALogsRecordsInOrderInBothForms() throws {
         let lines = (0..<3_000).map { Data("record \($0)\n".utf8) }
         for (form, files) in forms() {

@@ -11,10 +11,14 @@ public struct HomeRequest: Sendable, Equatable {
         case stream(size: Int64, open: Opener)
     }
 
-    public final class Opener: Sendable, Equatable {
-        public let open: @Sendable () throws -> Reader
+    public protocol Chunks: AnyObject {
+        func next() throws -> Data?
+    }
 
-        public init(_ open: @escaping @Sendable () throws -> Reader) {
+    public final class Opener: Sendable, Equatable {
+        public let open: @Sendable () throws -> any Chunks
+
+        public init(_ open: @escaping @Sendable () throws -> any Chunks) {
             self.open = open
         }
 
@@ -40,6 +44,8 @@ public final class UploadProgress: Sendable, Equatable {
 
     public static func == (left: UploadProgress, right: UploadProgress) -> Bool { left === right }
 }
+
+extension Reader: HomeRequest.Chunks {}
 
 public struct HomeResponse: Sendable, Equatable {
     public let status: Int
@@ -151,7 +157,18 @@ public struct URLSessionTransport: HomeTransport {
     public static let uploadSilence: TimeInterval = 5 * 60
     public static let uploadLifetime: TimeInterval = 6 * 60 * 60
 
-    public typealias Metrics = @Sendable (HomeRequest, URLSessionTaskMetrics, Int?) -> Void
+    public typealias Metrics = @Sendable (HomeRequest, URLSessionTaskMetrics, Ending) -> Void
+
+    public enum Ending: Sendable, Equatable {
+        case answered(Int)
+        case unanswered
+        case cut
+
+        public var status: Int? {
+            guard case .answered(let status) = self else { return nil }
+            return status
+        }
+    }
 
     private let session: Session
     private let metrics: Metrics?
@@ -177,33 +194,36 @@ public struct URLSessionTransport: HomeTransport {
     }
 
     public func perform(_ request: HomeRequest) async throws -> HomeResponse {
+        try Task.checkCancellation()
         var made = Self.made(request, at: origin)
-        var judge = judge(request)
+        let sender = judge(request, Sender.self)
+        let task: URLSessionTask
+        var opener: HomeRequest.Opener?
+        switch request.body {
+        case .empty:
+            if request.method == "PUT" { made.setValue("0", forHTTPHeaderField: "Content-Length") }
+            task = session.value.dataTask(with: made)
+        case .json(let body), .bytes(let body):
+            made.httpBody = body
+            task = session.value.dataTask(with: made)
+        case .file(let file):
+            task = session.value.uploadTask(with: made, fromFile: file)
+        case .stream(let size, let open):
+            made.setValue(String(size), forHTTPHeaderField: "Content-Length")
+            task = session.value.uploadTask(withStreamedRequest: made)
+            opener = open
+        }
+        task.delegate = sender
         let (data, response): (Data, URLResponse)
         do {
-            switch request.body {
-            case .empty:
-                (data, response) = try await session.value.data(for: made, delegate: judge)
-            case .json(let body), .bytes(let body):
-                made.httpBody = body
-                (data, response) = try await session.value.data(for: made, delegate: judge)
-            case .file(let file):
-                (data, response) = try await session.value.upload(for: made, fromFile: file, delegate: judge)
-            case .stream(let size, let opener):
-                made.setValue(String(size), forHTTPHeaderField: "Content-Length")
-                let streamer = self.judge(request, Streamer.self)
-                judge = streamer
-                let task = session.value.uploadTask(withStreamedRequest: made)
-                task.delegate = streamer
-                (data, response) = try await withTaskCancellationHandler {
-                    try await streamer.send(task, opener: opener)
-                } onCancel: {
-                    task.cancel()
-                }
+            (data, response) = try await withTaskCancellationHandler {
+                try await sender.send(task, opener: opener)
+            } onCancel: {
+                sender.cut(task)
             }
         } catch {
             // external: URLSession reports a server the pin refused as a cancelled task.
-            if judge.refused { throw NotTheHome() }
+            if sender.refused { throw NotTheHome() }
             throw error
         }
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
@@ -226,7 +246,7 @@ public struct URLSessionTransport: HomeTransport {
             return try await withTaskCancellationHandler {
                 try await judge.receive(task, taking: taking)
             } onCancel: {
-                task.cancel()
+                judge.cut(task)
             }
         } catch {
             // external: URLSession reports a server the pin refused as a cancelled task.
@@ -308,13 +328,14 @@ public struct URLSessionTransport: HomeTransport {
         private let pin: String?
         private let reading: Bool
         private let progress: UploadProgress?
-        private let metrics: (@Sendable (URLSessionTaskMetrics, Int?) -> Void)?
+        private let metrics: (@Sendable (URLSessionTaskMetrics, Ending) -> Void)?
         let lock = NSLock()
         private var refusedHere = false
+        private var cutHere = false
         private var seenHere: String?
 
         required init(pin: String?, reading: Bool = false, progress: UploadProgress? = nil,
-                      metrics: (@Sendable (URLSessionTaskMetrics, Int?) -> Void)? = nil) {
+                      metrics: (@Sendable (URLSessionTaskMetrics, Ending) -> Void)? = nil) {
             self.pin = pin
             self.reading = reading
             self.progress = progress
@@ -327,7 +348,13 @@ public struct URLSessionTransport: HomeTransport {
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
-            self.metrics?(metrics, (task.response as? HTTPURLResponse)?.statusCode)
+            let status = (task.response as? HTTPURLResponse)?.statusCode
+            self.metrics?(metrics, status.map(Ending.answered) ?? (lock.withLock { cutHere } ? .cut : .unanswered))
+        }
+
+        func cut(_ task: URLSessionTask) {
+            lock.withLock { cutHere = true }
+            task.cancel()
         }
 
         var refused: Bool { lock.withLock { refusedHere } }
@@ -399,7 +426,7 @@ public struct URLSessionTransport: HomeTransport {
         }
     }
 
-    private final class Streamer: Judge, URLSessionDataDelegate, @unchecked Sendable {
+    private final class Sender: Judge, URLSessionDataDelegate, @unchecked Sendable {
         static let buffered = 1 << 18
 
         private var opener: HomeRequest.Opener?
@@ -407,7 +434,7 @@ public struct URLSessionTransport: HomeTransport {
         private var received = Data()
         private var failure: Error?
 
-        func send(_ task: URLSessionUploadTask, opener: HomeRequest.Opener) async throws -> (Data, URLResponse) {
+        func send(_ task: URLSessionTask, opener: HomeRequest.Opener?) async throws -> (Data, URLResponse) {
             try await withCheckedThrowingContinuation { done in
                 lock.withLock {
                     self.done = done

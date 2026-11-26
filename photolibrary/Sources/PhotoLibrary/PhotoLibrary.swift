@@ -92,13 +92,19 @@ public struct PhotoLibrary: Sendable {
         return mark
     }
 
-    public func files(of id: String, only types: Set<String>? = nil, network: Bool, room: Int64 = .max,
+    public static let wifiVideoBytes: Int64 = 500_000_000
+
+    public func files(of id: String, only types: Set<String>? = nil, network: Bool, costly: Bool, room: Int64 = .max,
                       into directory: URL) async throws -> PhotoFiles? {
         guard let snapshot = try await source.snapshots(of: [id]).first else { return nil }
+        let asked = { (resource: PhotoResource) in types?.contains(resource.type) ?? true }
+        if costly, snapshot.resources.contains(where: { asked($0) && $0.waitsForWiFi }) {
+            return PhotoFiles(snapshot: snapshot, files: snapshot.resources.map { asked($0) ? .waits : .unasked })
+        }
         var files: [Fetched] = []
         var left = room
         for resource in snapshot.resources {
-            guard types?.contains(resource.type) ?? true else {
+            guard asked(resource) else {
                 files.append(.unasked)
                 continue
             }
@@ -119,7 +125,7 @@ public struct PhotoLibrary: Sendable {
                 left -= (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
             case .noRoom:
                 left = -1
-            case .later, .refused, .unasked:
+            case .later, .refused, .unasked, .waits:
                 break
             }
             files.append(fetched)
@@ -172,4 +178,11 @@ public enum Fetched: Sendable, Equatable {
     case refused(Refusal)
     case unasked
     case noRoom
+    case waits
+}
+
+private extension PhotoResource {
+    static let videoTypes: Set<Int> = [2, 6, 9, 10, 11, 12]
+
+    var waitsForWiFi: Bool { Self.videoTypes.contains(typeRaw) && (size ?? 0) >= PhotoLibrary.wifiVideoBytes }
 }

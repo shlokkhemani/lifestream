@@ -36,6 +36,10 @@ public struct PhoneCustody: Sendable {
         exporter.exportsDirectory.appendingPathComponent(pending.file)
     }
 
+    public func blobFile(_ name: String) async throws -> URL {
+        try await store.blobURL(name)
+    }
+
     @discardableResult
     public func applied(_ answer: FreshAnswer, prune: Bool = true) async throws -> [Judged] {
         var judged: [Judged] = []
@@ -95,6 +99,26 @@ public struct PhoneCustody: Sendable {
                   try await store.carried(pass: answer.pass, source: source, through: custody.received) >= through[domain] ?? 0 else { return false }
         }
         return true
+    }
+
+    public func owesMore(_ sources: Set<String>, _ answer: FreshAnswer) async throws -> Bool {
+        let through = try await store.capturedThrough()
+        for (domain, source) in Self.sources(answer.sources) where sources.contains(source) {
+            let carried = try await store.carried(pass: answer.pass, source: source, through: answer.sources[source]!.received)
+            if carried < through[domain] ?? 0 { return true }
+        }
+        return false
+    }
+
+    public func exportCopies(for answer: SavedAnswer, into folder: URL, hardware: DeviceHardware, appVersion: String,
+                             now: Date? = nil) async throws -> [URL] {
+        var plan: [SealedSource] = []
+        for (domain, source) in Self.sources(answer.sources).sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+            let received = answer.sources[source]!.received
+            plan.append(SealedSource(domain: domain, source: source, seal: received + 1,
+                                     after: try await store.carried(pass: answer.pass, source: source, through: received)))
+        }
+        return try await exporter.share(plan, into: folder, hardware: hardware, appVersion: appVersion, now: now).map(\.url)
     }
 
     public func unsent(_ answer: SavedAnswer, skipping: Set<String> = []) async throws -> (fix: Date?, other: Date?) {
@@ -159,7 +183,7 @@ public struct PhoneCustody: Sendable {
                 ranges.append(CarriedRange(source: planned.source, seal: planned.seal, first: first, last: last))
             }
             bundles.append(PendingBundle(id: bundle.manifest.bundleID, file: bundle.url.lastPathComponent, pass: pass,
-                                         seals: bundle.manifest.custody.mapValues(\.seal)))
+                                         seals: bundle.manifest.custody.mapValues(\.seal), files: bundle.files))
         }
         if !bundles.isEmpty { try await store.record(ranges, pass: pass, pending: bundles) }
         return Sealed(bundles: bundles, satOut: made.satOut, toFree: made.toFree)

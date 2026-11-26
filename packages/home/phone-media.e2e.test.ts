@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { startHome, type Home } from "./home.js";
@@ -118,5 +119,49 @@ describe("a phone's photos", () => {
       "photo 4": { named: 1, inside_other_blobs: 0, records: ["SYNTHETIC-ASSET-4:null"] },
     });
     expect(wanted).toBe(0);
+  });
+
+  it("three photos sent as their own files, one cut halfway and finished from its bytes, then the bundle that names them, import with every photo", async () => {
+    const root = makeRoot("lifestream-phone-files-", { sources: {} });
+    roots.push(root);
+    const door = await start(root);
+    const pass = randomBytes(32).toString("base64url");
+    const { code } = (await askHome(testSocket(root), "pair", [])) as { code: string };
+    const paired = await request(door.url, "POST", "/v1/pair", { ...DEVICE.phone, "content-type": "application/json" },
+      JSON.stringify({ code, pass, kind: "phone", model: "iPhone 17 Pro", account: "person-a@example.com", new: true }));
+    const unit = paired.body.unit as string;
+    const photos = `apple-photos:person-a@example.com:${unit}`;
+    const photo = (n: number) => Buffer.from(`synthetic jpeg bytes of photo ${n}, ${"y".repeat(4_096)}`);
+    const headers = { authorization: `Bearer ${pass}`, ...DEVICE.phone, "lifestream-kind": "new" };
+    const named = (n: number) => `sha256:${sha256(photo(n))}`;
+    const held = async () => (await request(door.url, "POST", "/v1/blobs/held", { ...headers, "content-type": "application/json" }, JSON.stringify({ blobs: [1, 2, 3].map(named) }))).body;
+
+    const half = photo(2).subarray(0, 2_000);
+    const socket = createConnection({ host: "127.0.0.1", port: Number(new URL(door.url).port) });
+    socket.on("error", () => undefined);
+    socket.resume();
+    const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+    const lines = Object.entries({ ...headers, "content-length": String(photo(2).length) }).map(([name, value]) => `${name}: ${value}\r\n`).join("");
+    socket.write(`PUT /v1/files/${named(2)} HTTP/1.1\r\nHost: ${new URL(door.url).host}\r\n${lines}\r\n`);
+    socket.end(half);
+    await closed;
+    await until("the cut file's bytes held", async () => JSON.stringify((await held()).partly) === JSON.stringify({ [named(2)]: 2_000 }));
+    const sent = {
+      one: (await request(door.url, "PUT", `/v1/files/${named(1)}`, headers, photo(1))).status,
+      two: (await request(door.url, "PUT", `/v1/files/${named(2)}`, { ...headers, "upload-offset": "2000" }, photo(2).subarray(2_000))).status,
+      three: (await request(door.url, "PUT", `/v1/files/${named(3)}`, headers, photo(3))).status,
+    };
+    expect([sent, await held()]).toEqual([{ one: 201, two: 201, three: 201 }, { held: [], staged: [1, 2, 3].map(named), partly: {} }]);
+
+    const bundle = phoneBundle({ entries: { "photos.jsonl": [1, 2, 3].map((n) => photoLine(n, photo(n))) }, second: 1, custody: { [photos]: { seal: 1 } } });
+    expect((await request(door.url, "PUT", `/v1/bundles/${bundle.id}`, { authorization: `Bearer ${pass}`, ...DEVICE.phone }, bundle.bytes)).status).toBe(201);
+    await until("the bundle imported", () => readHome(root, (db) =>
+      db.prepare("SELECT count(*) FROM deliveries WHERE source = ? AND state = 'imported'").pluck().get(photos)) === 1);
+    const records = readHome(root, (db) => db.prepare("SELECT h.key, b.blob FROM heads h JOIN version_blobs b ON b.version = h.version WHERE h.source = ? AND h.kind = 'img' ORDER BY h.key")
+      .all(photos)) as { key: string; blob: string }[];
+    expect([records, storedBlobs(root).filter((hex) => [1, 2, 3].map((n) => sha256(photo(n))).includes(hex)).length, await held()]).toEqual([
+      [1, 2, 3].map((n) => ({ key: `SYNTHETIC-ASSET-${n}:null`, blob: named(n) })), 3, { held: [1, 2, 3].map(named), staged: [], partly: {} },
+    ]);
+    report.files = { sent, records };
   });
 });

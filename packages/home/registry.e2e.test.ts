@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import { chromeSites, declarations } from "@lifestreamprotocol/connect";
 import type { Json } from "@lifestreamprotocol/core";
 import * as exported from "@lifestreamprotocol/families";
-import { collectionsFault, type Family } from "@lifestreamprotocol/families";
+import { CALL_PROMPTS, CALL_TRANSCRIPT, collectionsFault, type Family } from "@lifestreamprotocol/families";
+import { TIMED_TRANSCRIPT } from "@lifestreamprotocol/model";
+import { promptFaults } from "./prompts.js";
 import { connectDigest, homeOf } from "./registry.js";
 import homeRegistry, { emptyFacesWork } from "./registry-home.js";
 const { LENT } = (await import(new URL("../connect/test/drive.ts", import.meta.url).href)) as typeof import("../connect/test/drive.js");
@@ -47,6 +49,11 @@ describe("the live registry", () => {
     } finally {
       if (process.env.LIFESTREAM_KEEP_ARTIFACTS !== "1") rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("the call transcript's answer type drifts from the timed transcript a timed model answers, or a call prompt is faulty", () => {
+    expect(CALL_PROMPTS[CALL_TRANSCRIPT]!.type).toEqual(TIMED_TRANSCRIPT);
+    expect(promptFaults(CALL_PROMPTS, [])).toEqual(new Map());
   });
 
   it("a Coast poll keeps its gigabytes of files off the home's disk, under the OS temp dir", async () => {

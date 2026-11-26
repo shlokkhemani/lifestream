@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 public struct StagedCaptureLogSlice: Sendable, Equatable {
-    public let blobHashes: Set<String>
+    public let blobs: [String]
     public let url: URL
     public let sha256: String
     let archiveCRC32: UInt32
@@ -82,14 +82,17 @@ private struct ExportObservedTimeRange {
 extension CaptureStore {
     func stageExportSlices(
         _ wanted: [(domain: CaptureDomain, after: UInt64)],
+        namedBytes: UInt64? = nil,
+        held: Set<String> = [],
         in directory: URL
     ) async throws -> [CaptureDomain: Result<StagedCaptureLogSlice, any Error>] {
         let asked = wanted.map { ($0.domain, $0.after) }
+        let bound = namedBytes.map { NamedBound(bytes: $0, held: held, blobs: blobsDirectory) }
         return try await snapshot { database in
             var staged: [CaptureDomain: Result<StagedCaptureLogSlice, any Error>] = [:]
             for (domain, after) in asked {
                 do {
-                    staged[domain] = .success(try Self.stage(domain, after: after,
+                    staged[domain] = .success(try Self.stage(domain, after: after, bound: bound,
                                                              to: directory.appendingPathComponent(domain.filename), in: database))
                 } catch let error as CancellationError {
                     throw error
@@ -118,9 +121,25 @@ extension CaptureStore {
         }
     }
 
+    private struct NamedBound: Sendable {
+        let bytes: UInt64
+        let held: Set<String>
+        let blobs: URL
+
+        func size(of hash: String) throws -> UInt64 {
+            guard !held.contains(hash) else { return 0 }
+            do {
+                return try FileDurability.regularFileSize(at: blobs.appendingPathComponent(String(hash.dropFirst(7))))
+            } catch let error as POSIXError where error.code == .ENOENT {
+                return 0
+            }
+        }
+    }
+
     private static func stage(
         _ domain: CaptureDomain,
         after afterSequence: UInt64,
+        bound: NamedBound?,
         to destination: URL,
         in database: SQLiteDatabase
     ) throws -> StagedCaptureLogSlice {
@@ -129,7 +148,9 @@ extension CaptureStore {
         var hasher = SHA256()
         var crc = CRC32.Accumulator()
         var range = ExportObservedTimeRange()
-        var hashes = Set<String>()
+        var hashes: [String] = []
+        var named = Set<String>()
+        var namedBytes: UInt64 = 0
         var observations: UInt64 = 0
         var buffer = Data()
         func flush() throws {
@@ -139,17 +160,25 @@ extension CaptureStore {
             buffer.removeAll(keepingCapacity: true)
         }
         try Self.forEachLine(domain, after: afterSequence, in: database) { _, line in
+            let new = try Self.blobHashes(in: line).filter { !named.contains($0) }
+            if let bound {
+                let bytes = try new.reduce(namedBytes) { $0 + (try bound.size(of: $1)) }
+                guard observations == 0 || bytes < bound.bytes else { return false }
+                namedBytes = bytes
+            }
             try range.include(try Self.observedAt(in: line))
-            hashes.formUnion(try Self.blobHashes(in: line))
+            hashes += new
+            named.formUnion(new)
             buffer.append(line)
             buffer.append(0x0A)
             observations += 1
             if buffer.count >= 1_048_576 { try flush() }
+            return true
         }
         try flush()
         try writer.synchronize()
         return .init(
-            blobHashes: hashes,
+            blobs: hashes,
             url: destination,
             sha256: "sha256:" + hasher.finalize().map { String(format: "%02x", $0) }.joined(),
             archiveCRC32: crc.finalized,
@@ -170,9 +199,9 @@ extension CaptureStore {
         return line[marker.upperBound..<end]
     }
 
-    static func blobHashes(in line: Data) throws -> Set<String> {
+    static func blobHashes(in line: Data) throws -> [String] {
         let marker = Data("\"hash\":\"sha256:".utf8)
-        var result = Set<String>()
+        var result: [String] = []
         var search = line.startIndex
         while search < line.endIndex, let match = line.range(of: marker, in: search..<line.endIndex) {
             let end = match.upperBound + 64
@@ -183,7 +212,7 @@ extension CaptureStore {
             guard SHA256Digest.isCanonicalTagged(hash) else {
                 throw CaptureError.corruptState("invalid export blob reference")
             }
-            result.insert(hash)
+            if !result.contains(hash) { result.append(hash) }
             search = end + 1
         }
         return result.isEmpty || !isGone(line) ? result : []
@@ -256,11 +285,15 @@ extension CaptureStore {
         return tagged
     }
 
-    public func blobFile(forTaggedHash hash: String) throws -> URL? {
+    func blobURL(_ hash: String) throws -> URL {
         guard SHA256Digest.isCanonicalTagged(hash) else {
             throw CaptureError.corruptState("invalid blob reference")
         }
-        let url = blobsDirectory.appendingPathComponent(String(hash.dropFirst(7)))
+        return blobsDirectory.appendingPathComponent(String(hash.dropFirst(7)))
+    }
+
+    public func blobFile(forTaggedHash hash: String) throws -> URL? {
+        let url = try blobURL(hash)
         do {
             guard try SHA256Digest.taggedFile(at: url) == hash else {
                 throw CaptureError.corruptState("referenced blob hash mismatch")
@@ -383,18 +416,19 @@ extension CaptureStore {
             payload: .object(["event": .string("photo_copies_cleared"), "through_sequence": .unsigned(through)])))
     }
 
-    func clearedPhotoCopies(_ domain: CaptureDomain, after: UInt64) throws -> Set<String> {
+    func clearedPhotoCopies(_ domain: CaptureDomain, after: UInt64, through: UInt64) throws -> Set<String> {
         let floor: UInt64
         switch domain {
         case .photos: floor = try photoExportFloor()
         case .contacts: floor = try Self.fact(Fact.contactsClearedThrough, in: database).flatMap(UInt64.init) ?? 0
         default: return []
         }
-        guard after < floor else { return [] }
+        let last = min(through, floor)
+        guard after < last else { return [] }
         var named = Set<String>()
         try database.query(
             "SELECT line FROM \(domain.table) WHERE sequence > ? AND sequence <= ? AND instr(line, ?) > 0",
-            .integer(Int64(after)), .integer(Int64(floor)), .blob(Data("\"hash\":\"sha256:".utf8))
+            .integer(Int64(after)), .integer(Int64(last)), .blob(Data("\"hash\":\"sha256:".utf8))
         ) { row in named.formUnion(try Self.blobHashes(in: row.blob(0))) }
         return try Set(named.filter { hash in
             try !FileDurability.entryExists(at: blobsDirectory.appendingPathComponent(String(hash.dropFirst(7))))

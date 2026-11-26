@@ -232,26 +232,14 @@ extension PhoneShipper {
         return AppClock.now.timeIntervalSince1970 * 1000 - Double(since) >= 3_600_000
     }
 
-    private var waitingDescription: String {
-        let power = "Large sends wait until this iPhone charges or the app is open."
-        let network = waits.lazy.compactMap { wait -> String? in
-            guard case .network(let why) = wait else { return nil }
-            return why.words
-        }.first
-        let lines = [waits.contains(.longWake) ? power : nil, network].compactMap { $0 }
-        return lines.isEmpty ? power : lines.joined(separator: "\n")
-    }
-
-    private var waitsSaid: Bool {
+    private var waitingDescription: String? {
         switch state.outcome {
-        case .waiting: true
-        case .shipped, .nothingNew: !waits.isEmpty
-        default: false
+        case .waiting, .shipped, .nothingNew: waits.map(\.words).min()
+        default: nil
         }
     }
 
     var shippingDescription: String? {
-        if waitsSaid { return waitingDescription }
-        return ReachWords.sending(state.outcome.word, device: .phone, long: failingLong)
+        waitingDescription ?? ReachWords.sending(state.outcome.word, device: .phone, long: failingLong)
     }
 }

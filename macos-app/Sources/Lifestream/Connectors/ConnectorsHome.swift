@@ -160,7 +160,7 @@ struct ConnectorsHome: Sendable {
     }
 
     func models(_ act: HostAct.ModelsAct) async throws {
-        _ = try await ask(["verb": "models", "args": ["--"] + act.args])
+        _ = try await ask(["verb": "models", "args": act.options + ["--"] + act.args])
     }
 
     func process(family: String, item: String, prompt: String, route: String) async throws {

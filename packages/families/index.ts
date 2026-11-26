@@ -32,6 +32,11 @@ export { contactId, contactPhotoBytes, type ContactRef } from "./shared/contact.
 export * from "./ai/family.js";
 export * from "./money/family.js";
 export * from "./calls/family.js";
+export {
+  CALL_PROMPTS, CALL_SUMMARIES_WORK, CALL_SUMMARY, CALL_TRANSCRIPT, CALL_TRANSCRIPTS_WORK, CALLAUDIO_COLLECTIONS, CALLAUDIO_FAMILY, callaudioFamily, NOT_JOINED, stretchUnit, unitPart,
+  type CallAudioContent, type CallAudioSettings, type CallContent, type CallPart, type CallSummary, type JoinedCall, type ShortUse,
+} from "./callaudio/family.js";
+export { callAudioAnswers, callAudioView, partAudioOf, type CallAudioTurn, type CallAudioView, type PartAudio } from "./callaudio/view.js";
 export * from "./mail/family.js";
 export { MAIL_TAG, MAIL_TAG_KINDS, type MailTag } from "./mail/tag.js";
 export * from "./calendar/family.js";

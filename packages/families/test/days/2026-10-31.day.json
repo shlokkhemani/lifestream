@@ -3,8 +3,8 @@
   "zone": "America/New_York",
   "day_start_hour": 4,
   "window": {"start_ms":1793433600000,"end_ms":1793523600000},
-  "renderer": "13/3-7414146adf6d/7",
-  "inputs": "sha256:34931886c893086762172d736ed51c18b3e43639dd0f3ff929a0991c1ff3aa6d",
+  "renderer": "14/3-7414146adf6d/7",
+  "inputs": "sha256:56387efe527511402645aa32e05f4d8ad33fd681d8ee06b1eaaca13598287375",
   "counts": {"total":15,"per_family":{"chat":10,"ledger":0,"vitals":5}},
   "coverage": [{"family":"chat","sources":[{"source":"whatsapp:15550000000:mac-0001","read":"through"},{"source":"whatsapp:15550000000:phone-aa01","read":"through"}]},{"family":"ledger","sources":[{"source":"apple-notes:local:mac-0001","read":"none"},{"source":"example-bank:acct-aa11:export","read":"none"}]},{"family":"vitals","sources":[{"source":"apple-health:person-a@example.com:watch-aa07","read":"through"}]}],
   "atoms": [

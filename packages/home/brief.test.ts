@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { DaySettings } from "@lifestreamprotocol/core";
 import type { DayAtom, DayDocument, DayFileFact } from "@lifestreamprotocol/families";
@@ -133,6 +134,24 @@ describe("a brief's lines", () => {
     expect(briefOf({ ...day, atoms: [{ ...family(2, "2026-11-04T01:00:00Z"), start_ms: null, local_start: null }], facts: [] }).lines[0]!.text).toBe("Family group: 1 message");
     expect(briefOf(day)).not.toHaveProperty("zone");
     expect(briefOf(day).lines.some((line) => "names" in line)).toBe(false);
+  });
+});
+
+describe("a recorded call in a brief", () => {
+  const CALL_DAY = JSON.parse(readFileSync(new URL("../families/callaudio/test/2026-10-05.day.json", import.meta.url), "utf8")) as DayDocument;
+
+  it("a call no call record joins is a people line by its head; a joined call's head is the call record's line; no turn shows", () => {
+    const lines = briefOf(CALL_DAY).lines;
+    expect(lines.filter((line) => line.part === "people")).toEqual([
+      { part: "people", text: "14:00–14:20 Call on Zoom, 20 min: Lease renewal. You and they went over the lease renewal; you will send the signed copy.", atoms: [1] },
+      { part: "people", text: "15:59–16:10 Phone call with Person B, they called, 11 min", atoms: [8] },
+    ]);
+    expect(lines.flatMap((line) => line.atoms)).toEqual([1, 8]);
+  });
+
+  it("a head whose call fact is gone stays out, and the turns never fall to the rest", () => {
+    const lines = briefOf({ ...CALL_DAY, facts: CALL_DAY.facts.filter((fact) => fact.of !== "callaudio") }).lines;
+    expect(lines).toEqual([{ part: "people", text: "15:59–16:10 Phone call with Person B, they called, 11 min", atoms: [8] }]);
   });
 });
 

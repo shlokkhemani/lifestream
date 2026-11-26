@@ -3,6 +3,8 @@ import { isIP } from "node:net";
 import { SendFailed, type Input, type ListedModel, type Transport } from "../transport.js";
 import { complete, getList, keyHeaders, record } from "./completions.js";
 
+export const ADDRESS_SECRET = "address";
+
 export interface AddressSettings {
   url: string;
   secret?: string;

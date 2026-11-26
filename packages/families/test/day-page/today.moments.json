@@ -706,20 +706,24 @@
         {
           "at_ms": 1930345200000,
           "mine": true,
+          "who": null,
           "words": "Fix the synthetic test.",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         },
         {
           "at_ms": 1930346400000,
           "mine": true,
+          "who": null,
           "words": "Run the whole suite.",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         }
       ]
     }
@@ -1193,7 +1197,8 @@
             "focus": "rec:apple-calls:person-a@example.com:macbook-pro-0001 call CALL-0005"
           }
         ]
-      }
+      },
+      "recording": null
     }
   },
   "e33": {
@@ -1888,7 +1893,8 @@
             "focus": "rec:apple-calls:person-a@example.com:macbook-pro-0001 call CALL-0005"
           }
         ]
-      }
+      },
+      "recording": null
     }
   },
   "e48": {
@@ -2177,7 +2183,8 @@
             "focus": "rec:apple-calls:person-a@example.com:macbook-pro-0001 call CALL-0005"
           }
         ]
-      }
+      },
+      "recording": null
     }
   },
   "e51": {
@@ -2301,7 +2308,8 @@
             "focus": "rec:apple-calls:person-a@example.com:macbook-pro-0001 call CALL-0005"
           }
         ]
-      }
+      },
+      "recording": null
     }
   },
   "e52": {
@@ -2436,7 +2444,8 @@
             "focus": "rec:apple-calls:person-a@example.com:macbook-pro-0001 call CALL-0004"
           }
         ]
-      }
+      },
+      "recording": null
     }
   },
   "e53": {
@@ -3103,20 +3112,24 @@
         {
           "at_ms": 1930384800000,
           "mine": true,
+          "who": null,
           "words": "Plan a synthetic weekend.",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         },
         {
           "at_ms": 1930384860000,
           "mine": false,
+          "who": null,
           "words": "A synthetic plan in three steps. [512-character reply]",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         }
       ]
     }
@@ -4050,11 +4063,13 @@
         {
           "at_ms": 1930385700000,
           "mine": true,
+          "who": null,
           "words": "Tidy the synthetic notes.",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         }
       ]
     }
@@ -4116,11 +4131,13 @@
         {
           "at_ms": 1930385760000,
           "mine": true,
+          "who": null,
           "words": "Rename the synthetic module.",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         }
       ]
     }
@@ -4182,11 +4199,13 @@
         {
           "at_ms": 1930385100000,
           "mine": false,
+          "who": null,
           "words": "A synthetic recap of the week. [384-character reply]",
           "full": false,
           "files": [],
           "tools": [],
-          "marked": false
+          "marked": false,
+          "heard": null
         }
       ]
     }

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DaySettings, SourceRow } from "@lifestreamprotocol/core";
 import { dayFacts } from "../days.js";
 import { collectionsFault } from "../family.js";
+import { callaudioFamily } from "../callaudio/family.js";
+import { callsFamily } from "../calls/family.js";
 import { notesFamily } from "../notes/family.js";
 import { FED } from "../test/fed.js";
 import { factsConform, insertKeepsFacts } from "../test/facts.js";
@@ -40,7 +42,10 @@ const fact = (day: string, name: string, contents?: readonly Content[]) => CALEN
 describe("calendar facts", () => {
   it("events.minutes and meetings.minutes are two readings of one length, each naming the other", () => {
     expect(collectionsFault([CALENDAR])).toEqual(["events.minutes names meetings.minutes, which no family declares"]);
-    expect(collectionsFault([CALENDAR, notesFamily(FED.notes)])).toEqual([]);
+    expect(collectionsFault([CALENDAR, notesFamily(FED.notes)])).toEqual(["meetings.minutes names callaudio.minutes, which no family declares"]);
+    const calls = callsFamily({ books: FED.labels, messages: FED.messages })(FED.calls);
+    const callaudio = callaudioFamily({ books: FED.labels, zone: SETTINGS.zone, calls: FED.calls })(FED.callaudio);
+    expect(collectionsFault([CALENDAR, notesFamily(FED.notes), calls, callaudio])).toEqual([]);
   });
 
   it("an event is one whichever copy is shown: its id is its unit", () => {

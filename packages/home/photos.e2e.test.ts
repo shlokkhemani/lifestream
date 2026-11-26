@@ -342,7 +342,9 @@ describe("photos from a phone, a Mac and a Takeout", () => {
         not_a_blob: (await askHeld(phonePass, DEVICE.phone, ["sha256:abc"])).status,
       };
       writeFileSync(join(OUT, "held.json"), `${JSON.stringify(heldAnswers, null, 2)}\n`);
-      expect(heldAnswers).toEqual({ phone: { held: [`sha256:${hexOf(google19)}`, `sha256:${hexOf(original2)}`] }, mac: { held: [] }, reader: 403, too_many: 422, not_a_blob: 422 });
+      expect(heldAnswers).toEqual({
+        phone: { held: [`sha256:${hexOf(google19)}`, `sha256:${hexOf(original2)}`], staged: [], partly: {} }, mac: { held: [], staged: [], partly: {} }, reader: 403, too_many: 422, not_a_blob: 422,
+      });
 
       const original20 = file("photo twenty's original, as Apple keeps it"), original22 = file("photo twenty-two, new on the phone"), original23 = file("photo twenty-three, sent by the Mac");
       const phone22: Snap = { lid: "PHONE-22/L0/001", cloud: "CLOUD-0022", taken: at("12:15:00"), name: "IMG_0022.HEIC", bytes: original22 };

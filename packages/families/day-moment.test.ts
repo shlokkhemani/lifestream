@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 import type { RecordRef } from "@lifestreamprotocol/core";
 import { describe, expect, it } from "vitest";
 import { episodes, type EpisodesExtras, type EpisodesFile } from "./day-episodes.js";
-import { moment, type Moment, type MomentMade, type MomentReads } from "./day-moment.js";
+import type { CallAudioView } from "./callaudio/view.js";
+import { moment, type CallHeard, type CallRecording, type Moment, type MomentMade, type MomentReads, type MomentView } from "./day-moment.js";
 import { atomFocus, dayPage, recordFocus, unitFocus } from "./day-page.js";
 import { NO_SIDE, type KnownPerson } from "./day-side.js";
 import type { DayAtom } from "./days.js";
@@ -57,11 +58,12 @@ const READS: MomentReads = {
   place: () => PLACE,
   made: madeOf,
   calls: (asked) => WEEK[asked] ?? [],
+  callAudio: () => null,
   people: () => PEOPLE,
 };
 
 const NOTHING: MomentReads = {
-  text: () => null, account: () => null, turns: () => null, open: () => null, place: () => null, made: () => null, calls: () => [], people: () => [],
+  text: () => null, account: () => null, turns: () => null, open: () => null, place: () => null, made: () => null, calls: () => [], callAudio: () => null, people: () => [],
 };
 
 interface Golden {
@@ -349,5 +351,122 @@ describe("a moment the dashboard's tests once built by hand", () => {
     const event = all.all_day[0];
     expect(event, "the golden day has an all-day event").toBeDefined();
     expect(at(event!)!.untimed).toBe("All day");
+  });
+});
+
+describe("a call recording's moment, from the callaudio journey's day", () => {
+  const file = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "callaudio", "test", "2026-10-05.day.json"), "utf8")) as EpisodesFile;
+  const recorded = file.atoms.filter((atom) => atom.family === "callaudio");
+  const heads = recorded.filter((atom) => atom.item?.startsWith("stretch:"));
+  const alone = heads.find((atom) => atom.joins === undefined)!;
+  const joined = heads.find((atom) => atom.joins !== undefined)!;
+  const call = file.atoms.find((atom) => atom.family === "calls")!;
+  const STEP = { value: "route-a", words: "Model A", note: null };
+  const UNHIDDEN = "Audio cannot be hidden. Choose a model on this Mac, or send voice notes as they are.";
+  const WHOLE = { family: "callaudio", item: alone.item, prompt: "call-transcript" };
+  const made = (state: MomentMade["state"], line: string | null = null, choose: MomentMade["choose"] = []): MomentMade =>
+    ({ by: state === "done" ? "Model A" : null, at_ms: null, state, line, ask: { family: "callaudio", item: "recording:part", prompt: "call-transcript" }, choose });
+  const partStart = (key: string): number => Date.parse(`${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}T${key.slice(9, 11)}:${key.slice(11, 13)}:${key.slice(13)}`);
+
+  function viewOf(unit: string, more: Partial<CallAudioView> = {}): CallAudioView {
+    const head = heads.find((atom) => atom.unit === unit)!;
+    const title = head.block!.title.slice(head.block!.title.indexOf(": ") + 2);
+    const turns = recorded.filter((atom) => atom.unit === unit && atom !== head).map((atom) => {
+      const colon = atom.text.indexOf(": ");
+      const who = atom.text.slice(0, colon);
+      return {
+        at_ms: atom.start_ms!, end_ms: atom.end_ms!, mine: who === "You", who, words: atom.text.slice(colon + 2),
+        heard: { record: atom.record!, item: atom.item!, from_ms: atom.start_ms! - partStart(atom.record!.key) },
+      };
+    });
+    const asked = [...new Set(turns.map((turn) => turn.heard.item))];
+    return {
+      summary: { title, summary: head.text.slice(head.text.indexOf(`${title}. `) + title.length + 2) }, summary_item: head.item!, asked,
+      stopped_ms: null, open: false, camera: false, parts: { asked: asked.length, done: asked.length, given_up: 0, waiting: 0 }, turns, ...more,
+    };
+  }
+
+  const heard = (view: CallAudioView, parts: MomentMade[] = view.asked.map(() => made("done", "Model A · today")), summary: MomentMade | null = made("done")): CallHeard =>
+    ({ view, parts, summary });
+  const readsOf = (callAudio: MomentReads["callAudio"]): MomentReads => ({ ...NOTHING, callAudio });
+  const open = (focus: string, reads: MomentReads): Moment => moment(file, {}, { focus, whole: false, marks: null, today: file.day }, reads, null)!;
+  const callOf = (got: Moment): Extract<MomentView, { view: "call" }> => got.view as Extract<MomentView, { view: "call" }>;
+  const recordingOf = (more: Partial<CallAudioView>, parts?: MomentMade[], summary?: MomentMade | null): CallRecording =>
+    callOf(open(`a${alone.n}`, readsOf((unit) => heard(viewOf(unit, more), parts, summary)))).recording!;
+
+  it("alone, a call is the app's: its name and chip the app, its summary and every turn, each playing its own part from its time", () => {
+    const got = open(`a${alone.n}`, readsOf((unit) => heard(viewOf(unit))));
+    expect([got.kind, got.icon, got.title, got.name, got.products, got.people, got.record]).toEqual(["call", "call", "Zoom", "Zoom", ["Zoom"], [], alone.record]);
+    const view = callOf(got);
+    expect([view.name, view.group, view.figure, view.others, view.week]).toEqual(["Zoom", "", { length_ms: 20 * 60_000, words: null, label: "Call" }, [], null]);
+    expect(view.recording!.summary).toBe("You and they went over the lease renewal; you will send the signed copy.");
+    expect(view.recording!.turns.map((turn) => [turn.who, turn.mine, turn.words, turn.heard!.record.kind, turn.heard!.record.key, turn.heard!.from_ms])).toEqual([
+      ["You", true, "Hello, can you hear me?", "mic-recording", "20261005T083000.000Z", 1_000],
+      ["Them", false, "Yes, I can hear you.", "sound-recording", "20261005T083000.000Z", 11_000],
+      ["You", true, "Good. Shall we go over the lease?", "mic-recording", "20261005T083000.000Z", 21_000],
+      ["Them", false, "Sure, the renewal is due next month.", "sound-recording", "20261005T083000.000Z", 31_000],
+      ["You", true, "I will send the signed copy tonight.", "mic-recording", "20261005T084000.000Z", 2_000],
+      ["Them", false, "Great, thanks.", "sound-recording", "20261005T084000.000Z", 8_000],
+    ]);
+    expect(view.recording!.made).toEqual({ ...made("done", "Model A · today"), ask: WHOLE });
+    expect(open(`a${alone.n}`, readsOf((unit) => heard(viewOf(unit, { camera: true })))).icon, "the camera on").toBe("video");
+    expect(got.source.records.map((record) => `${record.kind} ${record.key}`), "each recording once, though many turns play from it").toEqual([
+      "mic-recording 20261005T083000.000Z", "sound-recording 20261005T083000.000Z", "mic-recording 20261005T084000.000Z", "sound-recording 20261005T084000.000Z",
+    ]);
+  });
+
+  it("alone, a turn said before its head line leaves the call the app's: its title, record and figure the head's", () => {
+    const [head, first, ...rest] = file.atoms;
+    const hello = { ...first!, n: 1, start_ms: head!.start_ms! - 5_000, end_ms: head!.start_ms! - 4_000, text: "Them: let me call to Ben" };
+    const before = { ...file, atoms: [hello, { ...head!, n: 2 }, ...rest] };
+    const got = moment(before, {}, { focus: "a1", whole: false, marks: null, today: file.day }, readsOf(() => null), null)!;
+    expect([got.title, got.products, got.record, callOf(got).name, callOf(got).figure]).toEqual(["Zoom", ["Zoom"], alone.record, "Zoom", { length_ms: 20 * 60_000, words: null, label: "Call" }]);
+  });
+
+  it("joined to its call record, one moment: the call's title, people, record and figure, the recording's turns named as its view names them", () => {
+    const reads = readsOf((unit) => heard(viewOf(unit)));
+    const said = recorded.find((atom) => atom.text.startsWith("Person B: "))!;
+    for (const focus of [`e${call.n}`, `a${joined.n}`]) expect(open(focus, reads).key, focus).toBe(`e${call.n}`);
+    const got = open(`a${said.n}`, reads);
+    expect([got.key, got.title, got.people.map((person) => [person.name, person.call]), got.record, got.products])
+      .toEqual([`e${call.n}`, "Person B", [["Person B", call.record]], call.record, ["Phone call"]]);
+    const view = callOf(got);
+    expect([view.name, view.figure]).toEqual(["Person B", { length_ms: call.end_ms! - call.start_ms!, words: null, label: "They called" }]);
+    expect(view.recording!.summary).toBe("You and they settled on Saturday; you will book the table.");
+    expect(view.recording!.turns.map((turn) => [turn.who, turn.words, turn.marked])).toEqual([
+      ["You", "Are we still on for Saturday?", false], ["Person B", "Yes, Saturday works for me.", true], ["You", "I will book the table.", false],
+    ]);
+  });
+
+  it("says each state of a call's words in one made, which asks for the whole call", () => {
+    const cases: [string, MomentMade[], Partial<MomentMade> | null][] = [
+      ["done", [made("done", "Model A · today"), made("done", "Model A · today")], { state: "done", line: "Model A · today", by: "Model A" }],
+      ["transcribing", [made("done"), made("waiting", "In the queue"), made("waiting", "In the queue")], { state: "waiting", line: "Transcribing, 1 of 3 parts", choose: [] }],
+      ["off or unset", [made("done"), made("off", null, [STEP])], { state: "off", line: null, choose: [STEP] }],
+      ["not timed", [made("needs", "Model A can't time its words", [STEP])], { state: "needs", line: "Model A can't time its words", choose: [STEP] }],
+      ["older than the range", [made("off", "Older than this stream's range", [STEP])], { state: "off", line: "Older than this stream's range", choose: [STEP] }],
+      ["failed", [made("done"), made("failed", "Could not be processed", [STEP]), made("failed", "Could not be processed", [STEP])], { state: "failed", line: "2 parts couldn't be read", choose: [STEP] }],
+      ["one failed", [made("done"), made("failed", "Could not be processed", [STEP])], { state: "failed", line: "1 part couldn't be read", choose: [STEP] }],
+      ["audio can't be hidden", [made("done"), made("needs", UNHIDDEN, [STEP]), made("waiting", "In the queue")], { state: "needs", line: UNHIDDEN, choose: [STEP] }],
+      ["no part asked", [], null],
+    ];
+    for (const [state, parts, said] of cases) {
+      expect(recordingOf({}, parts).made, state).toEqual(said === null ? null : expect.objectContaining({ ...said, ask: WHOLE }));
+    }
+  });
+
+  it("stopped, the time it stopped; with no summary, the turns alone beside the summary's own state", () => {
+    const stopped_ms = alone.start_ms! + 10 * 60_000;
+    const off = made("off", null, [STEP]);
+    const recording = recordingOf({ stopped_ms, summary: null }, undefined, off);
+    expect([recording.stopped_ms, recording.summary, recording.turns.length, recording.summarised]).toEqual([stopped_ms, null, 6, off]);
+    expect(recordingOf({}, undefined, null).summarised, "nothing asked of the summary yet").toBeNull();
+  });
+
+  it("with no recording read, as a live home whose audio connector exports nothing, a call answers no recording", () => {
+    const none = readsOf(() => null);
+    const quiet = open(`a${alone.n}`, none);
+    expect([quiet.title, quiet.products, callOf(quiet).name, callOf(quiet).recording]).toEqual(["Zoom", ["Zoom"], "Zoom", null]);
+    expect([open(`e${call.n}`, none).title, callOf(open(`e${call.n}`, none)).recording]).toEqual(["Person B", null]);
   });
 });

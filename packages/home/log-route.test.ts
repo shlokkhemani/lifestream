@@ -63,6 +63,10 @@ describe("a request's route as the door logs it", () => {
     expect([routeOf("/v1/blobs/held"), routeOf("/v1/imports/held")]).toEqual(["/v1/blobs/held", "/v1/imports/held"]);
   });
 
+  it("names a phone's file by its hash's first 8 hex, as a bundle", () => {
+    expect([routeOf(`/v1/files/sha256:${"ab".repeat(32)}`), routeOf("/v1/files/IMG_0001.HEIC")]).toEqual(["/v1/files/sha256:abababab", "/v1/files/<blob>"]);
+  });
+
   it("names the count route, so the door's log can tell a count's time from an unknown path's", () => {
     expect(routeOf("/v1/count?of=messages&by=year")).toBe("/v1/count");
   });

@@ -9,7 +9,7 @@ import { foundPanels, modelChoices, panelOf, rowOf } from './dialog.js';
 import { thingKey } from './pending.js';
 import { panelPart, part } from './settings-pages.js';
 
-export const MODEL_FIELDS = { key: 'openrouter', url: 'address.url' };
+export const MODEL_FIELDS = { key: 'openrouter', url: 'address.url', addressKey: 'address.key' };
 
 export const SUBSCRIPTIONS = /** @type {ModelItem[]} */ (['claude', 'chatgpt']);
 
@@ -39,7 +39,8 @@ export function keyAct(opened) {
  */
 export function addressAct(opened) {
   const url = typed(opened, MODEL_FIELDS.url).trim();
-  return url ? { act: 'models', do: 'address', url } : null;
+  const key = typed(opened, MODEL_FIELDS.addressKey).trim();
+  return url ? { act: 'models', do: 'address', url, ...(key ? { key } : {}) } : null;
 }
 
 /**
@@ -225,5 +226,7 @@ export function addressPage(models, opened) {
   return part({ label: server.label, line: words.about,
     acts: [{ label: words.save, variant: 'primary', disabled: addressAct(opened) === null, do: { save: 'address' } }],
     rows: [rowOf(words.field, { end: { field: { key: MODEL_FIELDS.url, label: words.field, kind: 'text', value: typed(opened, MODEL_FIELDS.url),
-      placeholder: words.placeholder } } })] });
+      placeholder: words.placeholder } } }),
+    rowOf(words.key_field, { line: words.key_about, end: { field: { key: MODEL_FIELDS.addressKey, label: words.key_field, kind: 'secret',
+      value: typed(opened, MODEL_FIELDS.addressKey), placeholder: words.key_placeholder } } })] });
 }

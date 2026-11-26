@@ -1,0 +1,21 @@
+Day 2026-10-05 (Monday) in Asia/Kolkata, 04:00 to 2026-10-06 04:00 (24 h)
+12 atoms: callaudio 11, calls 1
+
+14:00–14:20 Call on Zoom, 20 min: Lease renewal (7)
+  14:00–14:20 Call on Zoom, 20 min: Lease renewal. You and they went over the lease renewal; you will send the signed copy.
+  14:00 You: Hello, can you hear me?
+  Them: Yes, I can hear you.
+  You: Good. Shall we go over the lease?
+  Them: Sure, the renewal is due next month.
+  14:10 You: I will send the signed copy tonight.
+  Them: Great, thanks.
+15:59–16:10 Phone call with Person B, they called, 11 min
+16:00–16:10 Call transcript: Weekend plans (4)
+  16:00–16:10 Call transcript: Weekend plans. You and they settled on Saturday; you will book the table.
+  16:00 You: Are we still on for Saturday?
+  Person B: Yes, Saturday works for me.
+  You: I will book the table.
+
+Coverage
+callaudio: audio:local:macbook-pro-0001 read into the day; test-calls:local:iphone-aa01 read into the day
+calls: test-calls:local:iphone-aa01 read into the day

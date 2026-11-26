@@ -523,21 +523,93 @@ public final class HomeLink: Sendable {
         newest.observe(landed)
     }
 
-    public func send(bundle file: URL, id: String, kind: WriteKind, pressed: Bool = false,
+    public struct File: Sendable, Equatable {
+        public let name: String
+        public let url: URL
+        public let bytes: Int64
+
+        public init(name: String, url: URL, bytes: Int64) {
+            self.name = name
+            self.url = url
+            self.bytes = bytes
+        }
+    }
+
+    public func send(bundle file: URL, id: String, files given: [File] = [], kind: WriteKind, pressed: Bool = false,
                      sent: (@Sendable (Int64) -> Void)? = nil) async throws -> FreshAnswer {
         let path = try bundlePath(file, id)
         let (body, bytes) = try upload(file)
-        let crossing: MobileData.Crossing
-        switch mobile(pressed: pressed).decide(kind, bytes: bytes) {
-        case .moves(let allowed): crossing = allowed
-        case .waits(let wait): throw LinkFailure.waits(wait)
+        let crossing = try moving(kind, bytes: bytes, pressed: pressed)
+        if !given.isEmpty {
+            let holding = try await holding(Set(given.map(\.name)))
+            let owed = given.filter { !holding.whole($0.name) }
+            for file in owed.filter({ holding.partly[$0.name] != nil }) + owed.filter({ holding.partly[$0.name] == nil }) {
+                try await put(file, from: holding.partly[file.name] ?? 0, kind: kind, pressed: pressed)
+            }
         }
-        let headers = ["Content-Type": "application/zip", Self.kindHeader: kind.rawValue]
-        let response = try await contact("PUT", path, headers, body, timeout: URLSessionTransport.uploadSilence,
-                                         crossing: crossing, route: "PUT /v1/bundles/<id>", lands: true,
-                                         progress: sent.map(UploadProgress.init))
+        let bundle = { [self] in
+            try await contact("PUT", path, ["Content-Type": "application/zip", Self.kindHeader: kind.rawValue], body,
+                              timeout: URLSessionTransport.uploadSilence, crossing: crossing, route: "PUT /v1/bundles/<id>",
+                              lands: true, progress: sent.map(UploadProgress.init))
+        }
+        var response = try await bundle()
+        if let missing = Self.missingFiles(response) {
+            let named = given.filter { missing.contains($0.name) }
+            guard !named.isEmpty else { throw failure(response) }
+            for file in named { try await put(file, from: 0, kind: kind, pressed: pressed) }
+            response = try await bundle()
+        }
         guard response.status == 200 || response.status == 201 else { throw failure(response) }
         return try keep(response)
+    }
+
+    private func moving(_ kind: WriteKind, bytes: Int64, pressed: Bool) throws -> MobileData.Crossing {
+        switch mobile(pressed: pressed).decide(kind, bytes: bytes) {
+        case .moves(let allowed): return allowed
+        case .waits(let wait): throw LinkFailure.waits(wait)
+        }
+    }
+
+    private func put(_ file: File, from offset: Int64, kind: WriteKind, pressed: Bool, again: Bool = true) async throws {
+        guard file.name.hasPrefix("sha256:"), file.name.utf8.count == 71, let name = Self.encoded(file.name) else {
+            throw LinkFailure.unusableID
+        }
+        let crossing = try moving(kind, bytes: file.bytes, pressed: pressed)
+        let body: HomeRequest.Body
+        if offset >= file.bytes {
+            body = .empty
+        } else if offset == 0 {
+            body = .file(file.url)
+        } else {
+            let url = file.url
+            body = .stream(size: file.bytes - offset, open: HomeRequest.Opener { [files] in try files.reader(url, from: offset) })
+        }
+        let headers = ["Content-Type": "application/octet-stream", Self.kindHeader: kind.rawValue, Self.offsetHeader: String(offset)]
+        let response = try await contact("PUT", "/v1/files/" + name, headers, body, timeout: URLSessionTransport.uploadSilence,
+                                         crossing: crossing, route: "PUT /v1/files/<name>")
+        switch response.status {
+        case 200, 201:
+            return
+        case 409 where again:
+            guard let held = Self.offsetHeld(response) else { throw failure(response) }
+            try await put(file, from: held, kind: kind, pressed: pressed, again: false)
+        default:
+            throw failure(response)
+        }
+    }
+
+    static let offsetHeader = "Upload-Offset"
+
+    private static func offsetHeld(_ response: HomeResponse) -> Int64? {
+        guard let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
+              object["code"] as? String == "UPLOAD_OFFSET" else { return nil }
+        return (object["held"] as? NSNumber)?.int64Value
+    }
+
+    private static func missingFiles(_ response: HomeResponse) -> Set<String>? {
+        guard response.status == 409, let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
+              object["code"] as? String == "FILES_MISSING" else { return nil }
+        return Set((object["missing"] as? [String: Any])?["files"] as? [String] ?? [])
     }
 
     private func upload(_ file: URL) throws -> (body: HomeRequest.Body, bytes: Int64) {

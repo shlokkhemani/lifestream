@@ -348,7 +348,7 @@ final class ContactsLogTests: XCTestCase {
             return try XCTUnwrap(sealed.bundles.first)
         }
         func carried(_ bundle: BuiltExportBundle) -> Set<String> {
-            Set(bundle.manifest.files.filter { $0.key.hasPrefix("blobs/") }.values.map(\.sha256))
+            Set(bundle.files.map(\.name))
         }
         let other = Data([0xFF, 0xD8, 0xFF, 0xE1, 9, 9, 9])
         await book.set("A", "Person A", photo: photo)
@@ -369,7 +369,7 @@ final class ContactsLogTests: XCTestCase {
         let held = Set([SHA256Digest.tagged(photo), SHA256Digest.tagged(other)])
         let next = try await seal(2, after: firstThrough, held: held)
         XCTAssertEqual(next.manifest.files["contacts.jsonl"]?.firstSequence, firstThrough + 1)
-        XCTAssertEqual(carried(next), [], "the edit names its photo, which the home holds, and carries none")
+        XCTAssertEqual(carried(next), [], "the edit names its photo, which the home holds, and sends none")
         let edit = try await lines(store, after: firstThrough)
         XCTAssertEqual(edit, ["card A", "gone C"])
         kept = try await log.photosKept()
@@ -409,7 +409,7 @@ final class ContactsLogTests: XCTestCase {
             let answer = try await link.exchange()
             try await custody.applied(answer)
             for pending in try await custody.seal(answer, hardware: .synthetic, appVersion: "1.0.0", now: clock.now).bundles {
-                try await custody.applied(try await link.send(bundle: custody.file(pending), id: pending.id, kind: .new))
+                try await custody.applied(try await link.deliver(pending, of: custody))
             }
             clock.advance(60)
         }
@@ -464,8 +464,10 @@ final class ContactsLogTests: XCTestCase {
         var restated = try await lines(store, after: mark)
         XCTAssertEqual(restated, ["card A", "card B"], "every contact the old home imported, again")
         try await ship()
-        let carried = home.deliveries.dropFirst(before).reduce(Set<String>()) { $0.union($1.blobs) }
-        XCTAssertEqual(carried, [SHA256Digest.tagged(photo), SHA256Digest.tagged(other)], "and both photos")
+        let restatedDeliveries = home.deliveries.dropFirst(before)
+        let named = restatedDeliveries.reduce(Set<String>()) { $0.union($1.named) }
+        XCTAssertEqual(named, [SHA256Digest.tagged(photo), SHA256Digest.tagged(other)], "and both photos")
+        XCTAssertEqual(restatedDeliveries.reduce(Set<String>()) { $0.union($1.blobs) }, [], "which the home's store holds: neither is sent again")
         try await pass(log, book)
         restated = try await lines(store, after: mark)
         XCTAssertEqual(restated.count, 2, "once")

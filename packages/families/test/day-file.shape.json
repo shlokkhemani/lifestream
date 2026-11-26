@@ -74,7 +74,12 @@
       "video?": {
         "duration_ms": "integer|null"
       },
-      "live?": "true"
+      "live?": "true",
+      "joins?": {
+        "source": "string",
+        "kind": "string",
+        "key": "string"
+      }
     }
   ],
   "facts": [

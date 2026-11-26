@@ -140,13 +140,19 @@ public final class DeviceFiles: @unchecked Sendable {
         }
     }
 
-    public func reader(_ file: URL) throws -> Reader {
+    public func reader(_ file: URL, from offset: Int64 = 0) throws -> Reader {
         try shared { keys in
             guard let fd = try Durable.openForReading(file) else {
                 throw Durable.failure("open \(file.lastPathComponent)", code: ENOENT)
             }
             let name = file.lastPathComponent
-            guard let keys else { return Reader(descriptor: fd, opening: nil, name: name) }
+            guard let keys else {
+                guard offset == 0 || Darwin.lseek(fd, off_t(offset), SEEK_SET) == off_t(offset) else {
+                    Darwin.close(fd)
+                    throw Durable.failure("seek \(name)")
+                }
+                return Reader(descriptor: fd, opening: nil, name: name)
+            }
             let opening: Unsealing
             do {
                 opening = try Durable.firstByte(fd, naming: file) == LogLayout.mark
@@ -156,7 +162,7 @@ public final class DeviceFiles: @unchecked Sendable {
                 Darwin.close(fd)
                 throw error
             }
-            return Reader(descriptor: fd, opening: opening, name: name)
+            return Reader(descriptor: fd, opening: opening, name: name, skipping: offset)
         }
     }
 

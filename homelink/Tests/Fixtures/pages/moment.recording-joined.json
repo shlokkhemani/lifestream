@@ -1,0 +1,176 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-10-06",
+  "day": "2026-10-05",
+  "state": "found",
+  "moment": {
+    "key": "e8",
+    "row": "e8",
+    "kind": "call",
+    "icon": "call",
+    "title": "Person B",
+    "name": "Person B",
+    "near": null,
+    "start_ms": 1791968400000,
+    "end_ms": 1791968400000,
+    "untimed": null,
+    "length_ms": null,
+    "products": [
+      "Phone call"
+    ],
+    "people": [
+      {
+        "name": "Person B",
+        "person": null,
+        "chat": null,
+        "call": {
+          "source": "test-calls:local:iphone-aa01",
+          "kind": "call",
+          "key": "CALL-0001"
+        }
+      }
+    ],
+    "place": null,
+    "out": null,
+    "record": {
+      "source": "test-calls:local:iphone-aa01",
+      "kind": "call",
+      "key": "CALL-0001"
+    },
+    "letter": null,
+    "marks": [],
+    "pictures": [],
+    "source": {
+      "records": [
+        {
+          "source": "test-calls:local:iphone-aa01",
+          "kind": "call",
+          "key": "CALL-0001",
+          "at_ms": 1791968400000
+        },
+        {
+          "source": "audio:local:macbook-pro-0001",
+          "kind": "mic-recording",
+          "key": "20261005T103000.000Z",
+          "at_ms": 1791968400000
+        },
+        {
+          "source": "audio:local:macbook-pro-0001",
+          "kind": "sound-recording",
+          "key": "20261005T103000.000Z",
+          "at_ms": 1791968400000
+        }
+      ],
+      "more": 0,
+      "units": [
+        {
+          "family": "calls",
+          "unit": "test-calls:CALL-0001"
+        },
+        {
+          "family": "callaudio",
+          "unit": "audio:local:macbook-pro-0001/mic-recording/20261005T103000.000Z"
+        }
+      ],
+      "atoms": 5,
+      "start_ms": 1791968400000,
+      "end_ms": 1791968400000
+    },
+    "view": {
+      "figure": {
+        "length_ms": 630000,
+        "words": null,
+        "label": "They called"
+      },
+      "group": "",
+      "name": "Person B",
+      "others": [],
+      "week": null,
+      "recording": {
+        "summary": "You and they settled on Saturday; you will book the table.",
+        "stopped_ms": null,
+        "turns": [
+          {
+            "at_ms": 1791968400000,
+            "mine": true,
+            "who": "You",
+            "words": "Are we still on for Saturday?",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "mic-recording",
+                "key": "20261005T103000.000Z"
+              },
+              "from_ms": 1000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": false,
+            "who": "Person B",
+            "words": "Yes, Saturday works for me.",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "sound-recording",
+                "key": "20261005T103000.000Z"
+              },
+              "from_ms": 11000
+            }
+          },
+          {
+            "at_ms": 1791968400000,
+            "mine": true,
+            "who": "You",
+            "words": "I will book the table.",
+            "full": true,
+            "files": [],
+            "tools": [],
+            "marked": false,
+            "heard": {
+              "record": {
+                "source": "audio:local:macbook-pro-0001",
+                "kind": "mic-recording",
+                "key": "20261005T103000.000Z"
+              },
+              "from_ms": 41000
+            }
+          }
+        ],
+        "made": {
+          "by": "Model A",
+          "at_ms": 1791968400000,
+          "state": "done",
+          "line": "Model A · today",
+          "ask": {
+            "family": "callaudio",
+            "item": "stretch:audio:local:macbook-pro-0001/mic-recording/20261005T103000.000Z",
+            "prompt": "call-transcript"
+          },
+          "choose": []
+        },
+        "summarised": {
+          "by": "Model A",
+          "at_ms": 1791968400000,
+          "state": "done",
+          "line": "Model A · today",
+          "ask": {
+            "family": "callaudio",
+            "item": "stretch:audio:local:macbook-pro-0001/mic-recording/20261005T103000.000Z",
+            "prompt": "call-summary"
+          },
+          "choose": []
+        }
+      },
+      "view": "call"
+    }
+  }
+}

@@ -63,6 +63,7 @@ ios-app/Signing/Local.xcconfig
 /packages/families/README.md
 /packages/families/ai/ai.md
 /packages/families/calendar/calendar.md
+/packages/families/callaudio/callaudio.md
 /packages/families/calls/calls.md
 /packages/families/day-file.md
 /packages/families/health/health.md

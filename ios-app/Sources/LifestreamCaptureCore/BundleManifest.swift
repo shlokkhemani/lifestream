@@ -125,9 +125,10 @@ struct BundleIdentityMaterial: Codable {
 }
 
 public struct BuiltExportBundle: Sendable, Equatable {
-    public init(url: URL, manifest: ExportBundleManifest) {
-        self.url = url; self.manifest = manifest
+    public init(url: URL, manifest: ExportBundleManifest, files: [PendingBundle.File]) {
+        self.url = url; self.manifest = manifest; self.files = files
     }
     public let url: URL
     public let manifest: ExportBundleManifest
+    public let files: [PendingBundle.File]
 }

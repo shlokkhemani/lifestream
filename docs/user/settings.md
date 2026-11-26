@@ -169,7 +169,7 @@ when you pick it for **Hiding details**.
 
 | Setting | What it changes | Default |
 |---|---|---|
-| **Other server** | Any OpenAI-compatible server, like vLLM or another Mac. It lists its own models. **Add server** sets its **Server URL**. **Remove** stops using it. | None |
+| **Other server** | Any OpenAI-compatible server, like vLLM or another Mac. It lists its own models. **Add server** sets its **Server URL**, and its **API key** if the server asks for one. **Remove** stops using it and deletes its key. | None |
 
 ### Privacy
 
