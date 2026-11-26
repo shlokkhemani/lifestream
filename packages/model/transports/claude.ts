@@ -11,11 +11,11 @@ const CONTEXT_TOKENS = 200_000;
 
 const DECLARED: readonly ListedModel[] = [
   {
-    model: CLAUDE_ITEM_MODEL, name: "Claude Haiku 5.5", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    model: CLAUDE_ITEM_MODEL, name: "Claude Haiku 5.5", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: CONTEXT_TOKENS,
     thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
   },
   {
-    model: CLAUDE_CHAT_MODEL, name: "Claude Opus 5.5", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    model: CLAUDE_CHAT_MODEL, name: "Claude Opus 5.5", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: CONTEXT_TOKENS,
     thinking: ["low", "medium", "high"], ready: true, suggested: ["chat"],
   },
 ];
@@ -119,7 +119,7 @@ export function listedClaude(listed: readonly unknown[]): ListedModel[] {
     const efforts = Array.isArray(alias?.supportedEffortLevels) ? alias.supportedEffortLevels.filter((level): level is string => typeof level === "string") : [];
     rows.set(model, {
       model, name: typeof alias?.displayName === "string" && alias.displayName !== "" ? alias.displayName : model,
-      input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS, thinking: efforts, ready: true,
+      input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: CONTEXT_TOKENS, thinking: efforts, ready: true,
     });
   }
   return [...rows.values()];

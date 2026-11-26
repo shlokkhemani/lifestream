@@ -11,6 +11,7 @@ export interface Abilities {
   input: readonly Input[];
   output: Output;
   tools: boolean;
+  timed: boolean;
   context_tokens: number | null;
   thinking: readonly string[];
 }

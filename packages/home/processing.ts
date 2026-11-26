@@ -1,7 +1,7 @@
 import type { Work } from "@lifestreamprotocol/connect";
 import { addDays, civilDay, dayBounds, selects, type JsonObject, type ReadTables, type SourceRow } from "@lifestreamprotocol/core";
 import type { Family } from "@lifestreamprotocol/families";
-import { MODEL_USES, unfit, workNeed, type Rates } from "@lifestreamprotocol/model";
+import { MODEL_USES, unfit, workNeed, type Rates, type Unfit } from "@lifestreamprotocol/model";
 import { PRIVACY_MEMBER, type NamedLevel, type PrivacySettings } from "@lifestreamprotocol/privacy";
 import { AUDIO_LINE, HIDING_META, sentLevel, type HidingWaits } from "./copies.js";
 import { extractCursor } from "./derive.js";
@@ -291,10 +291,16 @@ function asIsLine(at: Pick<WorkRouting, "value" | "as_is">, route: ModelRoute | 
   return { line: at.value === "off" ? VOICE_OFF : route === null ? NO_VOICE : null };
 }
 
+const UNMET_WORDS: Readonly<Partial<Record<Exclude<Unfit, { input: unknown }>, string>>> = {
+  context: "Needs a model for long text",
+  timed: "Needs a model that times its words",
+};
+
 export function needsWords(work: WorkNeeds, routes: readonly ModelRoute[]): string {
   const ofKind = routes.filter((route) => unfit(route, MODEL_USES[work.kind].need) === null);
-  if (ofKind.length > 0 && !ofKind.some((route) => unfit(route, workNeed(work)) === null)) return "Needs a model for long text";
-  return `Connect a model that takes ${work.kind}`;
+  const unmet = ofKind.map((route) => unfit(route, workNeed(work)));
+  const named = unmet.includes(null) ? undefined : unmet.map((why) => (typeof why === "string" ? UNMET_WORDS[why] : undefined)).find((words) => words !== undefined);
+  return named ?? `Connect a model that takes ${work.kind}`;
 }
 
 function costOf(rows: ReadonlyMap<string, number>, route: Pick<ModelRoute, "model">, rates: Rates | null): number | null {

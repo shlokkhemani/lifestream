@@ -2409,7 +2409,7 @@ describe("the claude transport", () => {
     })));
     const THINKING = ["low", "medium", "high"];
     const listed = (model: string, name: string, abilities: Partial<Abilities>, extra: Partial<ListedModel> = {}): ListedModel =>
-      ({ model, name, input: ["text"], output: "text", tools: true, context_tokens: null, thinking: THINKING, ...abilities, ready: true, ...extra });
+      ({ model, name, input: ["text"], output: "text", tools: true, timed: false, context_tokens: null, thinking: THINKING, ...abilities, ready: true, ...extra });
     expect(seams).toEqual({
       codex: {
         provider: "ChatGPT", cost: "plan", leaves: "OpenAI", chat: "program",
@@ -2432,7 +2432,7 @@ describe("the claude transport", () => {
         defaults: { effort: "low", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 4 },
         models: [
           listed("elevenlabs/scribe-v2", "Scribe v2", { input: ["audio"], tools: false, thinking: [] }, { suggested: ["audio"], request: { effort: "none" } }),
-          listed("google/gemini-3.8-flash", "Gemini 3.8 Flash", { input: ["text", "image", "audio"] }, { suggested: ["pictures", "text"] }),
+          listed("google/gemini-3.8-flash", "Gemini 3.8 Flash", { input: ["text", "image", "audio"], timed: true }, { suggested: ["pictures", "text"] }),
           listed("openai/gpt-6-luna", "GPT-6 Luna", { input: ["text", "image"] }, { suggested: ["pictures", "text", "chat"] }),
         ],
       },
@@ -2544,6 +2544,22 @@ describe("the runner transport", () => {
     for (const languages of [undefined, null, "en", ["English"], ["Hindi and about thirty more"], [""], [7], ["en_US"], ["pt-BR"], ["zh-Hans"], ["en-US"], ["EN"], Array.from({ length: 201 }, () => "en")]) {
       expect(isStated(stated(languages)), JSON.stringify(languages)).toBe(false);
     }
+  });
+
+  it("takes a file's timed as stated and lists it so, and a file an older runner states with no timed as untimed, still listed; a timed that is no boolean is refused", async () => {
+    const stated = (timed: unknown) => {
+      const { present: _present, unit: _unit, ...rest } = runner(true, [{ ...file("speech", "ready"), input: ["audio"], context_tokens: null, timed: timed as boolean }]);
+      return rest;
+    };
+    const { timed: _timed, ...older } = stated(true).files[0]!;
+    const before = { ...stated(true), files: [older] };
+    expect([isStated(stated(true)), isStated(stated(false)), isStated(before)]).toEqual([true, true, true]);
+    expect([runnerInfo(RUNNER_UNIT, stated(true)), runnerInfo(RUNNER_UNIT, stated(false)), runnerInfo(RUNNER_UNIT, before)].map((info) => info.files.map((each) => [each.id, each.timed])))
+      .toEqual([[["speech", true]], [["speech", false]], [["speech", false]]]);
+    for (const timed of [null, "yes", 1]) expect(isStated(stated(timed)), JSON.stringify(timed)).toBe(false);
+    const listing = [{ ...runnerInfo(RUNNER_UNIT, stated(true)), present: true }, { ...runnerInfo("runner-mac-mini-0002", before), present: true }];
+    const offered = await runnerTransport({ door: undefined, pass: () => CALL, runners: listing, clock: () => RUNNER_NOW }).models();
+    expect(offered.map((model) => [model.runner?.unit, model.model, model.timed])).toEqual([[RUNNER_UNIT, "speech", true], ["runner-mac-mini-0002", "speech", false]]);
   });
 
   it("offers each runner's files from the listing it is handed, ready only when its runner is present and holds them; runs wherever it knows the door; the home's listing ends within its bound", async () => {
@@ -2892,7 +2908,7 @@ describe("Scribe v2 on the OpenRouter transport", () => {
     const transport = openRouterTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher });
     expect([transport.name, transport.provider, transport.cost, transport.leaves]).toEqual(["openrouter", "OpenRouter", "priced", "OpenRouter"]);
     expect((await transport.models())[0]).toEqual({
-      model: "elevenlabs/scribe-v2", name: "Scribe v2", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], ready: true, suggested: ["audio"],
+      model: "elevenlabs/scribe-v2", name: "Scribe v2", input: ["audio"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], ready: true, suggested: ["audio"],
       request: { effort: "none" },
     });
     expect(transportSecret("openrouter", {})).toBe("openrouter");
@@ -3244,7 +3260,7 @@ const RUNNER_UNIT = "runner-macbook-pro-0001";
 const RUNNER_NOW = Date.UTC(2026, 10, 11, 12, 0);
 type Held = RunnerListing["files"][number];
 const file = (id: string, state: Held["state"], extra: Partial<Held> = {}): Held => ({
-  id, name: `Model ${id}`, input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16, state, fetched_bytes: 0, failure: null, ...extra,
+  id, name: `Model ${id}`, input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [], bytes: 4_000_000_000, languages: [], memory_gb: 16, state, fetched_bytes: 0, failure: null, ...extra,
 });
 const runner = (present: boolean, files: Held[], slots = 1): RunnerListing => ({
   unit: RUNNER_UNIT, name: "MacBook Pro", version: "1", boot: "boot-a", slots, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files, present,

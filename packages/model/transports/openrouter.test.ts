@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SendFailed } from "../transport.js";
+import { TIMED_TRANSCRIPT } from "../transcript.js";
 import { OPENROUTER_SECRET, openRouterTransport } from "./openrouter.js";
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -25,10 +26,10 @@ describe("the OpenRouter transport", () => {
     const { posts, fetcher } = played();
     const transport = openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher });
     expect([transport.name, transport.cost, transport.leaves, transport.chat, OPENROUTER_SECRET]).toEqual(["openrouter", "priced", "OpenRouter", "door", "openrouter"]);
-    expect((await transport.models()).map(({ model, input, output, tools, context_tokens, ready }) => ({ model, input, output, tools, context_tokens, ready }))).toEqual([
-      { model: "elevenlabs/scribe-v2", input: ["audio"], output: "text", tools: false, context_tokens: null, ready: true },
-      { model: "google/gemini-3.8-flash", input: ["text", "image", "audio"], output: "text", tools: true, context_tokens: null, ready: true },
-      { model: "openai/gpt-6-luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null, ready: true },
+    expect((await transport.models()).map(({ model, input, output, tools, timed, context_tokens, ready }) => ({ model, input, output, tools, timed, context_tokens, ready }))).toEqual([
+      { model: "elevenlabs/scribe-v2", input: ["audio"], output: "text", tools: false, timed: false, context_tokens: null, ready: true },
+      { model: "google/gemini-3.8-flash", input: ["text", "image", "audio"], output: "text", tools: true, timed: true, context_tokens: null, ready: true },
+      { model: "openai/gpt-6-luna", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: null, ready: true },
     ]);
     expect(posts).toEqual([]);
   });
@@ -57,6 +58,26 @@ describe("the OpenRouter transport", () => {
         ] }],
       },
     }]);
+  });
+
+  it("sends Gemini a timed request as any JSON prompt, the schema left to the prompt's words, and answers the timed transcript's JSON as the model wrote it", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "lifestream-openrouter-"));
+    folders.push(folder);
+    writeFileSync(join(folder, "part.m4a"), "synthetic m4a bytes");
+    writeFileSync(join(folder, "schema.json"), JSON.stringify(TIMED_TRANSCRIPT));
+    const answer = JSON.stringify({ segments: [{ start_s: 0.4, end_s: 2.1, text: "A synthetic sentence." }] });
+    const posts: Record<string, unknown>[] = [];
+    const fetcher = (async (_url: string, init: RequestInit) => {
+      posts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return Response.json({ choices: [{ message: { content: answer } }] });
+    }) as typeof fetch;
+    const transport = openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher });
+    const sent = await transport.send(
+      { model: "google/gemini-3.8-flash", effort: "low", sampling: { temperature: 0 }, input: "Transcribe this.", schema: join(folder, "schema.json"), signal: new AbortController().signal },
+      [{ path: join(folder, "part.m4a"), media_type: "audio/mp4" }],
+    );
+    expect(sent.text).toBe(answer);
+    expect(posts.map((body) => Object.keys(body).sort())).toEqual([["messages", "model", "reasoning", "temperature", "usage"]]);
   });
 
   it("sends Scribe v2, named by its model alone, a voice note on the transcriptions endpoint, asked at no effort, and every other model on the chat endpoint", async () => {
@@ -105,18 +126,20 @@ describe("the OpenRouter transport", () => {
         { id: "vendor-b/plain-1", name: "Vendor B: Plain One", shape: "a field no reader knows" },
         { id: "vendor-c/drawing-1", name: "Vendor C: Drawing One", architecture: { input_modalities: ["image"], output_modalities: ["image"] } },
         { id: "openai/gpt-6-luna", name: "OpenAI: GPT-6 Luna", context_length: 400_000, architecture: { input_modalities: ["text"], output_modalities: ["text"] }, supported_parameters: [] },
+        { id: "vendor-d/hearing-1", name: "Vendor D: Hearing One", architecture: { input_modalities: ["text", "audio"], output_modalities: ["text"] } },
       ],
     };
     const fetcher = (async (url: string) => { asked.push(url); return Response.json(catalog); }) as typeof fetch;
     const listed = await openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher }).list!();
     expect(asked).toEqual(["https://openrouter.ai/api/v1/models"]);
-    expect(listed.map(({ model, input, tools, context_tokens, thinking }) => ({ model, input, tools, context_tokens, thinking }))).toEqual([
-      { model: "vendor-a/seeing-1", input: ["text", "image"], tools: true, context_tokens: 128_000, thinking: ["low", "medium", "high"] },
-      { model: "vendor-b/plain-1", input: ["text"], tools: false, context_tokens: null, thinking: [] },
-      { model: "openai/gpt-6-luna", input: ["text"], tools: false, context_tokens: 400_000, thinking: [] },
+    expect(listed.map(({ model, input, tools, timed, context_tokens, thinking }) => ({ model, input, tools, timed, context_tokens, thinking }))).toEqual([
+      { model: "vendor-a/seeing-1", input: ["text", "image"], tools: true, timed: false, context_tokens: 128_000, thinking: ["low", "medium", "high"] },
+      { model: "vendor-b/plain-1", input: ["text"], tools: false, timed: false, context_tokens: null, thinking: [] },
+      { model: "openai/gpt-6-luna", input: ["text"], tools: false, timed: false, context_tokens: 400_000, thinking: [] },
+      { model: "vendor-d/hearing-1", input: ["text", "audio"], tools: false, timed: true, context_tokens: null, thinking: [] },
     ]);
     const models = await openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher, listed }).models();
-    expect(models.map((model) => model.model)).toEqual(["elevenlabs/scribe-v2", "google/gemini-3.8-flash", "openai/gpt-6-luna", "vendor-a/seeing-1", "vendor-b/plain-1"]);
+    expect(models.map((model) => model.model)).toEqual(["elevenlabs/scribe-v2", "google/gemini-3.8-flash", "openai/gpt-6-luna", "vendor-a/seeing-1", "vendor-b/plain-1", "vendor-d/hearing-1"]);
     expect(models.find((model) => model.model === "openai/gpt-6-luna")).toMatchObject({ input: ["text", "image"], tools: true, suggested: ["pictures", "text", "chat"] });
   });
 

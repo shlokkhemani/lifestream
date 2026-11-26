@@ -62,6 +62,7 @@ export interface WorkRouting {
   start_ms: number | null;
   power_ms: number | null;
   as_is?: true;
+  timed?: true;
 }
 
 export interface Routing {
@@ -99,6 +100,7 @@ export function workId(connector: string, work: string): string {
 export interface WorkNeeds {
   kind: WorkKind;
   text_chars?: number | null | undefined;
+  timed?: true | undefined;
 }
 
 export function itemUsesOf(model: Abilities & { leaves: string | null }): WorkKind[] {
@@ -134,6 +136,7 @@ export function routingOf(input: RoutingInput): Routing {
         suggests: route ?? (serves(fallback, work) ? fallback : null), start_ms,
         power_ms: route !== null && heldByBattery(routes[route]!.runner, input.runners) ? battery_ms : null,
         ...(work.as_is === true ? { as_is: true as const } : {}),
+        ...(work.timed === true ? { timed: true as const } : {}),
       };
     }
   }
@@ -239,7 +242,7 @@ function unoffered(id: string, last: string | undefined): ModelRoute {
   const read = readRouteId(id) ?? { transport: id.slice(0, id.indexOf(":")), model: id.slice(id.indexOf(":") + 1) };
   const name = last ?? read.model.slice(read.model.lastIndexOf("/") + 1);
   return {
-    id, transport: read.transport, model: read.model, name, input: [], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: false, runner: null, leaves: null, where: null,
+    id, transport: read.transport, model: read.model, name, input: [], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: false, runner: null, leaves: null, where: null,
     cost: null, request: null, state: "unavailable", line: `${name} isn't offered now`,
   };
 }
@@ -357,7 +360,7 @@ function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly
   }
   const name = routeName(read.name, offer.name);
   const route = {
-    id: on.route, transport: read.name, model: offer.model, name, input: offer.input, output: offer.output, tools: offer.tools,
+    id: on.route, transport: read.name, model: offer.model, name, input: offer.input, output: offer.output, tools: offer.tools, timed: offer.timed,
     context_tokens: offer.context_tokens, thinking: offer.thinking, chat: read.chat, suggested: offer.suggested ?? [], offered: true, runner,
     leaves: read.leaves, where: whereWords(read.leaves, runner), cost: read.cost,
     request: { effort: asked.effort, sampling: asked.sampling ?? null, timeout_ms: read.defaults.timeout_ms },

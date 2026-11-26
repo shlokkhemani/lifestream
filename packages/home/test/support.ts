@@ -258,7 +258,7 @@ export function makeHome(principals: Readonly<Record<string, { scopes: Scope[]; 
 }
 
 export const LUNA_ROUTE: ModelRoute = {
-  id: "codex:gpt-6-luna", transport: "codex", model: "gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null, thinking: [],
+  id: "codex:gpt-6-luna", transport: "codex", model: "gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: null, thinking: [],
   chat: "program", suggested: [], offered: true, runner: null, leaves: "OpenAI", where: "Sent to OpenAI", cost: "plan",
   request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
 };

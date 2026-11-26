@@ -18,7 +18,7 @@ import { Models, MODELS_META, routed, routingOf as resolveRouting, serving, SINC
 import { CHAT_NEEDS_MODEL } from "./verbs/models.js";
 import { Calls } from "./pick.js";
 import { sendKind, stands, type SentAsk } from "./asks.js";
-import { readProcessing } from "./processing.js";
+import { needsWords, readProcessing } from "./processing.js";
 import { readHistories } from "./status.js";
 import { effective, personal } from "./settings.js";
 import { askHome } from "./socket.js";
@@ -1109,7 +1109,7 @@ describe("what a pick reads", () => {
   }
 
   const ROUTE: ModelRoute = {
-    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: true, runner: null, leaves: null,
+    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: true, runner: null, leaves: null,
     where: "Stays on this computer", cost: "free", request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
   };
   const OTHER: ModelRoute = { ...ROUTE, id: OTHER_ROUTE, model: "fake-other", name: "Fake other" };
@@ -1452,7 +1452,7 @@ describe("what a tick opens again, of what could not be hidden", () => {
 describe("what the hand-off writes", () => {
   const RECEIVER = "Example Cloud";
   const LEAVING: ModelRoute = {
-    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: true, runner: null, leaves: RECEIVER,
+    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: true, runner: null, leaves: RECEIVER,
     where: "Sent to Example Cloud", cost: "free", request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
   };
   const workOn = (route: string): WorkRouting => ({ kind: "pictures", text_chars: null, value: route, route, suggests: route, start_ms: null, power_ms: null });
@@ -1541,10 +1541,10 @@ describe("a runner's files", () => {
   const PASS = "synthetic-drive-pass";
   type Listed = RunnerListing["files"][number];
   const qwen = (state: Listed["state"], fetched_bytes = 0): Listed => ({
-    id: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 4_200_000_000, languages: [], memory_gb: 16, state, fetched_bytes, failure: null,
+    id: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [], bytes: 4_200_000_000, languages: [], memory_gb: 16, state, fetched_bytes, failure: null,
   });
   const parakeet = (state: Listed["state"]): Listed => ({
-    id: "parakeet-unified-en-0.6b", name: "Parakeet", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], bytes: 731_357_568, languages: ["en"], memory_gb: 8, state, fetched_bytes: 0, failure: null,
+    id: "parakeet-unified-en-0.6b", name: "Parakeet", input: ["audio"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], bytes: 731_357_568, languages: ["en"], memory_gb: 8, state, fetched_bytes: 0, failure: null,
   });
   const runner = (present: boolean, files: Listed[]): RunnerListing => ({
     unit: UNIT, name: "MacBook Pro", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files, present,
@@ -1816,7 +1816,7 @@ describe("a runner's files", () => {
   it("a runner on battery, its Save battery on (unset), serves its work's asks of the last two days and a person's choice of any day; on mains or Save battery off, its whole range", () => {
     const id = `runner:${UNIT}/qwen3.5-4b`;
     const route = (battery: boolean): ModelRoute => ({
-      id, transport: "runner", model: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], chat: "door", suggested: [], offered: true,
+      id, transport: "runner", model: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [], chat: "door", suggested: [], offered: true,
       runner: { unit: UNIT, name: "MacBook Pro", battery }, leaves: null, where: "Stays on MacBook Pro", cost: "free",
       request: { effort: "none", sampling: null, timeout_ms: 300_000 }, state: "ready", line: null,
     });
@@ -1835,5 +1835,43 @@ describe("a runner's files", () => {
     expect(at(true, { [UNIT]: { save_battery: true }, "runner-mac-mini-bb17": { save_battery: false } }).works[WORK]!.power_ms).toBe(Date.UTC(2026, 4, 31, 4));
     const spends = { [UNIT]: { files: ["qwen3.5-4b"], save_battery: false } };
     expect([at(true, spends).works[WORK]!.power_ms, served(true, D1 - 30 * DAY, null, spends)]).toEqual([null, id]);
+  });
+});
+
+describe("what a timed work is routed to, and what its row says", () => {
+  const CALLS = {
+    label: "Call transcripts", kind: "audio" as const, timed: true as const, noun: ["part of a call", "parts of calls"] as const,
+    about: "A model writes out what was said on each call, both sides.",
+  };
+  const NO_DEFAULTS = { pictures: null, audio: null, text: null, chat: null, search: null, hiding: null };
+  const hears = (model: string, name: string, timed: boolean): ModelRoute => ({
+    id: `openrouter:${model}`, transport: "openrouter", model, name, input: ["audio"], output: "text", tools: false, timed, context_tokens: null, thinking: [], chat: null, suggested: [],
+    offered: true, runner: null, leaves: "OpenRouter", where: "Sent to OpenRouter", cost: "priced", request: { effort: "none", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
+  });
+  const SCRIBE = hears("elevenlabs/scribe-v2", "Scribe v2", false);
+  const GEMINI = hears("google/gemini-3.8-flash", "Gemini 3.8 Flash", true);
+  const CONNECTOR = { ...FAKE_CONNECTORS[0]!, id: "fake-calls", processing: { transcripts: CALLS } };
+  const WORK_ID = "fake-calls/transcripts";
+  const at = (routes: ModelRoute[], value: string) => resolveRouting({
+    connectors: [CONNECTOR], blocks: { "fake-calls": { "llm.transcripts": value } }, defaults: { ...NO_DEFAULTS, audio: SCRIBE.id }, runners: {}, now_ms: D1,
+    day: { zone: "UTC", day_start_hour: 4 }, routes, chosen: [], sources: [], since: "2026-06-01",
+  });
+
+  it("serves a timed work only by a model that times its words: a default that cannot is no route and suggests none, a person's pick of it is unserved", () => {
+    const defaulted = at([SCRIBE, GEMINI], "default");
+    expect(defaulted.works[WORK_ID]).toMatchObject({ kind: "audio", timed: true, route: null, suggests: null });
+    expect(at([SCRIBE, GEMINI], GEMINI.id).works[WORK_ID]!.route).toBe(GEMINI.id);
+    expect(serving(defaulted, { work_id: WORK_ID, chosen: SCRIBE.id, at_key: D1 })).toEqual({ none: "needs" });
+    expect(serving(defaulted, { work_id: WORK_ID, chosen: GEMINI.id, at_key: D1 })).toEqual({ route: GEMINI });
+    expect(serving(defaulted, { work_id: WORK_ID, chosen: null, at_key: D1 })).toEqual({ none: "needs" });
+  });
+
+  it("a row with no fit model names the need no model meets: timed words, long text, else a model that takes the work's kind", () => {
+    const qwen: ModelRoute = { ...SCRIBE, id: "fake:qwen", transport: "fake", model: "qwen", name: "Qwen", input: ["text", "image"], context_tokens: 4_000, leaves: null };
+    expect(needsWords(CALLS, [SCRIBE])).toBe("Needs a model that times its words");
+    expect(needsWords(CALLS, [SCRIBE, qwen])).toBe("Needs a model that times its words");
+    expect(needsWords({ kind: "text", text_chars: 500_000 }, [qwen, SCRIBE])).toBe("Needs a model for long text");
+    expect(needsWords(CALLS, [qwen])).toBe("Connect a model that takes audio");
+    expect(needsWords(CALLS, [])).toBe("Connect a model that takes audio");
   });
 });

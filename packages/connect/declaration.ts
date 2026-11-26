@@ -597,6 +597,8 @@ export interface Work {
   text_chars?: number;
   /** Its input leaves the machine as it is, whatever the privacy level. */
   as_is?: true;
+  /** Its model answers when each word was said, so a model that cannot time its words is not offered. */
+  timed?: true;
 }
 
 /** One way of signing in to a connector, run by one of its acquirers. */

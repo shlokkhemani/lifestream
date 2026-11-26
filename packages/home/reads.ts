@@ -1523,7 +1523,7 @@ export function openReads(input: {
       work: (id) => {
         const at = id.lastIndexOf("/");
         const work = input.registry?.connectors.find((each) => each.id === id.slice(0, at))?.processing?.[id.slice(at + 1)];
-        return work === undefined ? undefined : { id, kind: work.kind, text_chars: work.text_chars ?? null };
+        return work === undefined ? undefined : { id, kind: work.kind, text_chars: work.text_chars ?? null, ...(work.timed === true ? { timed: true as const } : {}) };
       },
     }),
   }, () => settings().day);

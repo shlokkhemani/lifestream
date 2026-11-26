@@ -11,7 +11,7 @@ import { MODEL_USES, unfitWords, USE_IDS, workNeed } from "./uses.js";
 const OPENROUTER = { held: () => true, key: () => "synthetic-openrouter-key" };
 
 const held = (id: string, file: Partial<RunnerFile>): RunnerFile => ({
-  id, name: `Model ${id}`, input: ["text"], output: "text", tools: false, context_tokens: null, thinking: [], bytes: 1_000_000_000, languages: [], memory_gb: 8,
+  id, name: `Model ${id}`, input: ["text"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], bytes: 1_000_000_000, languages: [], memory_gb: 8,
   state: "ready", fetched_bytes: 0, failure: null, ...file,
 });
 
@@ -26,7 +26,8 @@ describe("the uses", () => {
       pictures: "Photos", audio: "Voice notes", text: "Text", chat: "Chat", search: "Search by meaning", hiding: "Hiding details",
     });
     expect(workNeed({ kind: "text", text_chars: 500_000 })).toEqual({ input: ["text"], output: "text", context_tokens: 125_000 });
-    expect(workNeed({ kind: "audio" })).toBe(MODEL_USES.audio.need);
+    expect(workNeed({ kind: "audio" })).toEqual(MODEL_USES.audio.need);
+    expect(workNeed({ kind: "audio", timed: true })).toEqual({ ...MODEL_USES.audio.need, timed: true });
   });
 
   it("fills Text with no thinking level and Chat at medium in its own order, and leaves Photos, Voice notes, Search and Hiding Off until picked", () => {

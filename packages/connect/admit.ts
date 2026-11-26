@@ -559,13 +559,15 @@ function workFaults(work: unknown, at: string, faults: Fault[]): void {
     faults.push([at, "is no work"]);
     return;
   }
-  members(work, ["label", "about", "kind", "noun", "text_chars", "as_is"], at, faults);
+  members(work, ["label", "about", "kind", "noun", "text_chars", "as_is", "timed"], at, faults);
   if (!text(work.label)) faults.push([`${at}.label`, "is no words"]);
   if (!text(work.about)) faults.push([`${at}.about`, "is no words"]);
   if (!["pictures", "audio", "text"].includes(work.kind as string)) faults.push([`${at}.kind`, "is not pictures, audio or text"]);
   if (!pair(work.noun)) faults.push([`${at}.noun`, "is not one and many"]);
   optional(work, "text_chars", (value) => Number.isSafeInteger(value) && (value as number) > 0, "is no count of characters", faults, at);
   optional(work, "as_is", (value) => value === true, "is not true", faults, at);
+  optional(work, "timed", (value) => value === true, "is not true", faults, at);
+  if (work.timed === true && work.kind !== "audio") faults.push([`${at}.timed`, "is on a work that hands no audio"]);
 }
 
 function fieldFaults(field: unknown, at: string, faults: Fault[]): void {

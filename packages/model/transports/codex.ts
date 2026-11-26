@@ -10,11 +10,11 @@ const CONTEXT_TOKENS = 1_050_000;
 
 const DECLARED: readonly ListedModel[] = [
   {
-    model: CODEX_ITEM_MODEL, name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    model: CODEX_ITEM_MODEL, name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: CONTEXT_TOKENS,
     thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
   },
   {
-    model: CODEX_CHAT_MODEL, name: "GPT-6.2 Sol", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    model: CODEX_CHAT_MODEL, name: "GPT-6.2 Sol", input: ["text", "image"], output: "text", tools: true, timed: false, context_tokens: CONTEXT_TOKENS,
     thinking: ["low", "medium", "high"], ready: true, suggested: ["chat"],
   },
 ];
@@ -110,7 +110,7 @@ export function listedCodex(listed: readonly unknown[]): ListedModel[] {
     const efforts = Array.isArray(model.supportedReasoningEfforts) ? model.supportedReasoningEfforts.map((effort) => record(effort)?.reasoningEffort) : [];
     rows.set(model.id, {
       model: model.id, name: typeof model.displayName === "string" && model.displayName !== "" ? model.displayName : model.id,
-      input: INPUTS.filter((input) => modalities.includes(input)), output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+      input: INPUTS.filter((input) => modalities.includes(input)), output: "text", tools: true, timed: false, context_tokens: CONTEXT_TOKENS,
       thinking: efforts.filter((effort): effort is string => typeof effort === "string"), ready: true,
     });
   }

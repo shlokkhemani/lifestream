@@ -13,7 +13,7 @@ const EMBEDDER = "embeddinggemma-2-q8-512";
 const JPEG = { media_type: "image/jpeg", base64: Buffer.from("synthetic jpeg").toString("base64") };
 
 const file = (id: string, state: File["state"]): File => ({
-  id, name: id, input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 16, state, fetched_bytes: state === "ready" ? 1_000 : 0, failure: null,
+  id, name: id, input: ["text", "image"], output: "text", tools: false, timed: false, context_tokens: 4_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 16, state, fetched_bytes: state === "ready" ? 1_000 : 0, failure: null,
 });
 const runner = (over: Partial<Stated> = {}): Stated => ({
   name: "Synthetic Mac", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: 300, thermal: "nominal", memory_gb: 32, running: [], files: [file(MODEL, "ready")], ...over,
@@ -309,7 +309,7 @@ describe("the door's runners", () => {
 
 const DETECTOR = "privacy-filter";
 const KEY = { file: "sha256:0f0f", decode: "1" };
-const detector = (state: File["state"]): File => ({ ...file(DETECTOR, state), input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], detector: KEY });
+const detector = (state: File["state"]): File => ({ ...file(DETECTOR, state), input: ["text"], output: "marks", tools: false, timed: false, context_tokens: 8_000, thinking: [], detector: KEY });
 const both = (over: Partial<Stated> = {}, state: File["state"] = "ready"): Stated => runner({ files: [file(MODEL, "ready"), detector(state)], ...over });
 const find = (name: string, line: FindLine, over: Partial<Placed> = {}): Placed => ({ runner: RUNNER, model: DETECTOR, input: JSON.stringify([name]), attachments: [], line, ...over });
 const found = (id: string) => ({ id, ok: { text: JSON.stringify({ ...KEY, marks: [[]] }), model: DETECTOR } });
@@ -319,7 +319,7 @@ describe("the files wanted on a runner", () => {
   const at = (unit: string, id: string) => `runner:${unit}/${id}`;
   const defaults = (over: Record<string, string | null> = {}) => ({ pictures: null, audio: null, text: null, chat: null, search: null, hiding: null, ...over });
   it("wants a file a default names on the runner, beside the person's files: the hiding model's and meaning's alike, never one of another runner's, and cleared, no longer", () => {
-    const stated = { unit: RUNNER, files: [...both().files, file(EMBEDDER, "absent")] };
+    const stated = { unit: RUNNER, files: [file(MODEL, "ready"), detector("ready"), file(EMBEDDER, "absent")] };
     const runners = { [RUNNER]: { files: [MODEL] } };
     expect(wantedOn({ runners, defaults: defaults({ hiding: at(RUNNER, DETECTOR) }), connectors: {} }, stated)).toEqual([MODEL, DETECTOR]);
     expect(wantedOn({ runners, defaults: defaults({ search: at(RUNNER, EMBEDDER) }), connectors: {} }, stated)).toEqual([MODEL, EMBEDDER]);

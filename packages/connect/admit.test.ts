@@ -100,6 +100,15 @@ describe("admission", () => {
     ]);
   });
 
+  it("takes a timed audio work, and refuses timed on a work that hands no audio and a timed that is not true", () => {
+    const work = { label: "Call transcripts", about: "A model writes out what was said on each call, both sides.", kind: "audio", noun: ["part of a call", "parts of calls"], timed: true };
+    const shaped = (each: Record<string, unknown>) => shapeFaults({ ...declared(), processing: { transcripts: each } });
+    expect(shaped(work)).toEqual([]);
+    expect(shaped({ ...work, kind: "text" })).toEqual([["processing.transcripts.timed", "is on a work that hands no audio"]]);
+    expect(shaped({ ...work, timed: false })).toEqual([["processing.transcripts.timed", "is not true"]]);
+    expect(shaped({ ...work, timed: "yes" })).toEqual([["processing.transcripts.timed", "is not true"]]);
+  });
+
   it("refuses a field of no kind the release holds, and a date, an email or a choice of the wrong shape", () => {
     expect(faultsOf(changed({
       fields: {

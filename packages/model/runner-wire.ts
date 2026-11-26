@@ -146,7 +146,9 @@ export interface RunnersListed {
   readonly below: readonly RunnerBelow[];
 }
 
-export type RunnerStated = Omit<RunnerInfo, "unit">;
+export type StatedFile = Omit<RunnerFile, "timed"> & { readonly timed?: boolean };
+
+export type RunnerStated = Omit<RunnerInfo, "unit" | "files"> & { readonly files: readonly StatedFile[] };
 
 export interface RunnerAttachment {
   readonly media_type: string;
@@ -226,10 +228,10 @@ const isKey = (value: unknown): value is DetectorKey => isObject(value) && text(
 
 const isAbilities = (value: Record<string, unknown>): boolean => Array.isArray(value.input) && value.input.length === new Set(value.input).size
   && value.input.every((input) => (MODEL_INPUTS as readonly unknown[]).includes(input)) && (MODEL_OUTPUTS as readonly unknown[]).includes(value.output)
-  && typeof value.tools === "boolean" && (value.context_tokens === null || count(value.context_tokens))
+  && typeof value.tools === "boolean" && (value.timed === undefined || typeof value.timed === "boolean") && (value.context_tokens === null || count(value.context_tokens))
   && Array.isArray(value.thinking) && value.thinking.length <= 10 && value.thinking.every((level) => text(level, 40));
 
-function isFile(value: unknown): value is RunnerFile {
+function isFile(value: unknown): value is StatedFile {
   return isObject(value) && text(value.id, 100) && text(value.name, 200) && isAbilities(value) && count(value.bytes)
     && languages(value.languages) && typeof value.memory_gb === "number" && ["absent", "fetching", "ready", "failed"].includes(value.state as string) && count(value.fetched_bytes)
     && (value.failure === null || among(FILE_FAILURES, value.failure)) && (value.detector === undefined || isKey(value.detector));
@@ -247,7 +249,7 @@ export function runnerInfo(unit: string, stated: RunnerStated): RunnerInfo {
     unit, name: stated.name, version: stated.version, boot: stated.boot, slots: stated.slots, power: stated.power, idle_s: stated.idle_s, thermal: stated.thermal,
     memory_gb: stated.memory_gb, running: [...stated.running],
     files: stated.files.map((file) => ({
-      id: file.id, name: file.name, input: [...file.input], output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: [...file.thinking],
+      id: file.id, name: file.name, input: [...file.input], output: file.output, tools: file.tools, timed: file.timed === true, context_tokens: file.context_tokens, thinking: [...file.thinking],
       bytes: file.bytes, languages: [...file.languages], memory_gb: file.memory_gb,
       state: file.state, fetched_bytes: file.fetched_bytes, failure: file.failure, ...(file.detector === undefined ? {} : { detector: { file: file.detector.file, decode: file.detector.decode } }),
     })),
