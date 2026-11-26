@@ -50,7 +50,7 @@ import Screen
         watch.start { read, lines in
             for line in lines { FileHandle.standardOutput.write(Data((line + "\n").utf8)) }
             func decide(_ track: AudioTrack) -> AudioPlan.Decision {
-                AudioPlan.decide(track, use: read, modes: modes, running: true,
+                AudioPlan.decide(track, use: read, modes: modes, running: true, heldBack: [],
                                  permission: AudioPermissions.status(track))
             }
             let mic = decide(.mic)

@@ -1,3 +1,4 @@
+import Audio
 import Evidence
 import Foundation
 import HomeLink
@@ -164,6 +165,44 @@ final class RecorderWordsTests: XCTestCase {
         XCTAssertEqual([asking.label, offAsking.label],
                        ["Screen Recording needs access", "Not recording: Screen is turned off in Connectors"])
         XCTAssertEqual(offAsking.stated, .paused)
+    }
+
+    func testTheMicrophoneIsNamedAfterTwentySecondsAndStopsUntilTheHoldClears() {
+        let names = ["us.zoom.xos": "Zoom"]
+        func mic(_ seconds: TimeInterval, _ use: MicUse?, mic: AudioTrackState? = nil,
+                 sound: AudioTrackState? = nil) -> RecorderPresentation {
+            var status = RuntimeStatus(state: .recording)
+            status.capturingSince = t0
+            status.lastSaved = at(seconds)
+            status.audioMic = mic
+            status.audioSound = sound
+            return RecorderPresentation(status: status, running: true, now: at(seconds), microphone: use,
+                                        name: { names[$0] ?? $0 })
+        }
+        let recording = MicUse.recording(holders: ["us.zoom.xos"], since: at(100))
+        let early = mic(119, recording)
+        XCTAssertNil(early.microphone, "nineteen seconds in, nothing is said")
+        XCTAssertFalse(early.stoppable)
+        XCTAssertEqual(early.due, at(120), "the menu asks again when the line is due")
+        let named = mic(120, recording)
+        XCTAssertEqual([named.microphone, StatusMenuEntry.stopMicrophone.title(named)], ["Recording · Zoom", "Stop recording"])
+        XCTAssertTrue(StatusMenuEntry.stopMicrophone.shown(named))
+        XCTAssertFalse(named.detail.contains("microphone"), "the detail line says nothing of audio")
+        let stopped = mic(130, .stopped(holders: ["us.zoom.xos"]))
+        XCTAssertEqual(stopped.microphone, "Not recording · Zoom")
+        XCTAssertFalse(StatusMenuEntry.stopMicrophone.shown(stopped))
+        let cleared = mic(300, nil)
+        XCTAssertNil(cleared.microphone, "the hold cleared, nothing is said")
+        XCTAssertFalse(StatusMenuEntry.microphone.shown(cleared))
+        XCTAssertEqual(mic(300, nil, mic: .permissionRequired).microphone, "Microphone needs access")
+        XCTAssertNil(mic(300, nil, mic: .withheld, sound: .permissionRequired).microphone,
+                     "System Audio's grant is the grant list's to ask for")
+        let otherSide = mic(120, recording, mic: .permissionRequired, sound: .recording)
+        XCTAssertEqual(otherSide.microphone, "Recording · Zoom", "the other side alone is named the same way")
+        XCTAssertTrue(StatusMenuEntry.stopMicrophone.shown(otherSide))
+        for words in [early, named, stopped, cleared].compactMap(\.microphone) {
+            XCTAssertFalse(words.lowercased().contains("call"), "the Mac cannot know a call")
+        }
     }
 
     func testARecoveringRunSaysWhyUntilAFrameIsSaved() {

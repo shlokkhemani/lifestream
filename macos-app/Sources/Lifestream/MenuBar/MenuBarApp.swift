@@ -45,6 +45,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
     private var stateItem = NSMenuItem()
     private var actionItem = NSMenuItem()
     private var detailItem = NSMenuItem()
+    private var microphoneItem = NSMenuItem()
+    private var stopMicrophoneItem = NSMenuItem()
     private var shown: RecorderPresentation?
     private var starting: ActOutcome = .idle
     private var dueTimer: Timer?
@@ -348,7 +350,12 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
             return RecorderPresentation(status: RuntimeStatus(state: .stopped), running: false, shown: shown, start: start)
         }
         return RecorderPresentation(status: recorder.status, running: recorder.running, screenOff: recorder.off.contains(.screen),
-                                    ownInFront: NSApp.isActive, shown: shown, start: start)
+                                    ownInFront: NSApp.isActive, shown: shown, start: start,
+                                    microphone: work?.audio.micUse, name: Self.shownName)
+    }
+
+    private static func shownName(_ app: String) -> String {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: app).map(Detection.shownName) ?? app
     }
 
     private var shippingPresentation: ShippingPresentation {
@@ -368,6 +375,14 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
         case .detail:
             detailItem = label(title)
             return detailItem
+        case .microphone:
+            microphoneItem = label(title)
+            microphoneItem.isHidden = !entry.shown(presentation)
+            return microphoneItem
+        case .stopMicrophone:
+            stopMicrophoneItem = command(title, #selector(stopMicrophone))
+            stopMicrophoneItem.isHidden = !entry.shown(presentation)
+            return stopMicrophoneItem
         case .openLifestream:
             openItem = command(title, #selector(openFromMenu))
             return openItem
@@ -416,6 +431,9 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
             lines.recorder = text
             stateItem.title = text.label
             detailItem.title = text.detail
+            microphoneItem.title = StatusMenuEntry.microphone.title(text) ?? ""
+            microphoneItem.isHidden = !StatusMenuEntry.microphone.shown(text)
+            stopMicrophoneItem.isHidden = !StatusMenuEntry.stopMicrophone.shown(text)
             if text.failed != shown?.failed {
                 detailItem.image = text.failed ? NSImage(systemSymbolName: "exclamationmark.circle", accessibilityDescription: "Stopped") : nil
             }
@@ -505,6 +523,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        refresh()
         openItem.title = StatusMenuEntry.openTitle(firstRunDue: firstRunDue)
         for entry in needItems { entry.isHidden = firstRunDue && !Need.macFilesKeys.contains(entry.representedObject as? String ?? "") }
     }
@@ -640,6 +659,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
         refresh()
     }
 
+
+    @objc private func stopMicrophone() {
+        work?.audio.holdBack()
+    }
 
     @objc private func openNeed(_ sender: NSMenuItem) {
         let need = needs.list.first { $0.key == sender.representedObject as? String }

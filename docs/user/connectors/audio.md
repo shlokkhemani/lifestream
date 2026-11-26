@@ -43,8 +43,8 @@ During setup, Lifestream asks on **Your Mac Screen, Clicks, and Audio**: click *
 3. When macOS asks, allow Lifestream. If you refused before, System Settings opens instead: find
    **Lifestream** in the list, and turn its switch on.
 
-Audio is then connected. The next time an app uses the microphone, the menu bar menu
-says **recording microphone and sound**.
+Audio is then connected. The next time an app uses the microphone, the menu bar menu says
+**Recording ·** and the app's name, such as **Recording · Zoom**, once it has recorded 20 seconds.
 
 ## Where it shows up
 
@@ -75,6 +75,12 @@ disconnect a connector](./README.md#pause-or-disconnect-a-connector) says. To st
 recording sound, click **Disconnect** in Audio's window, or click **Pause recording** in the menu
 bar menu, which stops all recording.
 
+To stop recording one use of the microphone, click **Stop recording** under **Recording · Zoom**
+in the menu bar menu. What was recorded before you clicked stays. The menu then says **Not
+recording · Zoom**, and nothing is recorded while that app uses the microphone, until it has been
+off the microphone for two minutes. Other apps record as before, unless they share the microphone
+with that app.
+
 ## Limits
 
 - Audio records only calls that use your Mac's microphone, not a call on your iPhone.
@@ -86,10 +92,6 @@ bar menu, which stops all recording.
 These are the lines only Audio shows. For the ones every connector can show, see
 [Connectors](./README.md#messages-every-connector-can-show).
 
-**recording microphone · system audio access needed**\
-The menu bar menu shows this during a call when Lifestream may not use System Audio. Only your
-side is recorded. Allow System Audio as in [Add Audio](#add-audio).
-
-**microphone access needed**, or **recording sound** alone\
-An app is using the microphone, and Lifestream may not use it, so your side of the call is not
-recorded. Allow the microphone as in [Add Audio](#add-audio).
+**Microphone needs access**\
+An app is using the microphone, and Lifestream may not use it, so your side is not recorded.
+Allow the microphone as in [Add Audio](#add-audio).

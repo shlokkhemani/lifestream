@@ -10,6 +10,10 @@ is refused alone, named by its path, and the next recording is read.
 | `mic-recording` | `at` in basic form (`20260930T100000.12Z`), `:1`, `:2` for a stem's `-2`, `-3` | `audio.recording`: the sidecar without `at` (until, track, detected_at, latency_ms?, part, ended_by, device, room with levels, camera, audio, session?, loudness?) | `at` to `until` |
 | `sound-recording` | the same | the same, track `sound`, no device | `at` to `until` |
 
+`ended_by` is one of a closed list: `holders_gone`, `part_limit`, `recorder_stopped`, `stopped`
+(the person stopped recording that use of the microphone in the menu bar), `withheld`, `setting_off`,
+`device_changed`, `failed`, `interrupted`; a sidecar with any other is refused.
+
 Each record names its audio's blob. The connector counts its `mic-recording` alone (`counts`): every
 moment recorded has one, and its `sound-recording` beside it is the same moment's other track.
 

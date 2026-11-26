@@ -20,7 +20,14 @@ public struct AudioStatus: Equatable, Sendable {
     }
 }
 
+public enum MicUse: Equatable, Sendable {
+    case recording(holders: [String], since: Date)
+    case stopped(holders: [String])
+}
+
 public final class AudioRecorder: @unchecked Sendable {
+    public static let stopHold: TimeInterval = 120
+
     private let queue = DispatchQueue(label: "org.lifestreamprotocol.audio")
     private let folder: RecordingFolder
     private let cameras = CameraSpans()
@@ -31,9 +38,14 @@ public final class AudioRecorder: @unchecked Sendable {
     private var running = false
     private var modes: RecordingModes
     private var use: DeviceUse?
+    private var holds: AudioHolds
+    private let holdsFile: URL
+    private let files: DeviceFiles
+    private let report: (String) -> Void
 
     private let statusLock = NSLock()
     private var published = AudioStatus(mic: .stopped, sound: .stopped)
+    private var publishedUse: MicUse?
 
     public init(directory: URL, files: DeviceFiles, scratch: URL,
                 modes: RecordingModes, sources: AudioSources = .live(),
@@ -48,6 +60,10 @@ public final class AudioRecorder: @unchecked Sendable {
         self.permission = permission
         self.clock = clock
         self.modes = modes
+        self.files = files
+        self.report = report
+        holdsFile = directory.appendingPathComponent(AudioHolds.fileName)
+        holds = AudioHolds.load(holdsFile, files: files, at: clock(), report: report)
         tracks = AudioTrack.allCases.map { track in
             TrackRecording(track: track, source: sources[track], queue: queue, folder: folder, cameras: cameras,
                            partLength: partLength, clock: clock, fits: fits, report: report,
@@ -58,6 +74,10 @@ public final class AudioRecorder: @unchecked Sendable {
 
     public var status: AudioStatus {
         statusLock.withLock { published }
+    }
+
+    public var micUse: MicUse? {
+        statusLock.withLock { publishedUse }
     }
 
     public func start() {
@@ -94,16 +114,37 @@ public final class AudioRecorder: @unchecked Sendable {
         }
     }
 
+    public func holdBack() {
+        queue.async { [self] in
+            let holders = use?.audio?.microphone.map(\.app) ?? []
+            guard !holders.isEmpty else { return }
+            if holds.hold(holders) { saveHolds() }
+            evaluate(at: clock())
+        }
+    }
+
     func waitUntilIdle() {
         queue.sync {}
     }
 
 
     private func evaluate(at instant: Date) {
+        if let audio = use?.audio, holds.follow(Set(audio.microphone.map(\.app)), at: instant, hold: Self.stopHold) {
+            saveHolds()
+        }
         for track in tracks {
-            let decision = AudioPlan.decide(track.track, use: use, modes: modes, running: running,
+            let decision = AudioPlan.decide(track.track, use: use, modes: modes, running: running, heldBack: holds.held,
                                             permission: permission(track.track))
             track.apply(decision, at: instant)
+        }
+        publishStatus()
+    }
+
+    private func saveHolds() {
+        do {
+            try holds.save(holdsFile, files: files)
+        } catch {
+            report("audio: the stopped uses could not be saved")
         }
     }
 
@@ -113,7 +154,102 @@ public final class AudioRecorder: @unchecked Sendable {
             status[track.track] = track.state
             status.files += track.sealed
         }
-        statusLock.withLock { published = status }
+        let micUse: MicUse?
+        let recording = tracks.filter { $0.recordingSince != nil }
+        if status.mic == .heldBack {
+            micUse = .stopped(holders: Set(use?.audio?.microphone.map(\.app) ?? []).intersection(holds.held).sorted())
+        } else if let since = recording.compactMap(\.recordingSince).min() {
+            micUse = .recording(holders: Set(recording.flatMap(\.holders)).sorted(), since: since)
+        } else {
+            micUse = nil
+        }
+        statusLock.withLock {
+            published = status
+            publishedUse = micUse
+        }
+    }
+}
+
+struct AudioHolds: Equatable {
+    static let fileName = "audio-holds.json"
+
+    enum Held: Equatable {
+        case onMic
+        case off(since: Date)
+    }
+
+    private(set) var apps: [String: Held] = [:]
+
+    var held: Set<String> { Set(apps.keys) }
+
+    mutating func hold(_ holders: [String]) -> Bool {
+        let before = apps
+        for app in holders { apps[app] = .onMic }
+        return apps != before
+    }
+
+    mutating func follow(_ holders: Set<String>, at instant: Date, hold: TimeInterval) -> Bool {
+        let before = apps
+        for (app, held) in apps {
+            if case .off(let since) = held, instant.timeIntervalSince(since) >= hold {
+                apps[app] = nil
+            } else if holders.contains(app) {
+                apps[app] = .onMic
+            } else if held == .onMic {
+                apps[app] = .off(since: instant)
+            }
+        }
+        return apps != before
+    }
+
+    private struct Saved: Codable {
+        struct App: Codable {
+            let app: String
+            let lastOn: String?
+
+            enum CodingKeys: String, CodingKey {
+                case app
+                case lastOn = "last_on"
+            }
+        }
+
+        let held: [App]
+    }
+
+    static func load(_ file: URL, files: DeviceFiles, at instant: Date, report: (String) -> Void) -> AudioHolds {
+        var holds = AudioHolds()
+        let read: Data?
+        do {
+            read = try files.read(file, maximumBytes: 1 << 16)
+        } catch {
+            read = Data()
+        }
+        guard let read else { return holds }
+        guard let saved = try? JSONDecoder().decode(Saved.self, from: read),
+              saved.held.allSatisfy({ $0.lastOn.map { UTCInstant.date(rfc3339: $0) != nil } ?? true }) else {
+            report("audio: \(fileName) could not be read; no use is stopped")
+            return holds
+        }
+        for app in saved.held {
+            holds.apps[app.app] = .off(since: app.lastOn.flatMap { UTCInstant.date(rfc3339: $0) } ?? instant)
+        }
+        return holds
+    }
+
+    func save(_ file: URL, files: DeviceFiles) throws {
+        guard !apps.isEmpty else {
+            guard FileManager.default.fileExists(atPath: file.path) else { return }
+            return try FileManager.default.removeItem(at: file)
+        }
+        let saved = Saved(held: apps.sorted { $0.key < $1.key }.map { app, held in
+            switch held {
+            case .onMic: Saved.App(app: app, lastOn: nil)
+            case .off(let since): Saved.App(app: app, lastOn: UTCInstant.rfc3339(since))
+            }
+        })
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try files.replace(file, with: try encoder.encode(saved), commit: .durable)
     }
 }
 
@@ -121,6 +257,7 @@ final class TrackRecording {
     let track: AudioTrack
     private(set) var state = AudioTrackState.stopped
     private(set) var sealed = 0
+    private(set) var recordingSince: Date?
     private let source: any AudioSource
     private let queue: DispatchQueue
     private let folder: RecordingFolder
@@ -190,6 +327,8 @@ final class TrackRecording {
     }
 
 
+    var holders: [String] { session?.room.holders ?? [] }
+
     func devicesChanged() {
         holdUntilChange = false
     }
@@ -215,6 +354,7 @@ final class TrackRecording {
     private func ending(for state: AudioTrackState) -> AudioSidecar.Ending {
         switch state {
         case .stopped: return .recorderStopped
+        case .heldBack: return .stopped
         case .withheld: return .withheld
         case .idle: return .holdersGone
         case .permissionRequired, .failed, .recording: return .failed
@@ -229,6 +369,7 @@ final class TrackRecording {
             try source.start(capture, queue: queue,
                              deliver: { [weak self] chunk in self?.deliver(chunk, to: session) },
                              failed: { [weak self] _ in self?.captureFailed(session) })
+            if recordingSince == nil { recordingSince = instant }
             publish(.recording)
         } catch {
             self.session = nil
@@ -346,6 +487,7 @@ final class TrackRecording {
 
     private func publish(_ next: AudioTrackState) {
         state = next
+        if next != .recording { recordingSince = nil }
         changed()
     }
 

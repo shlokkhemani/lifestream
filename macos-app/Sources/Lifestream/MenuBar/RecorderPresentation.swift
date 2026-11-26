@@ -57,6 +57,8 @@ extension RecorderStatement.Cause {
 struct RecorderPresentation: Equatable {
     let label: String
     let detail: String
+    let microphone: String?
+    let stoppable: Bool
     let failed: Bool
     let toggleTitle: String
     let recording: Bool
@@ -70,28 +72,38 @@ struct RecorderPresentation: Equatable {
     static let paused = "Recording paused"
     static let screenOff = "Not recording: Screen is turned off in Connectors"
 
-    static func audio(mic: AudioTrackState?, sound: AudioTrackState?) -> String {
-        if sound == .recording { return mic == .recording ? " · recording microphone and sound" : " · recording sound" }
-        if mic == .recording { return sound == .permissionRequired ? " · recording microphone · system audio access needed"
-                                                                    : " · recording microphone" }
-        if mic == .permissionRequired { return " · microphone access needed" }
-        if sound == .permissionRequired { return " · system audio access needed" }
-        return ""
-    }
+    static let micShownAfter: TimeInterval = 20
+    static let stopRecording = "Stop recording"
+    static let microphoneAccess = "Microphone needs access"
 
     static let compactionWarningAfter: TimeInterval = 600
 
     static let startFailed = "Couldn't start recording. Check that the capture folder is writable and another recorder is not already using it."
 
     init(status: RuntimeStatus, running: Bool, screenOff: Bool = false, ownInFront: Bool = false, now: Date = Date(),
-         shown: RecorderPresentation? = nil, start: ActOutcome = .idle) {
+         shown: RecorderPresentation? = nil, start: ActOutcome = .idle,
+         microphone use: MicUse? = nil, name: (String) -> String = { $0 }) {
         let counts = "\(status.recorded) frames saved · \(status.gaps) gaps"
         let failing = status.videoCompactionFailingSince.map { now.timeIntervalSince($0) } ?? 0
         let compaction = failing < Self.compactionWarningAfter ? ""
             : " · video compaction failing for \(Int(failing / 60)) min"
         let keys = status.inputLog == .permissionRequired ? " · keys and clicks not recorded" : ""
         detail = if !running, case .refused(let words)? = start.failure { words }
-            else { counts + compaction + keys + Self.audio(mic: status.audioMic, sound: status.audioSound) }
+            else { counts + compaction + keys }
+        var micDue: Date?
+        switch use {
+        case .stopped(let holders):
+            microphone = "Not recording · \(holders.map(name).joined(separator: ", "))"
+            stoppable = false
+        case .recording(let holders, let since):
+            let shows = since.addingTimeInterval(Self.micShownAfter)
+            stoppable = now >= shows
+            microphone = stoppable ? "\(Self.recordingWords) · \(holders.map(name).joined(separator: ", "))" : nil
+            micDue = stoppable ? nil : shows
+        case nil:
+            microphone = status.audioMic == .permissionRequired ? Self.microphoneAccess : nil
+            stoppable = false
+        }
         failed = !running && start.failure != nil
         toggleTitle = running ? "Pause recording" : "Start recording"
 
@@ -133,7 +145,7 @@ struct RecorderPresentation: Equatable {
         }
         recording = stated == .recording
         interrupted = cause == nil ? nil : since
-        self.due = due
+        self.due = [due, micDue].compactMap { $0 }.min()
     }
 
     func tellsGrants(after shown: RecorderPresentation?) -> Bool {
@@ -206,10 +218,10 @@ struct ShippingPresentation: Equatable {
 }
 
 enum StatusMenuEntry: Equatable {
-    case state, detail, separator, openLifestream, toggle, shipping, shipNow, settings, quit
+    case state, detail, microphone, stopMicrophone, separator, openLifestream, toggle, shipping, shipNow, settings, quit
 
-    static let order: [StatusMenuEntry] = [.state, .detail, .separator, .openLifestream, .toggle, .separator,
-                                           .shipping, .shipNow, .settings, .separator, .quit]
+    static let order: [StatusMenuEntry] = [.state, .detail, .microphone, .stopMicrophone, .separator, .openLifestream, .toggle,
+                                           .separator, .shipping, .shipNow, .settings, .separator, .quit]
 
     static func openTitle(firstRunDue: Bool) -> String {
         firstRunDue ? "Set up Lifestream…" : "Open Lifestream"
@@ -220,6 +232,8 @@ enum StatusMenuEntry: Equatable {
         switch self {
         case .state: return presentation.label
         case .detail: return presentation.detail
+        case .microphone: return presentation.microphone ?? ""
+        case .stopMicrophone: return RecorderPresentation.stopRecording
         case .separator: return nil
         case .openLifestream: return Self.openTitle(firstRunDue: false)
         case .toggle: return presentation.toggleTitle
@@ -227,6 +241,14 @@ enum StatusMenuEntry: Equatable {
         case .shipNow: return "Sync now"
         case .settings: return "Settings…"
         case .quit: return "Quit Lifestream"
+        }
+    }
+
+    func shown(_ presentation: RecorderPresentation) -> Bool {
+        switch self {
+        case .microphone: return presentation.microphone != nil
+        case .stopMicrophone: return presentation.stoppable
+        default: return true
         }
     }
 }
