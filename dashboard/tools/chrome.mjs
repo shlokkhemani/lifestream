@@ -608,6 +608,8 @@ export async function openChrome({ profile, origin, scrollbars = false }) {
       await evaluate(`document.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = 10000; });
         new Promise(done => requestAnimationFrame(() => done()))`);
       await capture(path);
+      await evaluate(`document.getAnimations().forEach(animation => {
+        if (animation.effect.getComputedTiming().endTime === Infinity) animation.play(); else animation.finish(); })`);
     },
     async close() {
       await flushWrites();

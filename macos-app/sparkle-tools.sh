@@ -12,7 +12,7 @@ if [ ! -x "$cache/bin/generate_appcast" ]; then
   mkdir -p .build
   stage="$(mktemp -d "$PWD/.build/sparkle-fetch.XXXXXX")"
   trap 'rm -rf "$stage"' EXIT
-  curl -fsSL -o "$stage/Sparkle.tar.xz" \
+  curl -fsSL --retry 3 --connect-timeout 20 --speed-limit 10000 --speed-time 60 -o "$stage/Sparkle.tar.xz" \
     "https://github.com/sparkle-project/Sparkle/releases/download/$version/Sparkle-$version.tar.xz"
   if [ "$(shasum -a 256 "$stage/Sparkle.tar.xz" | cut -d' ' -f1)" != "$sha256" ]; then
     echo "Sparkle-$version.tar.xz does not have the SHA-256 this script pins: nothing in it was run" >&2

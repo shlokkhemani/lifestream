@@ -125,7 +125,7 @@ export function checkDocs(root: string): Break[] {
   const tracked = new Set(files);
   const secret = (file: string): boolean => isPrivate(file, privatePaths);
   const isSpec = (page: string): boolean => secret(page) && page.startsWith("docs/specs/");
-  const newer = newerInMain(root);
+  const newer = newerElsewhere(root);
   const codeFolders = codeFoldersOf(files);
   const pages = files.filter((file) => file.endsWith(".md") && !NOT_A_PAGE.test(file));
   const headings = new Map<string, Heading[]>();
@@ -399,11 +399,13 @@ function mainOf(lane: string): string | null {
   return main === undefined || realpathSync(main) === realpathSync(lane) ? null : main;
 }
 
-function newerInMain(root: string): (path: string) => boolean {
+function newerElsewhere(root: string): (path: string) => boolean {
   const main = mainOf(root);
-  if (main === null) return () => false;
-  const base = git(root, ["merge-base", "HEAD", git(main, ["rev-parse", "HEAD"]).trim()]).trim();
-  return (path) => existsSync(join(main, path)) && git(root, ["ls-tree", "--name-only", base, "--", path]) === "";
+  const base = main === null ? null : git(root, ["merge-base", "HEAD", git(main, ["rev-parse", "HEAD"]).trim()]).trim();
+  const newerInMain = (path: string): boolean => main !== null && base !== null && existsSync(join(main, path)) && git(root, ["ls-tree", "--name-only", base, "--", path]) === "";
+  const born = git(root, ["for-each-ref", "--count=1", "--format=%(refname)", "refs/heads"]) !== "";
+  const onAnotherBranch = (path: string): boolean => born && git(root, ["log", "-1", "--format=%H", "HEAD", "--", path]) === "" && git(root, ["log", "-1", "--format=%H", "--branches", "--not", "HEAD", "--", path]) !== "";
+  return (path) => newerInMain(path) || onAnotherBranch(path);
 }
 
 function filesOf(root: string, privatePaths: readonly string[]): { files: string[]; inGit: string[] } {

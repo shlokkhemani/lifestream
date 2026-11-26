@@ -1,6 +1,6 @@
 import { type ChildProcess, execFileSync, spawn, spawnSync, type SpawnOptions } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { availableParallelism, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,7 +52,7 @@ const ROWS: readonly Row[] = [
   ["devicefiles/", ["devicefiles"], []],
   ["macos-app/", ["macos-app"], []],
   ["faces/", ["faces"], []],
-  ["ios-app/", ["ios"], []],
+  [/^ios-app\/(?!(?:testflight|apple-setup)\.py$|(?:upload-testflight|install-phone|link-install|sign-development)\.sh$)/u, ["ios"], []],
 ];
 
 const PAGE = /^(?!(?:.*\/)?(?:prompts|fixtures?|test|golden)\/).*\.md$/u;
@@ -427,6 +427,7 @@ function packageOf(command: readonly string[]): string {
 
 const CASE = /Test Case '-\[(\w+)\.(\w+) (\w+)\]' (started|passed|failed|skipped)/u;
 const ENDED = /(\w+) (\w+)\]' (?:passed|failed|skipped)/u;
+const ENDED_TAIL = /^(\w{4,})\]' (?:passed|failed|skipped)/u;
 
 export function unended(log: string): string[] {
   const open = new Set<string>();
@@ -439,8 +440,9 @@ export function unended(log: string): string[] {
       continue;
     }
     const cut = ENDED.exec(line);
-    if (cut === null) continue;
-    for (const id of open) if (id.endsWith(`/${cut[1]}/${cut[2]}`)) open.delete(id);
+    const tail = cut === null ? ENDED_TAIL.exec(line)?.[1] : `/${cut[1]}/${cut[2]}`;
+    if (tail === undefined) continue;
+    for (const id of open) if (id.endsWith(tail)) open.delete(id);
   }
   return [...open];
 }
@@ -850,6 +852,16 @@ export function mainReds(log: readonly string[]): string[] {
   return [...new Set(log.filter((line) => line.startsWith("  red: ")))];
 }
 
+export function redSince(runs: readonly { readonly commit: string; readonly log: readonly string[] }[]): Map<string, string> {
+  const [latest, ...before] = runs;
+  const since = new Map<string, string>();
+  for (const red of latest === undefined ? [] : mainReds(latest.log)) {
+    const back = before.findIndex((run) => !run.log.includes(red));
+    since.set(red, runs[back === -1 ? runs.length - 1 : back]!.commit);
+  }
+  return since;
+}
+
 function mainRun(): string {
   const main = dirname(execFileSync("git", ["-C", ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir"], { encoding: "utf8" }).trim());
   const latest = join(main, ".build/main-run/latest");
@@ -857,8 +869,19 @@ function mainRun(): string {
   const log = readFileSync(latest, "utf8").split("\n");
   const said = log.filter((line) => line.startsWith("main-run: ")).at(-1);
   if (said === undefined || said.startsWith("main-run: PASS")) return "";
-  const red = mainReds(log);
-  return `${MAIN_RED}, which is not this change's: ${said} ${realpathSync(latest)}\n${red.join("\n")}${red.length > 0 ? "\n" : ""}`;
+  const folder = dirname(realpathSync(latest));
+  const runs = readdirSync(folder)
+    .filter((name) => /^[0-9a-f]{40}\.log$/u.test(name))
+    .map((name) => ({ commit: name.slice(0, 40), at: statSync(join(folder, name)).mtimeMs, log: readFileSync(join(folder, name), "utf8").split("\n") }))
+    .filter((run) => run.log.some((line) => line.startsWith("main-run: ")))
+    .sort((a, b) => b.at - a.at);
+  const red = [...redSince(runs)].map(([line, commit]) => `${line}  since ${subject(main, commit)}`);
+  return `${[`${MAIN_RED}, and a red this feature's own merge made is fixed on main now: ${said} ${realpathSync(latest)}`, ...red].join("\n")}\n`;
+}
+
+function subject(main: string, commit: string): string {
+  const { status, stdout } = spawnSync("git", ["-C", main, "log", "-1", "--format=%h %s", commit], { encoding: "utf8" });
+  return status === 0 ? stdout.trim().slice(0, 100) : commit;
 }
 
 export function given(specs: readonly string[]): Plan {
@@ -938,7 +961,7 @@ async function main(args: readonly string[]): Promise<number> {
     say(`check: ok, every suite cached, ${seconds()}\n`);
     return 0;
   }
-  for (const suite of running) rmSync(join(LOGS, `${suite}.status`), { force: true });
+  for (const suite of running) for (const kept of ["status", "log"]) rmSync(join(LOGS, `${suite}.${kept}`), { force: true });
   const general = running.filter((suite) => !LOCK_FREE.has(suite) && suite !== PHONE);
   let served = general.filter((suite) => SERVED.has(suite));
   let mac = general.filter((suite) => !SERVED.has(suite));
@@ -960,8 +983,8 @@ async function main(args: readonly string[]): Promise<number> {
       return true;
     }),
     run(todo, running.filter((suite) => LOCK_FREE.has(suite) && suite !== "static")).then((failed) => failed.length > 0),
-    served.length > 0 ? lockedHalf(half(todo, served), {}) : false,
-    mac.length > 0 ? lockedHalf(half(todo, mac), { LIFESTREAM_TEST_HERE: "1" }) : false,
+    served.length > 0 ? lockedHalf(todo, served, {}) : false,
+    mac.length > 0 ? lockedHalf(todo, mac, { LIFESTREAM_TEST_HERE: "1" }) : false,
     running.includes(PHONE) ? run(todo, [PHONE], true).then((failed) => failed.length > 0) : false,
   ]);
   const stamp = `${new Date().toISOString()} ${ROOT}\n`;
@@ -983,13 +1006,14 @@ function half(plan: Plan, suites: readonly Suite[]): string[] {
   return [bin("tsx"), "tools/check.ts", "--run", ...suites.map((suite) => spec(plan, suite))];
 }
 
-async function lockedHalf(command: readonly string[], env: NodeJS.ProcessEnv): Promise<boolean> {
-  const inner = await ended(["tools/test-lock.sh", ...command], { cwd: ROOT, env: { ...process.env, ...env }, stdio: "inherit" }, true);
+async function lockedHalf(plan: Plan, suites: readonly Suite[], env: NodeJS.ProcessEnv): Promise<boolean> {
+  const inner = await ended(["tools/test-lock.sh", ...half(plan, suites)], { cwd: ROOT, env: { ...process.env, ...env }, stdio: "inherit" }, true);
   if (stopped) return true;
   if (inner.error !== undefined) say(`check: the locked run did not start: ${inner.error.message}\n`);
   else if (inner.signal !== null) say(`check: the locked run ended on ${inner.signal}\n`);
-  else if (inner.status === 143) say("check: the locked run was cut (exit 143): each suite it cut says `cut` above, with what of it never ended\n");
-  else if (inner.status !== 0 && inner.status !== 1) say(`check: the locked run exited ${inner.status}\n`);
+  else if (inner.status !== 0 && inner.status !== 1) say(`check: the locked run ${inner.status === 143 ? "was cut (exit 143)" : `exited ${inner.status}`}\n`);
+  const unread = inner.status === 0 ? [] : suites.filter((suite) => !existsSync(join(LOGS, `${suite}.status`)));
+  for (const suite of unread) say(`cut  ${label(plan, suite)}  no verdict came back: nothing is known of it but ${relative(ROOT, join(LOGS, `${suite}.log`))}, where that exists\n`);
   return inner.status !== 0;
 }
 

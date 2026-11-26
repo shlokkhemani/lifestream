@@ -385,6 +385,24 @@ describe("private pages", () => {
     ]);
   });
 
+  it("leaves a private page's path that only another branch holds, in main too, and names one main deleted", () => {
+    const main = repo({ ".gitignore": ignored, "packages/core/here.ts": "export {};\n", "packages/core/old.ts": "export {};\n" });
+    git(main, "commit", "-qm", "one");
+    const lane = `${main}-lane`;
+    roots.push(lane);
+    git(main, "worktree", "add", "-q", "-b", "wp-lane", lane);
+    write(lane, "packages/core/built.ts", "export {};\n");
+    git(lane, "add", "-A");
+    git(lane, "commit", "-qm", "two");
+    git(main, "rm", "-q", "packages/core/old.ts");
+    git(main, "commit", "-qm", "three");
+    write(main, "AGENTS.md", "# Agents\n\n`packages/core/built.ts`, `packages/core/old.ts` and `packages/core/never.ts`.\n");
+    expect(check("a private page ahead of main", main)).toEqual([
+      "AGENTS.md:3: path packages/core/old.ts does not exist (one not built yet is marked (planned))",
+      "AGENTS.md:3: path packages/core/never.ts does not exist (one not built yet is marked (planned))",
+    ]);
+  });
+
   it("refuses a link from a page in git to a private page, there or not, and a page in git only private pages link", () => {
     const root = repo({
       ".gitignore": ignored,

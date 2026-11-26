@@ -63,6 +63,7 @@ if [ ${#wheres[@]} -eq 0 ]; then
   echo "usage: ./shoot.sh <where>… [-- <launch flag>…]   (where: AppNavigation.openForDesign's destinations)" >&2
   exit 2
 fi
+./contract-check.sh
 udid=$(env -u LIFESTREAM_TEST_PHONE lockf -k "$lock" "$PWD/simulator.sh")
 echo "Simulator: $udid (iPhone 16 Pro by hand)"
 xcodebuild build \
