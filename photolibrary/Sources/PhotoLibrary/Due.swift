@@ -1,23 +1,31 @@
 import Foundation
 
 public struct Device: Sendable, Equatable {
-    public var homeMetered: Bool
-    public var internetMetered: Bool
+    public var pastMoves: Bool
+    public var iCloud: Bool
     public var charging: Bool
     public var spare: Int64
     public var changeRoom: Int64?
     public var page: Int
 
+    public init(pastMoves: Bool, iCloud: Bool, charging: Bool, spare: Int64, changeRoom: Int64? = .max, page: Int = 1_000) {
+        self.pastMoves = pastMoves; self.iCloud = iCloud; self.charging = charging; self.spare = spare
+        self.changeRoom = changeRoom; self.page = page
+    }
+
     public init(homeMetered: Bool, internetMetered: Bool, charging: Bool, spare: Int64, changeRoom: Int64? = .max,
                 page: Int = 1_000) {
-        self.homeMetered = homeMetered; self.internetMetered = internetMetered; self.charging = charging; self.spare = spare
-        self.changeRoom = changeRoom; self.page = page
+        self.init(pastMoves: !homeMetered, iCloud: !internetMetered, charging: charging, spare: spare,
+                  changeRoom: changeRoom, page: page)
     }
 
     public init(metered: Bool, charging: Bool, spare: Int64, changeRoom: Int64? = .max, page: Int = 1_000) {
         self.init(homeMetered: metered, internetMetered: metered, charging: charging, spare: spare,
                   changeRoom: changeRoom, page: page)
     }
+
+    public var homeMetered: Bool { !pastMoves }
+    public var internetMetered: Bool { !iCloud }
 }
 
 public enum Due: Sendable, Equatable {
@@ -34,10 +42,7 @@ extension PhotoLibrary {
 
     public static func due(device: Device, bringingIn: Bool) -> Due {
         guard device.spare > 0 else { return .waits(.space) }
-        guard !device.homeMetered else { return .waits(.network) }
-        return .fetch(network: !device.internetMetered && iCloudAllowed(device, bringingIn: bringingIn),
-                      bytes: min(device.spare, bundleBytes))
+        guard device.pastMoves else { return .waits(.network) }
+        return .fetch(network: device.iCloud && (device.charging || bringingIn), bytes: min(device.spare, bundleBytes))
     }
-
-    static func iCloudAllowed(_ device: Device, bringingIn: Bool) -> Bool { device.charging || bringingIn }
 }

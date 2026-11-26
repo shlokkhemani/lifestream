@@ -59,7 +59,9 @@ final class PhotoLibraryTests: XCTestCase {
         let library = PhotoLibrary(synthetic)
         let owed = try await library.read(after: nil, whole: false)
         XCTAssertTrue(owed.snapshots.isEmpty)
-        XCTAssertEqual(synthetic.snapshotsRead, 0, "a whole read owed begins only on a read that may page it")
+        XCTAssertTrue(owed.begins, "a read that may not page begins the whole read: the token, and the backlog listed")
+        XCTAssertEqual(owed.mark.unread, 1_005)
+        XCTAssertEqual(synthetic.snapshotsRead, 0, "and reads no photo of it")
         let first = try await library.read(after: owed.mark, whole: true)
         XCTAssertEqual(first.snapshots.count, 1_000)
         synthetic.put(Self.photo("NEW", taken: Self.day.addingTimeInterval(60)))
@@ -128,15 +130,20 @@ final class PhotoLibraryTests: XCTestCase {
         XCTAssertEqual(next.snapshots.map(\.localIdentifier), ["AFTER"], "the history answers again from the new mark")
     }
 
-    func testAPrunedHistoryReadInTheBackgroundListsNothing() async throws {
+    func testAPrunedHistoryReadInTheBackgroundBeginsAgainAndReadsNoPhoto() async throws {
         let synthetic = library(3)
         let library = PhotoLibrary(synthetic)
         let (_, read) = try await readAll(library, from: nil)
         synthetic.prune()
         let owed = try await library.read(after: read, whole: false)
         XCTAssertTrue(owed.mark.restates)
-        let again = try await library.read(after: owed.mark, whole: false)
-        XCTAssertEqual(again.mark, owed.mark, "it waits for a read that may page: the library is not listed")
+        let begun = try await library.read(after: owed.mark, whole: false)
+        XCTAssertTrue(begun.begins, "the next read takes a token and lists the backlog: its photos are past")
+        XCTAssertTrue(begun.snapshots.isEmpty)
+        XCTAssertTrue(begun.mark.restates)
+        XCTAssertEqual(begun.mark.unread, 3)
+        let again = try await library.read(after: begun.mark, whole: false)
+        XCTAssertEqual(again.mark, begun.mark, "it waits for a read that may page")
         XCTAssertEqual(synthetic.snapshotsRead, 3)
     }
 
@@ -329,6 +336,18 @@ final class PhotoLibraryTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [], "no file, whole or partial")
     }
 
+    func testAFileStillBeingWrittenComesLaterWithNoRequest() async throws {
+        let synthetic = SyntheticLibrary()
+        synthetic.put(Self.photo("WRITING", taken: Self.day, resources: [Self.still, Self.motion]),
+                      files: [.here(Data()), .here(Data("v".utf8))])
+        let directory = try temporaryDirectory()
+        let files = try await PhotoLibrary(synthetic).files(of: "WRITING", network: true, into: directory)
+        let fetched = try XCTUnwrap(files)
+        XCTAssertEqual(fetched.snapshot.resources.map(\.size), [0, 1])
+        XCTAssertEqual(fetched.files.first, .later, "a file that states 0 bytes is still being written")
+        XCTAssertEqual(synthetic.filesAsked, 1, "only the file that states its bytes is asked for")
+    }
+
     func testARefusedFileEndsThePhotosAllowance() async throws {
         let synthetic = SyntheticLibrary()
         synthetic.statesSizes = false
@@ -344,16 +363,21 @@ final class PhotoLibraryTests: XCTestCase {
 
     func testWhatADeviceFetchesNow() {
         let gb: Int64 = 1_000_000_000
-        func due(metered: Bool = false, charging: Bool = false, spare: Int64 = 45 * gb, bringingIn: Bool = false) -> Due {
-            PhotoLibrary.due(device: Device(metered: metered, charging: charging, spare: spare), bringingIn: bringingIn)
+        func due(pastMoves: Bool = true, iCloud: Bool = true, charging: Bool = false, spare: Int64 = 45 * gb,
+                 bringingIn: Bool = false) -> Due {
+            PhotoLibrary.due(device: Device(pastMoves: pastMoves, iCloud: iCloud, charging: charging, spare: spare),
+                             bringingIn: bringingIn)
         }
-        XCTAssertEqual(due(metered: true, charging: true, bringingIn: true), .waits(.network), "nothing on a metered network, whatever else")
+        XCTAssertEqual(due(pastMoves: false, charging: true, bringingIn: true), .waits(.network),
+                       "nothing while the past may not move, whatever else")
+        XCTAssertEqual(due(iCloud: false, charging: true, bringingIn: true), .fetch(network: false, bytes: PhotoLibrary.bundleBytes),
+                       "the files it holds, and nothing from iCloud while iCloud may not move")
         XCTAssertEqual(due(), .fetch(network: false, bytes: PhotoLibrary.bundleBytes), "on a free network: the files it holds")
         XCTAssertEqual(due(charging: true), .fetch(network: true, bytes: PhotoLibrary.bundleBytes), "while it charges: iCloud too")
         XCTAssertEqual(due(bringingIn: true), .fetch(network: true, bytes: PhotoLibrary.bundleBytes),
                        "while Bring in all photos runs: iCloud too")
         XCTAssertEqual(due(spare: 0, bringingIn: true), .waits(.space), "nothing at the line the disk keeps")
-        XCTAssertEqual(due(metered: true, spare: 0), .waits(.space), "space said first: the person frees it, the network mends itself")
+        XCTAssertEqual(due(pastMoves: false, spare: 0), .waits(.space), "space said first: the person frees it, the network mends itself")
         XCTAssertEqual(due(spare: 10_000_000), .fetch(network: false, bytes: 10_000_000), "never past the line")
     }
 
