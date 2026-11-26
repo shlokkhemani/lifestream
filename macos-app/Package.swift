@@ -1,4 +1,5 @@
 // swift-tools-version: 6.0
+import Foundation
 import PackageDescription
 
 let package = Package(
@@ -54,3 +55,7 @@ let package = Package(
     ],
     swiftLanguageModes: [.v5]
 )
+
+for target in package.targets where FileManager.default.fileExists(atPath: "\(Context.packageDirectory)/Sources/\(target.name)/README.md") {
+    target.exclude.append("README.md")
+}

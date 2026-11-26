@@ -14,7 +14,7 @@ import { FULL_DAY, FULL_PERSON, FULL_PERSON_NAME, FULL_WORDS, ZONE, fullLife } f
 import { placesHome } from '../test/stand-ins/places-home.mjs';
 import { allScreens, screenPrelude } from '../test/stand-ins/all-screens.mjs';
 import { hostScript, onboardingHome } from '../test/stand-ins/onboarding-home.mjs';
-import { DEMO_NOW, DEMO_PICTURES, demoDoor, demoPeople, demoScreens, doorAnswers } from './demo.mjs';
+import { DEMO_NOW, DEMO_PICTURES, demoDoor, demoPeople, demoScreens, doorAnswers, phoneAnswers } from './demo.mjs';
 
 const REPO = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const demo = process.argv.includes('--demo');
@@ -268,7 +268,7 @@ if (all) {
   const wanted = screens.filter(screen => !named.length || named.includes(screen.name) || named.includes(screen.section));
   if (phone && fuller) {
     const chat = screens.find(screen => screen.name === 'chat');
-    await shootPhone(fuller, home.tokens.reader, chat ? doorAnswers(chat) : new Map());
+    await shootPhone(fuller, home.tokens.reader, chat ? phoneAnswers(doorAnswers(chat)) : new Map());
     await new Promise(done => onboardingViewer.close(() => done(undefined)));
     await onboarding.close();
     await stop();

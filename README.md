@@ -155,7 +155,7 @@ reach nearly every decision they make. Lifestream gives that record to its owner
 on your own Mac, where you can read every line of it and take it anywhere. The models above it will
 change every few months; the record stays.
 
-## Questions
+## FAQ
 
 <details>
 <summary>What does it cost?</summary>
