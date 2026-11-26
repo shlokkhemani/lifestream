@@ -7,22 +7,22 @@
       "line": null
     },
     {
-      "id": "openrouter",
-      "kind": "key",
-      "name": "OpenRouter",
-      "line": null
-    },
-    {
       "id": "claude",
       "kind": "plan",
       "name": "Claude",
       "line": "Your Claude plan is used up · resets 14:00"
     },
     {
+      "id": "openrouter",
+      "kind": "key",
+      "name": "OpenRouter",
+      "line": null
+    },
+    {
       "id": "address",
       "kind": "address",
       "name": "Other server",
-      "line": "Chat needs the server to run a context window of 32,000 tokens or more"
+      "line": "Couldn't list this server's models"
     }
   ],
   "uses": {

@@ -12,7 +12,7 @@ import { STATUS_UNREAD } from '../public/ui/connectors/settings-pages.js';
 import { STATES as REACH_STATES } from '../public/kit-gallery-reach.js';
 import { AT_REST } from '../public/ui/connectors/view.js';
 import { FLOWS } from '../public/lib/hash.js';
-import { meaningParts, MEANING_BUSY, MEANING_LINE } from '../public/ui/connectors/settings-search.js';
+import { meaningParts, MEANING_LINE } from '../public/ui/connectors/settings-search.js';
 import { LACKS, SCREEN_EVERY, workShown } from '../public/ui/connectors/changes.js';
 import { keyOf, movesMeaning, movesPrivacy } from '../public/ui/connectors/pending.js';
 import { SETTINGS_MEANING, SETTINGS_DEFAULTS } from '../public/ui/connectors/settings.js';
@@ -293,12 +293,9 @@ test('P9: Search by meaning: its model is Default models\' Search by meaning, it
   const none = /** @type {any} */ (rowOf(off, 'Model'));
   assert.deepEqual([none.end.words, none.end.acts.map((/** @type {any} */ act) => act.label)], ['Off', ['Choose']], 'on or off as Default models\' Search by meaning holds it');
   assert.equal(rowOf(off, 'Search by meaning'), undefined, 'no toggle of its own');
-  assert.equal(/** @type {any} */ (rowOf(off, 'When it runs')?.end).menu.words, 'Only when plugged in and idle');
+  assert.deepEqual(rowOf(off, 'When it runs')?.end, { words: 'Only when plugged in and idle' }, 'one choice: a line, not a menu');
   assert.equal(rowOf(off, 'Searchable'), undefined);
-  assert.deepEqual(actsOf(off).flatMap(each => 'host' in each ? [each.host] : []), [], 'no write but the power choice');
-  const choices = (/** @type {string} */ label) => /** @type {any} */ (rowOf(off, label)?.end).menu.choices.map((/** @type {any} */ each) => each.do.host);
-  assert.deepEqual(choices('When it runs'), [{ act: 'home-setting', settings: { 'search.meaning.power': 'plugged-idle' } }]);
-  assert.equal(/** @type {any} */ (rowOf(off, 'When it runs')?.end).menu.busy, MEANING_BUSY);
+  assert.deepEqual(actsOf(off).flatMap(each => 'host' in each ? [each.host] : []), [], 'no write of its own');
   const bare = meaningParts({ state: STATE_OFF, failed: false, acts: true, model: null, choose: { open: SETTINGS_DEFAULTS } });
   const unread = /** @type {any} */ (bare.parts[0].panel?.rows.find(row => row.label === 'Model'));
   assert.deepEqual([unread.end.words, unread.end.acts[0].label], ['Off', 'Choose'], 'before Default models is read: off, to choose');
@@ -323,8 +320,11 @@ test('P9: Search by meaning: its model is Default models\' Search by meaning, it
   assert.deepEqual(skipped.progress, { label: 'Searchable so far', share: 0.99, words: '99% of your screen, newest first' });
   assert.equal(/** @type {any} */ (rowOf(meaning({ ...STATE_ON, skipped: 3 }), 'Searchable')).line,
     'Waiting for macbook-pro-0001 to be idle. 3 could not be read.');
-  assert.equal(rowOf(meaning({ ...STATE_ON, embedded: 0, named: 0, queued: 0, waits: null, waits_line: null }), 'Searchable')?.line,
+  const unbegun = { ...STATE_ON, embedded: 0, named: 0, queued: 0, waits: null, waits_line: null };
+  assert.equal(rowOf(meaning({ ...unbegun, words_indexed_through: null }), 'Searchable')?.line,
     'It starts once this Mac has recorded your screen.');
+  assert.equal(rowOf(meaning(unbegun), 'Searchable')?.line, 'It reads when this Mac is plugged in and idle.',
+    'the screen\'s words are read, its meaning not begun: the rule it waits on, not the screen');
   assert.equal(rowOf(meaning({ ...STATE_OFF, vectors_bytes: 1_000_000 }, { models: SEARCH_OFF }), 'On disk'), undefined);
   for (const state of [null, AWAY, ELSEWHERE]) {
     const away = meaning(STATE_ON, { state });

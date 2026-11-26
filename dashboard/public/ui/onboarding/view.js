@@ -16,6 +16,7 @@ import { APP_FINDS, withMode } from '../connectors/dialog.js';
 import { settingKey } from '../connectors/view.js';
 import { keyOf, thingKey } from '../connectors/pending.js';
 import { actState, ELSEWHERE, modelOf, refused } from '../flows/model.js';
+import { menuLines } from '../../lib/model-menu.js';
 import { flowAction } from '../flows/view.js';
 import {
   accountName, backOf, macOf, NAME_LIMIT, nameHolds, neverOf, recordOf, whereOf,
@@ -85,8 +86,8 @@ const move = (label, key, { variant = 'plain', disabled = false } = {}) => butto
  */
 const back = (screen, seen, { disabled = false } = {}) => backOf(screen, seen) ? move('Back', 'back', { disabled }) : '';
 
-/** @param {string} words */
-const fine = words => `<p class="ob-fine">${esc(words)}</p>`;
+/** @param {string} words @param {boolean} [working] */
+const fine = (words, working = false) => `<p class="ob-fine">${working ? `<span class="ck-shimmer">${esc(words)}</span>` : esc(words)}</p>`;
 
 /**
  * @param {Screen} screen
@@ -302,7 +303,7 @@ const PARTS = {
 
   ai(seen, session, flow) {
     const model = modelOf(seen);
-    const items = (flow?.lists.flatMap(list => list.items) ?? []).sort((a, b) => Number(b.id === 'claude') - Number(a.id === 'claude'));
+    const items = flow?.lists.flatMap(list => list.items) ?? [];
     const privacy = session.changes.privacy.read;
     const on = privacy ? privacy.level !== 'none' : true;
     const busy = session.changes.busy.has(SCRAMBLE_BUSY);
@@ -328,23 +329,23 @@ const PARTS = {
   },
 
   media(seen, session) {
-    const pictures = mediaPlaces(session.changes.models.read, 'pictures');
-    const audio = mediaPlaces(session.changes.models.read, 'audio');
-    const cloud = pictures.chosen?.leaves ?? false;
+    const pictures = mediaPick(session.changes.models.read, 'pictures');
+    const audio = mediaPick(session.changes.models.read, 'audio');
     const images = settingRow({ label: 'Describe photos and screenshots', lead: settingTile('photos'),
       line: 'So you can find a picture by what’s in it.', end: mediaMenu('pictures', 'Describe photos and screenshots', pictures, session) });
-    const covered = cloud ? setupUnder(facesPicture(pictures.chosen?.words ?? ''), { className: 'is-quiet ob-faces' }) : '';
+    const covered = pictures.leaves ? setupUnder(facesPicture(pictures.words), { className: 'is-quiet ob-faces' }) : '';
     const sound = settingRow({ label: 'Turn voice into text', lead: settingTile('voice-note'),
       line: 'Voice notes, memos and calls become text you can search.', end: mediaMenu('audio', 'Turn voice into text', audio, session) });
-    const line = (/** @type {MediaPick} */ pick) => pick.line ? setupUnder(fine(pick.line)) : '';
+    const line = (/** @type {MediaPick} */ pick) => pick.line ? setupUnder(fine(pick.line, pick.working)) : '';
     const failed = session.changes.models.failed || refused('media', session);
+    const downloading = pictures.working || audio.working;
     return {
       look: '',
       head: setupHead({ title: 'Make your pictures and audio searchable', sub: 'A model can describe your pictures and turn speech '
         + 'into text, so Search finds them.' }),
       body: setupSheet([images, covered, line(pictures)], { label: 'Images' }) + setupSheet([sound, line(audio)], { label: 'Audio' })
         + (failed ? status('failed', failed) : ''),
-      foot: { back: back('media', seen), note: 'Models download in the background.',
+      foot: { back: back('media', seen), ...downloading ? { note: 'Models download in the background.' } : {},
         end: move('Continue', 'leave', { variant: 'primary' }) },
     };
   },
@@ -366,7 +367,7 @@ const TIERS = { claude: 'Pro or Max plan', chatgpt: 'Plus or Pro plan' };
 function planCard(item, model) {
   const plan = item.id === 'claude' || item.id === 'chatgpt' ? model[item.id] : null;
   const signed = plan?.state === 'signed_in';
-  const line = plan?.state === 'absent' ? TIERS[/** @type {'claude' | 'chatgpt'} */ (item.id)] : item.line;
+  const line = plan?.state === 'absent' || plan?.state === 'signed_out' ? TIERS[/** @type {'claude' | 'chatgpt'} */ (item.id)] : item.line;
   const end = signed ? setupGranted('Connected') : (item.cancel ? flowAction(item.cancel) : '') + (item.act ? flowAction(item.act) : '');
   const pieces = item.body.length ? `<div class="ob-plan__more">${item.body.map(piece => 'copy' in piece
     ? `<span class="ob-plan__code mac-mono-data">${esc(piece.copy.value)}</span>`
@@ -432,23 +433,26 @@ const facesPicture = who => '<span class="ob-pair" aria-hidden="true">'
   + `<span class="ob-shot__cap">${esc(who ? `Sent to ${who}` : 'Sent to a model')}</span></span></span>`
   + '<span class="ob-pair__words">Faces and personal details are covered before a photo leaves this Mac.</span>';
 
-/** @typedef {{ value: string, words: string, note: string, working: boolean, disabled: boolean, leaves: boolean }} MediaChoice */
-/** @typedef {{ choices: MediaChoice[], chosen: MediaChoice | null, words: string, off: boolean, line: string }} MediaPick */
+export const MEDIA_MORE = 'more';
+
+/** @typedef {{ lines: import('../../lib/model-menu.js').MenuLine[], words: string, line: string, working: boolean, leaves: boolean }} MediaPick */
 
 /**
  * @param {Models | null} models
  * @param {ModelKind} kind
  * @returns {MediaPick}
  */
-export function mediaPlaces(models, kind) {
+export function mediaPick(models, kind) {
   const use = models?.uses.find(each => each.use === kind);
-  if (!use) return { choices: [], chosen: null, words: 'Off', off: true, line: '' };
-  const names = new Map([...use.menu.rows, ...use.menu.local?.rows ?? []].map(each => [each.value, each.name]));
-  const choices = use.places.flatMap(place => place.value === null ? [] : [{ value: place.value, words: place.place,
-    note: place.line ?? names.get(place.value) ?? '', working: place.working, disabled: !place.ready, leaves: place.leaves }]);
-  const chosen = choices.find(each => each.value === use.value) ?? null;
-  return { choices, chosen, words: chosen?.words ?? use.words, off: use.value === null, line: use.line ?? '' };
+  if (!use) return { lines: [], words: 'Off', line: '', working: false, leaves: false };
+  return { lines: menuLines(use.menu), words: use.words, line: use.line ?? '', working: use.working, leaves: use.leaves };
 }
+
+/**
+ * @param {MediaPick} pick
+ * @param {string} value
+ */
+export const mediaListed = (pick, value) => pick.lines.some(line => 'more' in line ? value === MEDIA_MORE : line.row.value === value);
 
 /**
  * @param {ModelKind} kind
@@ -460,9 +464,10 @@ function mediaMenu(kind, label, pick, session) {
   const busy = session.changes.busy.has(thingKey({ kind: 'default', of: kind }));
   return menuButton({ id: `ob-${kind}`, label, words: pick.words, busy,
     attrs: { class: 'ob-menu', 'data-ob-menu': kind },
-    choices: [{ value: 'none', words: 'Off', chosen: pick.off, default: false },
-      ...pick.choices.map(each => ({ value: each.value, words: each.words, note: each.note, working: each.working, chosen: each === pick.chosen,
-        default: false, disabled: each.disabled }))] });
+    choices: pick.lines.map(line => 'more' in line
+      ? { value: MEDIA_MORE, words: line.more, more: true, chosen: false, default: false, parted: line.parted }
+      : { value: line.row.value, words: line.row.name, tag: line.row.account ?? '', head: line.head, chosen: line.row.chosen, default: false,
+        parted: line.parted }) });
 }
 
 /** @typedef {{ months: number | null, day: string | null, short: string, long: string, bytes: number, more: boolean }} RangeStop */

@@ -63,7 +63,7 @@ import { DETAIL, disconnectWords, turn } from './words.js';
 
 /** @typedef {{ placeholder: string, typed: string }} Finding */
 
-/** @typedef {{ label: string, about: string, lede: string, find: Finding | null, rows: PanelRow[], add: Adding | null, note: string }} Panel */
+/** @typedef {{ label: string, about: string, lede: string, find: Finding | null, rows: PanelRow[], add: Adding | null, note: string, group?: boolean }} Panel */
 
 /** @typedef {{ kind: SignalKind | null, title: string, lines: string[], acts: Act[] }} Callout */
 
@@ -196,7 +196,7 @@ export function foundPanels(found, typed, pick) {
   /** @param {import('../../pages.js').ModelRow} row */
   const rowFor = row => rowOf(row.name, { ...row.account ? { tag: row.account } : {}, act: pick(row.value), end: row.chosen ? { words: '', done: true } : null });
   return [panelOf({ find: { placeholder: answer?.placeholder ?? '', typed }, note: answer?.none ?? found?.failed ?? '' }),
-    ...(answer?.groups ?? []).map(group => panelOf({ label: group.label, rows: group.rows.map(rowFor) }))];
+    ...(answer?.groups ?? []).map(group => panelOf({ label: group.label, group: true, rows: group.rows.map(rowFor) }))];
 }
 
 /** @typedef {import('../../lib/model-menu.js').Found} Found */

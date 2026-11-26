@@ -532,12 +532,11 @@ export const ModelMenu = named("ModelMenu", object({
   off: nullable(ModelRow),
 }));
 export type ModelMenu = Of<typeof ModelMenu>;
-const ModelPlace = named("ModelPlace", object({ place: label, value: nullable(id), line: nullable(words), working: bool, ready: bool, leaves: bool }));
 const ModelLevel = named("ModelLevel", object({ value: id, name, chosen: bool, suggested: bool }));
 const ModelThinking = named("ModelThinking", object({ label, value: id, words, levels: list(ModelLevel, 1) }));
 const ModelUse = named("ModelUse", object({
   use: ModelUseId,
-  label, line: nullable(words), words, value: nullable(id), thinking: nullable(ModelThinking), menu: ModelMenu, places: list(ModelPlace),
+  label, line: nullable(words), working: bool, words, value: nullable(id), leaves: bool, thinking: nullable(ModelThinking), menu: ModelMenu,
 }));
 const ModelFileState = named("ModelFileState", oneOf("absent", "fetching", "ready", "failed"));
 const ModelFileDo = named("ModelFileDo", oneOf("fetch", "remove", "cancel"));

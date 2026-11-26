@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
 import { flushed, textHead } from "@lifestreamprotocol/core";
 import { ArtifactError, embedAskOf, ensureArtifact, fetchDocument, holdsArtifact, removeArtifact, type RunnerAnswer } from "@lifestreamprotocol/model";
 import { embedAnswer } from "./embed.js";
@@ -140,6 +140,12 @@ export function ollamaLibrary(child: OllamaChild): Library {
     rmSync(file, { force: true });
     await sweep(signal);
   };
+  const prune = (file: string): void => {
+    for (let folder = dirname(file); folder.startsWith(`${manifests}${sep}`); folder = dirname(folder)) {
+      if (!existsSync(folder) || readdirSync(folder).length > 0) return;
+      rmdirSync(folder);
+    }
+  };
 
   async function whole(row: OllamaRow, held: Held, signal: AbortSignal): Promise<boolean> {
     for (const layer of layersOf(held.manifest)) if (!await holdsArtifact(artifactOf(row, layer), blobOf(layer), signal)) return false;
@@ -196,6 +202,7 @@ export function ollamaLibrary(child: OllamaChild): Library {
         digests.delete(row.id);
         await drop(partialOf(row), signal);
         await drop(fileOf(ollama.source.model), signal);
+        prune(fileOf(ollama.source.model));
         if (named().size === 0) await child.remove();
       });
     },

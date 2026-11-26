@@ -617,9 +617,9 @@ test('L15: Range\'s date says what it would read before it is sent, one act send
   assert.equal(range({ connector: 'gmail' }).said, null);
 });
 
-test('L16: Settings\' Accounts are the model flow\'s two items, ChatGPT and Claude, as the flow draws them', () => {
-  assert.deepEqual([...MODEL_ITEMS], ['chatgpt', 'claude'], 'no OpenRouter item: its key is Settings\' Keys');
-  assert.deepEqual([...SUBSCRIPTIONS], ['chatgpt', 'claude']);
+test('L16: Settings\' Accounts are the model flow\'s two items, Claude then ChatGPT, as the flow draws them', () => {
+  assert.deepEqual([...MODEL_ITEMS], ['claude', 'chatgpt'], 'no OpenRouter item: its key is Settings\' Keys');
+  assert.deepEqual([...SUBSCRIPTIONS], ['claude', 'chatgpt']);
   /** @param {any} login */
   const drawn = login => {
     const state = { ...HOST_STATE, ask_login: login };
@@ -629,12 +629,12 @@ test('L16: Settings\' Accounts are the model flow\'s two items, ChatGPT and Clau
     assert.ok(flowPageRows(plans.flow).every(row => detailMarkup(detail, AT_REST).includes(row)), 'its items as its rows');
     return plans.flow.lists[0].items.map((/** @type {any} */ item) => [item.name, item.line, item.act?.label ?? '']);
   };
-  assert.deepEqual(drawn(SUBSCRIBED.none), [['ChatGPT', 'Use your ChatGPT plan.', 'Connect'], ['Claude', 'Use your Claude plan.', 'Connect']]);
-  assert.deepEqual(drawn(SUBSCRIBED.mixed), [['ChatGPT', 'Getting Codex to sign in, 120 of 347 MB.', ''],
-    ['Claude', 'person-a@example.com · Max plan', 'Sign out']]);
+  assert.deepEqual(drawn(SUBSCRIBED.none), [['Claude', '', 'Sign in'], ['ChatGPT', '', 'Sign in']], 'a plan not signed in: no line, Sign in');
+  assert.deepEqual(drawn(SUBSCRIBED.mixed), [['Claude', 'person-a@example.com · Max plan', 'Sign out'],
+    ['ChatGPT', 'Getting Codex to sign in, 120 of 347 MB.', '']]);
   assert.deepEqual(drawn(SUBSCRIBED.signing).map(([name, line, act]) => [name, line, act]), [
-    ['ChatGPT', 'Enter this code on OpenAI’s page.', 'Open sign-in page'],
-    ['Claude', 'Approve on Anthropic’s page. If it shows a code, paste it here.', 'Open sign-in page']]);
-  assert.deepEqual(drawn(SUBSCRIBED.failed), [['ChatGPT', 'Sign in with your ChatGPT plan.', 'Sign in'], ['Claude', '', 'Try again']]);
+    ['Claude', 'Approve on Anthropic’s page. If it shows a code, paste it here.', 'Open sign-in page'],
+    ['ChatGPT', 'Enter this code on OpenAI’s page.', 'Open sign-in page']]);
+  assert.deepEqual(drawn(SUBSCRIBED.failed), [['Claude', '', 'Try again'], ['ChatGPT', '', 'Sign in']]);
   assert.equal(/** @type {any} */ (part(settings({ subscriptions: null }), 'Accounts'))?.flow, undefined, 'no flow: the home\'s plan rows');
 });

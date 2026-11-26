@@ -103,7 +103,7 @@ async function door() {
 
 const PASS = "synthetic-runner-pass".padEnd(43, "x");
 
-function runner(at: string, given: Omit<Record<Row["library"], Library>, "detector"> & { detector?: Library }, options: Pick<RunnerOptions, "rest_ms" | "drain_ms" | "name" | "power" | "idle" | "thermal"> = {}): { done: Promise<void>; stop: () => void } {
+function runner(at: string, given: Omit<Record<Row["library"], Library>, "detector"> & { detector?: Library }, options: Pick<RunnerOptions, "rest_ms" | "drain_ms" | "name" | "power" | "idle" | "thermal" | "log"> = {}): { done: Promise<void>; stop: () => void } {
   const libraries = { detector: fake(), ...given };
   const dir = folder();
   writeFileSync(join(dir, "door-token"), `${PASS}\n`);
@@ -221,6 +221,35 @@ describe("the runner", () => {
     state.calls.push(embedding("r-0000000000e4", "query"));
     expect(await resultOf("r-0000000000e4")).toMatchObject({ ok: { text: "embedded" } });
     expect(ollama.asked.ran).toEqual(["r-0000000000e3", "r-0000000000e4"]);
+  });
+
+  it("logs a fetch's start, its end with its bytes and seconds, a fetch it stopped, and a removal, one line each", async () => {
+    const { url, state } = await door();
+    const pictures = fake();
+    const said: string[] = [];
+    runner(url, { ollama: pictures, speech: fake() }, { log: (line) => said.push(line) });
+    const bytes = FILES.find((row) => row.id === PICTURES)!.bytes;
+    state.files = [PICTURES];
+    await until("the fetch begins", () => pictures.fetching() !== null);
+    pictures.fetching()!.progress(9_876, 9_876);
+    pictures.fetching()!.resolve();
+    await until("the fetch's end is logged", () => said.some((line) => line.startsWith(`runner: fetched ${PICTURES}`)));
+    state.files = [];
+    await until("the removal is logged", () => said.includes(`runner: removed ${PICTURES}`));
+    state.files = [PICTURES];
+    await until("the fetch begins again", () => pictures.fetching() !== null);
+    pictures.fetching()!.progress(1_234);
+    await until("its progress is read", () => state.file(PICTURES)?.fetched_bytes === 1_234);
+    state.files = [];
+    await until("the stopped fetch's file is removed and logged", () => said.filter((line) => line === `runner: removed ${PICTURES}`).length === 2);
+    expect(said.map((line) => line.replace(/ in \d+\.\d s$/u, " in N s"))).toEqual([
+      `runner: fetching ${PICTURES}, ${bytes} bytes`,
+      `runner: fetched ${PICTURES}, 9876 bytes in N s`,
+      `runner: removed ${PICTURES}`,
+      `runner: fetching ${PICTURES}, 9876 bytes`,
+      `runner: fetching ${PICTURES} stopped after 1234 bytes in N s`,
+      `runner: removed ${PICTURES}`,
+    ]);
   });
 
   it("fetches only the files wanted, says how far each is in facts alone, its size the row's until its library says the fetch's own, removes one no longer wanted or whose fetch it stopped, and says why a fetch failed", async () => {
@@ -784,7 +813,7 @@ describe("the Ollama library", () => {
     expect([state.chats, state.embeds.length]).toEqual([[], 3]);
   });
 
-  it("removes a model's manifest and every layer no other manifest names; with no model left, its child and its build go", async () => {
+  it("removes a model's manifest, the folders it leaves empty and every layer no other manifest names; with no model left, its child and its build go", async () => {
     const dir = folder();
     const served = await registry();
     const shared = "a tensor two models share";
@@ -796,11 +825,15 @@ describe("the Ollama library", () => {
     await library.fetch(two.row, () => undefined, signal);
     const held = (): string[] => readdirSync(join(dir, "models", "blobs")).sort();
     const of = (text: string): string => `sha256-${sha(text)}`;
+    const manifests = join(dir, "models", "manifests");
+    const named = join(manifests, "registry.ollama.ai", "library");
     await library.remove(one.row, signal);
     expect(held()).toEqual([of(`config of two: ${shared}`), of(shared)].sort());
+    expect(readdirSync(named), "the removed model's folder goes; another's stays").toEqual(["two"]);
     expect(playing.asked.removed).toBe(0);
     await library.remove(two.row, signal);
     expect(held()).toEqual([]);
+    expect(readdirSync(manifests), "no empty folder is left under manifests").toEqual([]);
     expect(playing.asked.removed).toBe(1);
   });
 });

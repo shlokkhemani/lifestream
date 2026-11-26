@@ -12,7 +12,6 @@ export type ModelDefaults = Body<AnswerOf<"modelDefaults">>;
 export type ModelProviders = Body<AnswerOf<"modelProviders">>;
 export type ModelsFound = Body<AnswerOf<"modelsFind">>;
 type Use = ModelDefaults["uses"][number];
-type Place = Use["places"][number];
 type Thinking = NonNullable<Use["thinking"]>;
 type Connection = ModelProviders["connections"][number];
 type Runner = Extract<Connection, { kind: "runner" }>;
@@ -34,10 +33,6 @@ export const WORDS = {
   accounts: "Accounts",
   local: "Local models",
   localOn: (name: string) => `Local models on ${name}`,
-  thisMac: "On this Mac",
-  on: (name: string) => `On ${name}`,
-  connect: (name: string) => `Connect ${name} first`,
-  download: (name: string, size: string) => `Download ${name} · ${size}`,
   recommended: "Recommended",
   needs: (memory_gb: number) => `Needs ${memory_gb} GB of memory`,
   run: "Run local models",
@@ -109,35 +104,18 @@ function actsOf(file: RunnerFile, fits: boolean): File["acts"] {
   }
 }
 
-function pickOf(row: ReadModel, stored: StoredModels): Pick<Place, "line" | "ready" | "working"> | null {
+function downloadOf(row: ReadModel, stored: StoredModels): Pick<Use, "line" | "working"> | null {
   const runner = stored.runners.find((each) => runnerConnection(each.unit) === row.connection);
   const file = runner?.files.find((each) => each.id === row.model);
   if (runner === undefined || file === undefined || file.state === "ready") return null;
-  if (runner.memory_gb < file.memory_gb) return { line: WORDS.needs(file.memory_gb), ready: false, working: false };
-  const held = storedRunnerLine(runner);
-  if (held !== null) return { line: held, ready: false, working: false };
-  if (file.state === "absent") return { line: WORDS.download(file.name, gigabytes(file.bytes)), ready: true, working: false };
-  return { line: fileLine(file, runner.left?.[file.id]), ready: true, working: file.state === "fetching" };
+  if (runner.memory_gb < file.memory_gb) return { line: WORDS.needs(file.memory_gb), working: false };
+  const away = storedRunnerLine(runner);
+  if (away !== null) return { line: away, working: false };
+  return { line: fileLine(file, runner.left?.[file.id]), working: file.state === "fetching" };
 }
-
-const placeOf = (runner: Pick<StoredRunner, "unit" | "name">, here: string): string => runner.unit === here ? WORDS.thisMac : WORDS.on(runner.name);
 
 const hereFirst = <T extends { id: string }>(each: readonly T[], here: string): T[] =>
   [...each].sort((a, b) => Number(b.id === runnerConnection(here)) - Number(a.id === runnerConnection(here)));
-
-function placesOf(use: UseId, read: ModelsRead, stored: StoredModels, here: string): Place[] {
-  return hereFirst(read.connections.filter((each) => each.kind === "plan" || each.kind === "runner"), here).flatMap((connection): Place[] => {
-    const row = read.uses[use].fits.map((id) => read.models[id]!).find((each) => each.connection === connection.id && each.suggested.includes(use));
-    if (row === undefined) return [];
-    if (connection.kind === "plan") {
-      const ready = row.state === "ready";
-      return [{ place: connection.name, value: row.id, line: ready ? null : WORDS.connect(connection.name), working: false, ready, leaves: row.leaves !== null }];
-    }
-    const runner = stored.runners.find((each) => runnerConnection(each.unit) === connection.id)!;
-    const pick = pickOf(row, stored) ?? { line: row.state === "ready" ? null : row.line, ready: runner.present && runner.below === null, working: false };
-    return [{ place: placeOf(runner, here), value: row.id, ...pick, leaves: row.leaves !== null }];
-  });
-}
 
 function thinkingOf(row: ReadModel | undefined, wanted: string | null): Thinking | null {
   if (row === undefined || row.thinking.length === 0) return null;
@@ -155,18 +133,20 @@ function misfitOf(route: ModelRoute | undefined, use: UseId): string | null {
   return why === null ? null : unfitWords(route!.name, why);
 }
 
-function useOf(use: UseId, read: ModelsRead, inputs: ModelsInputs, here: string): Use {
+function useOf(use: UseId, read: ModelsRead, inputs: ModelsInputs): Use {
   const { value, menu, thinking } = read.uses[use];
   const chosen = value === null ? undefined : read.models[value];
   const misfit = misfitOf(inputs.stored.routes.find((each) => each.id === value), use);
+  const download = chosen === undefined ? null : downloadOf(chosen, inputs.stored);
   return {
     use, label: MODEL_USES[use].label,
-    line: misfit ?? (chosen === undefined || chosen.state === "ready" ? null : chosen.line),
+    line: misfit ?? download?.line ?? (chosen === undefined || chosen.state === "ready" ? null : chosen.line),
+    working: misfit === null && download?.working === true,
     words: value === null ? use === "chat" ? CHOOSE_MODEL : WORDS.off : chosen?.name ?? value,
     value,
+    leaves: (chosen?.leaves ?? null) !== null,
     thinking: use === "chat" && value !== null ? thinkingOf(read.models[value], thinking) : null,
     menu,
-    places: placesOf(use, read, inputs.stored, here),
   };
 }
 
@@ -182,7 +162,7 @@ function runnerOf(runner: StoredRunner, inputs: ModelsInputs, routes: readonly M
       words: file.state === "ready" ? WORDS.downloaded : null, acts: away ? [] : actsOf(file, fits),
     };
   });
-  const run = away || !(paused || files.some((file) => file.state === "ready")) ? null : { label: WORDS.run, on: !paused, line: paused ? WORDS.runOff : null };
+  const run = away ? null : { label: WORDS.run, on: !paused, line: paused ? WORDS.runOff : null };
   const on = savesBattery(inputs.settings.runners, runner.unit);
   return {
     kind: "runner", id: runnerConnection(runner.unit), unit: runner.unit, place: label, name: runner.name, line,
@@ -229,8 +209,7 @@ const readOf = (inputs: ModelsInputs): ModelsRead => modelsRead(inputs.stored, m
 
 export function modelDefaults(inputs: ModelsInputs): ModelDefaults {
   const read = readOf(inputs);
-  const here = runnerUnit(inputs.settings.unit);
-  return { uses: [...USE_IDS].sort((a, b) => Number(b === "chat") - Number(a === "chat")).map((use) => useOf(use, read, inputs, here)) };
+  return { uses: [...USE_IDS].sort((a, b) => Number(b === "chat") - Number(a === "chat")).map((use) => useOf(use, read, inputs)) };
 }
 
 export function modelProviders(inputs: ModelsInputs): ModelProviders {

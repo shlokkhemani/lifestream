@@ -23,7 +23,7 @@ import { cameraNamed, type DeviceKind } from "./devices.js";
 import { newest, type Feed } from "./feed.js";
 import { freshSourcesOf } from "./freshness.js";
 import { photoNamed, photoOfRecord, preparedFile, readPhoto, unheldWords, type PreparedFile } from "./photo.js";
-import { modelsAt, modelsRead } from "./models-read.js";
+import { modelsAt, modelsRead, wished } from "./models-read.js";
 import { modelDefaultsHandler, modelProvidersHandler, modelsFindHandler, type ModelsReads } from "./page-models.js";
 import { storedModels } from "./models.js";
 import { NOTHING_MADE, openMade, type MadeInput } from "./made.js";
@@ -1141,7 +1141,7 @@ export function openReads(input: {
         const at = newest(db);
         return { position: `${at.seq}:${at.at_ms}`, stored: storedModels(readTables(db).meta), paused: pauses(db) };
       })());
-      return { position, inputs: { stored, settings: now, pauses: paused, now_ms: ask.now_ms, day: now.day } };
+      return { position, inputs: { stored: wished(stored, now), settings: now, pauses: paused, now_ms: ask.now_ms, day: now.day } };
     },
   };
 

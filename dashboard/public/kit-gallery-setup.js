@@ -3,7 +3,7 @@
 /** @import { StartCost, StreamsReport } from './types.js' */
 /** @import { Screen, Seen } from './ui/onboarding/model.js' */
 /** @import { Session } from './ui/onboarding/view.js' */
-/** @import { ModelPlace, ModelUse } from './pages.js' */
+/** @import { ModelUse } from './pages.js' */
 /** @import { Models } from './lib/model-menu.js' */
 import { subscriptionOf } from './lib/host.js';
 import { esc } from './lib/html.js';
@@ -89,7 +89,6 @@ const QWEN = `runner:${RUNNER}/qwen3.5-4b`;
 const PARAKEET = `runner:${RUNNER}/parakeet-unified-en-0.6b`;
 const PLAN_ONE = 'claude:plan-model-1';
 const PLAN_TWO = 'codex:plan-model-2';
-const THIS_MAC = 'On this Mac';
 
 const NAMES = /** @type {Record<string, string>} */ ({ [QWEN]: 'Qwen 3.5 4B', [PARAKEET]: 'Parakeet', [PLAN_ONE]: 'Plan Model One',
   [PLAN_TWO]: 'Plan Model Two' });
@@ -97,27 +96,16 @@ const NAMES = /** @type {Record<string, string>} */ ({ [QWEN]: 'Qwen 3.5 4B', [P
 const SIGNED = subscriptionOf({ state: 'signed_in', account: 'person-a@example.com', plan: 'max' });
 
 /**
- * @param {string} place
- * @param {string} value
- * @param {Partial<ModelPlace>} [said]
- * @returns {ModelPlace}
- */
-const placeOf = (place, value, said = {}) => ({ place, value, line: null, working: false, ready: true, leaves: place !== THIS_MAC, ...said });
-
-/**
  * @param {ModelUse['use']} use
- * @param {ModelPlace[]} places
- * @param {string | null} value
- * @param {string | null} [line]
+ * @param {{ cloud?: string[], local?: string[], value?: string | null, line?: string | null, working?: boolean }} said
  * @returns {ModelUse}
  */
-const mediaUse = (use, places, value, line = null) => {
+const mediaUse = (use, { cloud = [], local = [], value = null, line = null, working = false }) => {
   const base = /** @type {ModelUse} */ (MODELS.uses.find(each => each.use === use));
-  /** @param {ModelPlace} place */
-  const rowOf = place => ({ value: place.value ?? '', name: NAMES[place.value ?? ''], account: null, chosen: place.value === value });
-  const local = places.filter(place => place.ready && !place.leaves).map(rowOf);
-  return { ...base, line, words: value === null ? 'Off' : NAMES[value], value, places,
-    menu: { ...base.menu, rows: places.filter(place => place.ready && place.leaves).map(rowOf), local: local.length ? { label: 'Local', rows: local } : null,
+  /** @param {string} model */
+  const rowOf = model => ({ value: model, name: NAMES[model], account: null, chosen: model === value });
+  return { ...base, line, working, words: value === null ? 'Off' : NAMES[value], value, leaves: value !== null && cloud.includes(value),
+    menu: { ...base.menu, rows: cloud.map(rowOf), local: local.length ? { label: 'Local', rows: local.map(rowOf) } : null,
       off: base.menu.off && { ...base.menu.off, chosen: value === null } } };
 };
 
@@ -129,18 +117,12 @@ const mediaUse = (use, places, value, line = null) => {
 const mediaModels = (pictures, audio) => ({ ...MODELS, uses: MODELS.uses.map(each => each.use === 'pictures' ? pictures
   : each.use === 'audio' ? audio : each) });
 
-const ON_MAC_QWEN = placeOf(THIS_MAC, QWEN, { line: 'Download Qwen 3.5 4B · 4.0 GB' });
-const ON_MAC_PARAKEET = placeOf(THIS_MAC, PARAKEET, { line: 'Download Parakeet · 0.7 GB' });
-const CLAUDE = placeOf('Claude', PLAN_ONE);
-const CHATGPT = placeOf('ChatGPT', PLAN_TWO, { line: 'Connect ChatGPT first', ready: false });
-
-const NOTHING = mediaModels(mediaUse('pictures', [ON_MAC_QWEN, CLAUDE, CHATGPT], null), mediaUse('audio', [ON_MAC_PARAKEET], null));
-const PICKED = mediaModels(mediaUse('pictures', [ON_MAC_QWEN, CLAUDE, CHATGPT], PLAN_ONE),
-  mediaUse('audio', [{ ...ON_MAC_PARAKEET, line: null }], PARAKEET, 'Downloading, 0.3 of 0.7 GB'));
-const READY = mediaModels(mediaUse('pictures', [{ ...ON_MAC_QWEN, line: null }, { ...CLAUDE, line: 'Connect Claude first', ready: false },
-  { ...CHATGPT, line: null, ready: true }], PLAN_TWO), mediaUse('audio', [{ ...ON_MAC_PARAKEET, line: null }], PARAKEET));
-const SMALL = mediaModels(mediaUse('pictures', [{ ...CLAUDE, line: 'Connect Claude first', ready: false }, CHATGPT], null),
-  mediaUse('audio', [ON_MAC_PARAKEET], null));
+const NOTHING = mediaModels(mediaUse('pictures', { cloud: [PLAN_ONE], local: [QWEN] }), mediaUse('audio', { local: [PARAKEET] }));
+const PICKED = mediaModels(mediaUse('pictures', { cloud: [PLAN_ONE], local: [QWEN], value: PLAN_ONE }),
+  mediaUse('audio', { local: [PARAKEET], value: PARAKEET, line: 'Downloading · 3 min left', working: true }));
+const READY = mediaModels(mediaUse('pictures', { cloud: [PLAN_TWO], local: [QWEN], value: PLAN_TWO }),
+  mediaUse('audio', { local: [PARAKEET], value: PARAKEET }));
+const SMALL = mediaModels(mediaUse('pictures', {}), mediaUse('audio', { local: [PARAKEET] }));
 
 const UNIT = 'macbook-pro-0001';
 

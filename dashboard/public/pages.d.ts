@@ -716,15 +716,6 @@ export interface ModelMore {
   work: string | null;
 }
 
-export interface ModelPlace {
-  place: string;
-  value: string | null;
-  line: string | null;
-  working: boolean;
-  ready: boolean;
-  leaves: boolean;
-}
-
 export interface ModelRow {
   value: string;
   name: string;
@@ -758,11 +749,12 @@ export interface ModelUse {
   use: ModelUseId;
   label: string;
   line: string | null;
+  working: boolean;
   words: string;
   value: string | null;
+  leaves: boolean;
   thinking: ModelThinking | null;
   menu: ModelMenu;
-  places: ModelPlace[];
 }
 
 export type ModelUseId = "pictures" | "audio" | "text" | "chat" | "search" | "hiding";

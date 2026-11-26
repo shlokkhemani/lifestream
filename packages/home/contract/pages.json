@@ -21100,6 +21100,9 @@
                     }
                   ]
                 },
+                "working": {
+                  "type": "boolean"
+                },
                 "words": {
                   "type": "string"
                 },
@@ -21112,6 +21115,9 @@
                       "type": "null"
                     }
                   ]
+                },
+                "leaves": {
+                  "type": "boolean"
                 },
                 "thinking": {
                   "anyOf": [
@@ -21380,66 +21386,18 @@
                     "off"
                   ],
                   "additionalProperties": false
-                },
-                "places": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "place": {
-                        "type": "string"
-                      },
-                      "value": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "line": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "working": {
-                        "type": "boolean"
-                      },
-                      "ready": {
-                        "type": "boolean"
-                      },
-                      "leaves": {
-                        "type": "boolean"
-                      }
-                    },
-                    "required": [
-                      "place",
-                      "value",
-                      "line",
-                      "working",
-                      "ready",
-                      "leaves"
-                    ],
-                    "additionalProperties": false
-                  }
                 }
               },
               "required": [
                 "use",
                 "label",
                 "line",
+                "working",
                 "words",
                 "value",
+                "leaves",
                 "thinking",
-                "menu",
-                "places"
+                "menu"
               ],
               "additionalProperties": false
             },

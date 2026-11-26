@@ -11,7 +11,7 @@ import { panelPart, part } from './settings-pages.js';
 
 export const MODEL_FIELDS = { key: 'openrouter', url: 'address.url' };
 
-export const SUBSCRIPTIONS = /** @type {ModelItem[]} */ (['chatgpt', 'claude']);
+export const SUBSCRIPTIONS = /** @type {ModelItem[]} */ (['claude', 'chatgpt']);
 
 export const MORE_PAGE = 'more:';
 
@@ -110,7 +110,7 @@ export function defaultsParts({ models, failed, acts }) {
   if (!models) return { parts: [], reading: !failed };
   const acting = acts && !failed;
   const rows = models.uses.flatMap(use => {
-    const row = rowOf(use.label, { line: use.line ?? '', end: acting ? { menu: pickerOf(use) } : { words: use.words } });
+    const row = rowOf(use.label, { line: use.line ?? '', working: use.working, end: acting ? { menu: pickerOf(use) } : { words: use.words } });
     const thinking = thinkingRow(use, acting);
     return thinking ? [row, thinking] : [row];
   });

@@ -854,7 +854,7 @@ test('A flow whose host names fewer items: leaving cancels the subscriptions it 
     };
     assert.deepEqual(left([]), []);
     assert.deepEqual(left(['claude']), [{ act: 'ask-login', do: 'cancel', of: 'claude' }]);
-    assert.deepEqual(left(['chatgpt', 'claude']), [{ act: 'ask-login', do: 'cancel', of: 'chatgpt' }, { act: 'ask-login', do: 'cancel', of: 'claude' }]);
+    assert.deepEqual(left(['chatgpt', 'claude']), [{ act: 'ask-login', do: 'cancel', of: 'claude' }, { act: 'ask-login', do: 'cancel', of: 'chatgpt' }]);
   } finally {
     for (const [name, value] of Object.entries(kept)) {
       if (value === undefined) delete (/** @type {Record<string, unknown>} */ (globalThis))[name];

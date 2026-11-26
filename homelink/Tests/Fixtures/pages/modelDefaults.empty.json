@@ -6,8 +6,10 @@
       "use": "chat",
       "label": "Chat",
       "line": null,
+      "working": false,
       "words": "Choose a model",
       "value": null,
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -19,15 +21,16 @@
           "work": null
         },
         "off": null
-      },
-      "places": []
+      }
     },
     {
       "use": "pictures",
       "label": "Photos",
       "line": null,
+      "working": false,
       "words": "Off",
       "value": null,
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -44,15 +47,16 @@
           "account": null,
           "chosen": true
         }
-      },
-      "places": []
+      }
     },
     {
       "use": "audio",
       "label": "Voice notes",
       "line": null,
+      "working": false,
       "words": "Off",
       "value": null,
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -69,15 +73,16 @@
           "account": null,
           "chosen": true
         }
-      },
-      "places": []
+      }
     },
     {
       "use": "text",
       "label": "Text",
       "line": null,
+      "working": false,
       "words": "Off",
       "value": null,
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -94,15 +99,16 @@
           "account": null,
           "chosen": true
         }
-      },
-      "places": []
+      }
     },
     {
       "use": "search",
       "label": "Search by meaning",
       "line": null,
+      "working": false,
       "words": "Off",
       "value": null,
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -119,15 +125,16 @@
           "account": null,
           "chosen": true
         }
-      },
-      "places": []
+      }
     },
     {
       "use": "hiding",
       "label": "Hiding details",
       "line": null,
+      "working": false,
       "words": "Off",
       "value": null,
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -144,8 +151,7 @@
           "account": null,
           "chosen": true
         }
-      },
-      "places": []
+      }
     }
   ]
 }

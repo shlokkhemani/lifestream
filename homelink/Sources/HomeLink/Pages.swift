@@ -3860,34 +3860,6 @@ extension HomeLink {
             }
         }
 
-        public struct ModelPlace: Decodable, Sendable, Equatable {
-            public let place: String
-            public let value: String?
-            public let line: String?
-            public let working: Bool
-            public let ready: Bool
-            public let leaves: Bool
-
-            private enum Keys: String, CodingKey {
-                case place
-                case value
-                case line
-                case working
-                case ready
-                case leaves
-            }
-
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: Keys.self)
-                self.place = try container.decode(String.self, forKey: .place)
-                self.value = try container.decodeNil(forKey: .value) ? nil : container.decode(String.self, forKey: .value)
-                self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
-                self.working = try container.decode(Bool.self, forKey: .working)
-                self.ready = try container.decode(Bool.self, forKey: .ready)
-                self.leaves = try container.decode(Bool.self, forKey: .leaves)
-            }
-        }
-
         public struct ModelRow: Decodable, Sendable, Equatable {
             public let value: String
             public let name: String
@@ -3983,21 +3955,23 @@ extension HomeLink {
             public let use: ModelUseId
             public let label: String
             public let line: String?
+            public let working: Bool
             public let words: String
             public let value: String?
+            public let leaves: Bool
             public let thinking: ModelThinking?
             public let menu: ModelMenu
-            public let places: [ModelPlace]
 
             private enum Keys: String, CodingKey {
                 case use
                 case label
                 case line
+                case working
                 case words
                 case value
+                case leaves
                 case thinking
                 case menu
-                case places
             }
 
             public init(from decoder: Decoder) throws {
@@ -4005,11 +3979,12 @@ extension HomeLink {
                 self.use = try container.decode(ModelUseId.self, forKey: .use)
                 self.label = try container.decode(String.self, forKey: .label)
                 self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                self.working = try container.decode(Bool.self, forKey: .working)
                 self.words = try container.decode(String.self, forKey: .words)
                 self.value = try container.decodeNil(forKey: .value) ? nil : container.decode(String.self, forKey: .value)
+                self.leaves = try container.decode(Bool.self, forKey: .leaves)
                 self.thinking = try container.decodeNil(forKey: .thinking) ? nil : container.decode(ModelThinking.self, forKey: .thinking)
                 self.menu = try container.decode(ModelMenu.self, forKey: .menu)
-                self.places = try container.decode([ModelPlace].self, forKey: .places)
             }
         }
 

@@ -232,8 +232,8 @@ const CHOICES = {
 const useOf = (use, label, choices, value, said = {}) => {
   const chosen = choices.find(choice => choice.value === value);
   const off = use === 'chat' ? null : 'none';
-  return { use, label, line: chosen?.line ?? null, words: chosen?.name ?? (use === 'chat' ? 'Choose a model' : 'Off'), value, thinking: null,
-    menu: menuOf(use, null, value ?? off, choices, { off }), places: [], ...said };
+  return { use, label, line: chosen?.line ?? null, working: false, words: chosen?.name ?? (use === 'chat' ? 'Choose a model' : 'Off'), value,
+    leaves: chosen !== undefined && !chosen.local, thinking: null, menu: menuOf(use, null, value ?? off, choices, { off }), ...said };
 };
 
 /** @type {Models} */
@@ -245,12 +245,8 @@ export const MODELS = {
         { value: 'medium', name: 'Medium', chosen: true, suggested: true },
         { value: 'high', name: 'High', chosen: false, suggested: false },
       ] } }),
-    useOf('pictures', 'Photos', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.vision.value, {
-      places: [{ place: 'Claude', value: CHOICES.plan.value, line: null, working: false, ready: true, leaves: true },
-        { place: 'On this Mac', value: CHOICES.qwen.value, line: null, working: false, ready: true, leaves: false }] }),
-    useOf('audio', 'Voice notes', [CHOICES.parakeet, CHOICES.nemotron, CHOICES.plan], null, {
-      places: [{ place: 'Claude', value: CHOICES.plan.value, line: null, working: false, ready: true, leaves: true },
-        { place: 'On this Mac', value: CHOICES.parakeet.value, line: CHOICES.parakeet.line, working: true, ready: true, leaves: false }] }),
+    useOf('pictures', 'Photos', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.vision.value),
+    useOf('audio', 'Voice notes', [CHOICES.parakeet, CHOICES.nemotron, CHOICES.plan], null),
     useOf('text', 'Text', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.qwen.value),
     useOf('search', 'Search by meaning', [CHOICES.meaning], CHOICES.meaning.value),
     useOf('hiding', 'Hiding details', [CHOICES.hiding], null),

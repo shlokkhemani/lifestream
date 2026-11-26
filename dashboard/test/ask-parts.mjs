@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  askAnswer, askFound, askLevel, askPick, askQuestion, askStarters, askSteps, askTurn, composer, composerAttach, closed, icon, setIcons, thoughtFor,
+  askAnswer, askFound, askLevel, askPick, askQuestion, askStarters, askSteps, askTurn, composer, composerAttach, closed, findRow, icon, setIcons, thoughtFor,
 } from '../public/ui/kit/index.js';
 import { Marked } from 'marked';
 
@@ -81,7 +81,9 @@ test('P2b: More ends Model ›, a page of its own: a field in the home\'s words,
   const last = all.filter(row => row.page === 'models').at(-1);
   assert.deepEqual([last?.words, last?.value], ['More', 'other']);
   assert.match(markup, /data-value="other"[^>]*data-ck-page="other"|data-ck-page="other"[^>]*data-value="other"/u);
-  assert.match(markup, /<input[^>]*class="ck-pick__find mac-body"[^>]*placeholder="Search"/u);
+  assert.match(markup, /<label class="ck-find ck-pick__find"><span class="ck-find__glass"[^>]*>[^]*?<input[^>]*class="ck-find__field mac-body"[^>]*placeholder="Search"/u,
+    'Settings\' More\'s search field: the magnifier, then the field');
+  assert.match(findRow({ placeholder: 'Search' }), /<label class="ck-find"><span class="ck-find__glass"/u, 'one component');
   assert.deepEqual(all.filter(row => row.page === 'other').map(row => [row.words, row.value, row.shown]), [['OpenRouter', '', false], ['Model One', 'model:openrouter:vendor-b/model-1', false]]);
   const opened = rows(askPick({ ...PICK, find: FIND, page: 'other', active: 0 }));
   assert.deepEqual(opened.filter(row => row.page === 'other').map(row => row.shown), [true, true]);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunnerFile, UseId } from "@lifestreamprotocol/model";
-import { ADDRESS_WINDOW, CHOOSE_MODEL, MENU } from "./models-read.js";
+import { ADDRESS_UNLISTED, ADDRESS_WINDOW, CHOOSE_MODEL, MENU } from "./models-read.js";
 import { leftWords, routeName, secondsLeft, type ModelRoute, type StoredModels, type StoredRunner } from "./models.js";
 import { modelDefaults, modelDefaultsHandler, modelProviders, modelProvidersHandler, modelsFindHandler, modelsFound, WORDS, type FoundWork, type ModelsInputs, type ModelsSettings } from "./page-models.js";
 import { servePages } from "./page-serve.js";
@@ -118,7 +118,7 @@ describe("the default models page", () => {
     const fetching = { ...FILTER, state: "fetching" as const, fetched_bytes: 1_000_000_000 };
     const routes = ROUTES.map((each) => each.id === R_FILTER.id ? onRunner(RUNNER, fetching, ["hiding"]) : each);
     const downloading = useOf(page({ defaults: { ...NONE, hiding: R_FILTER.id } }, { stored: { ...STORED, routes, runners: [MINI, { ...RUNNER, files: [...RUNNER.files.slice(0, -1), fetching] }] } }), "hiding");
-    expect([downloading.line, downloading.menu.local?.rows[0]?.chosen]).toEqual(["Downloading", true]);
+    expect([downloading.line, downloading.working, downloading.menu.local?.rows[0]?.chosen]).toEqual(["Downloading", true, true]);
   });
 
   it("a chosen model that is not usable gives the use its line and is left out of the menu, its name still the use's words", () => {
@@ -156,20 +156,18 @@ describe("the default models page", () => {
     }
   });
 
-  it("places name one model per place the first run offers: a plan's suggested model, disabled until signed in, and each runner's, this Mac by name", () => {
-    expect(useOf(page(), "pictures").places).toEqual([
-      { place: WORDS.thisMac, value: R_QWEN.id, line: WORDS.download("Qwen 3.5 4B", "4 GB"), working: false, ready: true, leaves: false },
-      { place: "Claude", value: HAIKU.id, line: WORDS.connect("Claude"), working: false, ready: false, leaves: true },
-      { place: "ChatGPT", value: LUNA.id, line: null, working: false, ready: true, leaves: true },
-    ]);
-    expect(useOf(page(), "audio").places).toEqual([
-      { place: WORDS.thisMac, value: R_PARAKEET.id, line: null, working: false, ready: true, leaves: false },
-      { place: WORDS.on("Mac mini"), value: M_PARAKEET.id, line: null, working: false, ready: true, leaves: false },
-    ]);
-    expect(useOf(page(), "chat").places.map((each) => each.value)).toEqual([OPUS.id, SOL.id]);
+  it("a use picked to a runner file says its download as Providers does, working while it fetches; a model that leaves the Mac says so", () => {
     const fetching = { ...QWEN, state: "fetching" as const, fetched_bytes: 1_000_000_000 };
     const runner = { ...RUNNER, files: [fetching, ...RUNNER.files.slice(1)], left: { [QWEN.id]: 170 } };
-    expect(useOf(page({}, { stored: { ...STORED, runners: [MINI, runner] } }), "pictures").places[0]).toMatchObject({ line: "Downloading · 3 min left", working: true });
+    const pictures = useOf(page({ defaults: { ...NONE, pictures: R_QWEN.id } }, { stored: { ...STORED, runners: [MINI, runner] } }), "pictures");
+    expect([pictures.words, pictures.line, pictures.working, pictures.leaves]).toEqual(["Qwen 3.5 4B", "Downloading · 3 min left", true, false]);
+    const absent = useOf(page({ defaults: { ...NONE, pictures: R_QWEN.id } }), "pictures");
+    expect([absent.line, absent.working]).toEqual(["Not downloaded", false]);
+    const big = useOf(page({ defaults: { ...NONE, text: R_BIG.id } }), "text");
+    expect([big.line, big.working]).toEqual([WORDS.needs(48), false]);
+    const sent = useOf(page({ defaults: { ...NONE, pictures: LUNA.id } }), "pictures");
+    expect([sent.line, sent.working, sent.leaves]).toEqual([null, false, true]);
+    expect(useOf(page(), "pictures").leaves).toBe(false);
   });
 });
 
@@ -186,8 +184,11 @@ describe("the providers page", () => {
       { kind: "plan", id: "claude", name: "Claude", line: "Sign in to Claude again", signed: false, words: WORDS.unsigned },
       { kind: "plan", id: "codex", name: "ChatGPT", line: null, signed: true, words: WORDS.signed },
       { kind: "key", id: "openrouter", name: "OpenRouter", line: WORDS.keyLine, held: false, words: null, key: KEY_FIELD },
-      { kind: "address", id: "address", label: WORDS.server, url: "http://127.0.0.1:1234/v1", line: ADDRESS_WINDOW, words: SERVER_WORDS },
+      { kind: "address", id: "address", label: WORDS.server, url: "http://127.0.0.1:1234/v1", line: ADDRESS_UNLISTED, words: SERVER_WORDS },
     ]);
+    const listedServer = providers({ model: { cap: 4, transports: { address: { url: "http://127.0.0.1:1234/v1" } } } as ModelsSettings["model"] },
+      { stored: { ...STORED, connections: { address: { listed_ms: NOW, models: [] } } } }).connections.find((each) => each.kind === "address");
+    expect(listedServer?.line, "a server the home could list says what Chat needs of it").toBe(ADDRESS_WINDOW);
     expect(providers().connections.filter((each) => each.kind === "address"), "the server is stated unset, so Settings can add one").toEqual([
       { kind: "address", id: "address", label: WORDS.server, url: null, line: null, words: SERVER_WORDS },
     ]);
@@ -206,6 +207,9 @@ describe("the providers page", () => {
     expect(mine.found).toEqual([]);
     const alone = providers({}, { stored: { ...STORED, runners: [RUNNER] } }).connections.find((each) => each.kind === "runner");
     expect(alone?.kind === "runner" ? alone.place : null, "one Mac's runner is plain Local models").toBe(WORDS.local);
+    const fresh = providers({}, { stored: { ...STORED, runners: [{ ...RUNNER, files: RUNNER.files.map((each) => ({ ...each, state: "absent" as const })) }] } })
+      .connections.find((each) => each.kind === "runner");
+    expect(fresh?.kind === "runner" ? fresh.run : null, "Run local models before any file is downloaded").toEqual({ label: WORDS.run, on: true, line: null });
   });
 
   it("a downloading file reads Downloading and the time left the home measured, working, with Cancel; a runner away holds every act", () => {

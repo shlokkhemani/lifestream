@@ -445,7 +445,7 @@ test('W4: Settings: every act of Default models and Providers, This Mac and Upda
   await click(`[...${DIALOG}.querySelectorAll('[data-flow="connect:claude"]')][0]`);
   assert.deepEqual(await sent(), [{ act: 'ask-login', do: 'start', of: 'claude' }]);
   assert.deepEqual(await page().evaluate(`[...${DIALOG}.querySelectorAll('[data-item] .ck-srow__label')].map(each => each.textContent.trim())`),
-    ['ChatGPT', 'Claude'], 'the flow\'s two items, no OpenRouter');
+    ['Claude', 'ChatGPT'], 'the flow\'s two items, Claude first, no OpenRouter');
   for (const [name, login] of /** @type {const} */ ([['mixed', SUBSCRIBED.mixed], ['signing', SUBSCRIBED.signing]])) {
     await page().evaluate(`window.setHostState(${JSON.stringify({ ...HOST_STATE, setup: { state: 'done', error: null }, ask_login: login })})`);
     await page().until(`${DIALOG}.textContent.includes(${JSON.stringify(name === 'mixed' ? 'Getting Codex to sign in, 120 of 347 MB.' : 'Enter this code on OpenAI’s page.')})`,
@@ -454,7 +454,7 @@ test('W4: Settings: every act of Default models and Providers, This Mac and Upda
     await shot(`settings-subscriptions-${name}`);
   }
   await page().evaluate(`window.setHostState(${JSON.stringify({ ...HOST_STATE, setup: { state: 'done', error: null } })})`);
-  await page().until(`${DIALOG}.textContent.includes('Use your Claude plan.')`, 'Subscriptions as they were');
+  await page().until(`${DIALOG}.querySelector('[data-flow="connect:claude"]')?.textContent.trim() === 'Sign in'`, 'Subscriptions as they were');
   const read = door.reads('/v1/page/models/providers');
   door.tell('models', 'models');
   await until('a models read on the feed\'s event', () => door.reads('/v1/page/models/providers') > read);

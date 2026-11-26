@@ -164,7 +164,7 @@
       "id": "address",
       "label": "Other server",
       "url": "http://127.0.0.1:1234/v1",
-      "line": "Chat needs the server to run a context window of 32,000 tokens or more",
+      "line": "Couldn't list this server's models",
       "words": {
         "about": "Any OpenAI-compatible server, like vLLM or another Mac.",
         "add": "Add server",

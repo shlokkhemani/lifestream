@@ -7,7 +7,7 @@ models you want, picks which model does each of these jobs, and turns them off. 
 
 ## Providers and default models
 
-**Providers** is where models come from: your ChatGPT or Claude plan and your OpenRouter key under
+**Providers** is where models come from: your Claude or ChatGPT plan and your OpenRouter key under
 **Accounts**, the models on your Mac under **Local models**, and an **Other server**. Each lists the
 models it reaches. **Default models** says which model does each job Lifestream gives a model, one
 model for each.
@@ -37,9 +37,9 @@ runs models for Lifestream has its own part, **Local models on** *its name*.
 
 1. Open **Settings** › **Providers**. If Chat shows **Sign in with ChatGPT…**,
    **Sign in with Claude…** or **Connect a model…**, you can click that instead.
-2. Under **Accounts**, click **Connect** beside **ChatGPT** or **Claude**. If the button says
-   **Sign in**, click that. Lifestream first downloads the program the plan needs: Codex for
-   ChatGPT, Claude Code for Claude. Its progress shows beside the plan.
+2. Under **Accounts**, click **Sign in** beside **Claude** or **ChatGPT**. Lifestream first downloads
+   the program the plan needs: Claude Code for Claude, Codex for ChatGPT. Its progress shows beside
+   the plan.
 3. Click **Open sign-in page**. Your browser opens OpenAI's or Anthropic's sign-in page.
 4. Sign in:
    - For ChatGPT, type the code shown under **Your code** on OpenAI's page.
@@ -112,7 +112,9 @@ serves. Click **Remove** to stop using it.
 Lifestream takes a model on your server to read text only, and never picks one for a use by itself.
 For Chat, run the model in that server with a context window of 32,000 tokens or more: Chat sends
 it that much, with room for its answer, since the server does not say how much its model holds.
-The row says **Chat needs the server to run a context window of 32,000 tokens or more**.
+The row says **Chat needs the server to run a context window of 32,000 tokens or more**. If
+Lifestream can't get the list of models from the address, the row says **Couldn't list this
+server's models** instead: check that the server runs and the address is right.
 
 A model on a server on this Mac keeps your data on this Mac. Lifestream hides nothing in what it
 sends to such a model, since nothing leaves.

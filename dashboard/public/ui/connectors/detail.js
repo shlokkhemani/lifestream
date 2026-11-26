@@ -156,6 +156,7 @@ function panelRow(row, view) {
  * @param {{ card?: boolean }} [options]
  */
 export const panelMarkup = (panel, view, { card = false } = {}) => settingsSection({ heading: panel.label, line: panel.lede || panel.about, note: panel.note,
+  group: panel.group === true,
   attrs: card ? { class: 'ck-ssection--card' } : {},
   rows: [...panel.find ? [findMarkup(panel.find)] : [], ...panel.rows.map(row => panelRow(row, view)), ...panel.add ? [addMarkup(panel.add, view)] : []] });
 
@@ -327,7 +328,7 @@ function settingsPart(part, view) {
       ...doAttrs({ label: chip.label, do: chip.do }) })}>${esc(chip.label)}</button>`).join('') + '</div></li>' : '';
   return settingsSection({ heading: part.label, line: alone ? '' : part.lines.join(' '), aside: part.aside ?? [],
     rows: [...find ? [find] : [], ...chips ? [chips] : [], ...rows, ...add ? [add] : []],
-    ...body ? { body } : {}, act: part.acts.map(act => actButton(act, view)).join(''), note: panel?.note ?? '',
+    ...body ? { body } : {}, act: part.acts.map(act => actButton(act, view)).join(''), note: panel?.note ?? '', group: panel?.group === true,
     attrs: { ...part.id ? { 'data-set-at': part.id } : {}, ...part.card ? { class: 'ck-ssection--card' } : {} } });
 }
 

@@ -18,7 +18,7 @@ describe("Settings › Default models and Providers through the door", () => {
   const roots: string[] = [];
   afterAll(() => roots.forEach(removeRoot));
 
-  it("answers both pages from what the home holds, Photos on the person's pick, the plans and this Mac as places; never to a model's pass", async () => {
+  it("answers both pages from what the home holds, Photos on the person's pick, a file the person asked for downloading before its runner says so; never to a model's pass", async () => {
     const root = makeRoot("lifestream-page-models-", { sources: {}, defaults: false });
     roots.push(root);
     mintPrincipal(openHomeFolder(root), { unit: "reader", scopes: ["read"], sources: [], token: TOKEN, now_ms: 0 });
@@ -49,7 +49,7 @@ describe("Settings › Default models and Providers through the door", () => {
     } finally {
       db.close();
     }
-    editSettings(root, { "model.defaults.pictures": luna.id });
+    editSettings(root, { "model.defaults.pictures": luna.id, [`model.runners.${unit}.files`]: ["qwen3.5-4b"] });
 
     const { url } = await openDoor(root, { clock: () => NOW });
     const get = (route: string, headers: Record<string, string> = {}) => fetch(`${url}${route}`, { headers: { authorization: `Bearer ${TOKEN}`, ...headers } });
@@ -60,15 +60,15 @@ describe("Settings › Default models and Providers through the door", () => {
     const pictures = page.uses.find((each) => each.use === "pictures")!;
     expect([pictures.value, pictures.words]).toEqual([luna.id, "GPT-6 Luna"]);
     expect([...pictures.menu.rows, ...pictures.menu.local?.rows ?? [], pictures.menu.off].map((each) => [each?.value, each?.chosen])).toEqual([[luna.id, true], [qwen.id, false], ["none", false]]);
-    expect(pictures.places).toEqual([
-      { place: WORDS.thisMac, value: qwen.id, line: WORDS.download("Qwen 3.5 4B", "4 GB"), working: false, ready: true, leaves: false },
-      { place: "ChatGPT", value: luna.id, line: null, working: false, ready: true, leaves: true },
-    ]);
+    expect([pictures.line, pictures.working, pictures.leaves]).toEqual([null, false, true]);
     const served = await get(PAGES.modelProviders.route);
     const said = await served.text();
     expect(served.status, said).toBe(200);
     const providers = PAGES.modelProviders.shape.parse(JSON.parse(said));
     expect(providers.connections.map((each) => [each.kind, each.id])).toEqual([["plan", "codex"], ["runner", `runner:${unit}`], ["address", "address"]]);
+    const runner = providers.connections.find((each) => each.kind === "runner");
+    expect(runner?.kind === "runner" ? runner.files.map((each) => [each.state, each.line, each.working, each.acts.map((act) => act.words)]) : null,
+      "the home's stored file is absent; the person's Download stands until the runner reports").toEqual([["fetching", "Downloading", true, [WORDS.cancel]]]);
 
     for (const route of [PAGES.modelDefaults.route, PAGES.modelProviders.route]) {
       const refused = await get(route, { "lifestream-reader": "model" });

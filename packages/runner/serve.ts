@@ -163,16 +163,23 @@ export async function serve(options: RunnerOptions): Promise<void> {
     const file = fileOf(row);
     const stop = new AbortController();
     const library = options.libraries[row.library];
+    const began = Date.now();
+    const spent = (): string => `${((Date.now() - began) / 1000).toFixed(1)} s`;
     Object.assign(file, op === "fetch" ? { state: "fetching", fetched_bytes: 0, failure: null } : { state: "absent", fetched_bytes: 0, failure: null, owed: true });
+    if (op === "fetch") log(`runner: fetching ${row.id}, ${file.bytes} bytes`);
     const work = op === "fetch" ? library.fetch(row, (fetched, bytes) => {
       file.fetched_bytes = fetched;
       if (bytes !== undefined) file.bytes = bytes;
     }, stop.signal) : library.remove(row, stop.signal);
     const done = keep(work.then(() => {
       Object.assign(file, op === "fetch" ? { state: "ready", fetched_bytes: file.bytes } : {}, { failed: null, owed: false });
+      log(op === "fetch" ? `runner: fetched ${row.id}, ${file.bytes} bytes in ${spent()}` : `runner: removed ${row.id}`);
     }, (error: unknown) => {
       if (stop.signal.aborted) {
-        if (op === "fetch") Object.assign(file, { state: "absent", fetched_bytes: 0, owed: true });
+        if (op === "fetch") {
+          log(`runner: fetching ${row.id} stopped after ${file.fetched_bytes} bytes in ${spent()}`);
+          Object.assign(file, { state: "absent", fetched_bytes: 0, owed: true });
+        }
         return;
       }
       log(`runner: ${op === "fetch" ? "fetching" : "removing"} ${row.id} failed: ${error instanceof Error ? error.message : String(error)}`);

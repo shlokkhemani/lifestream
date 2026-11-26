@@ -5,6 +5,7 @@ import { duration } from './duration.js';
 import { showCopied } from './copy-value.js';
 import { inPlaceLine } from './states.js';
 import { floatList, floatRows } from './float-list.js';
+import { findField } from './add-row.js';
 import { icon } from './icon.js';
 import { menuLines } from '../../lib/model-menu.js';
 import { bar, lines, shape } from './skeleton.js';
@@ -147,8 +148,7 @@ export function askPick({ model, level, levels, thinking, menu, chosen, reset = 
   });
   const away = page !== 'other';
   const after = find && more ? `<div${attributes({ class: 'ck-pick__other', 'data-ck-page-of': 'other', hidden: away })}>`
-    + `<input${attributes({ class: 'ck-pick__find mac-body', type: 'search', placeholder: find.placeholder, 'aria-label': more.words,
-      autocomplete: 'off', spellcheck: 'false', 'data-ask-find': '' })}></div>`
+    + `${findField({ placeholder: find.placeholder, label: more.words, className: 'ck-pick__find', input: { 'data-ask-find': '' } })}</div>`
     + `<div${attributes({ class: 'ck-pick__found', 'data-ck-page-of': 'other', hidden: away })}>${askFound(find.found, chosen, find.none, !away)}</div>` : '';
   return chipMenu({ kind: 'ck-pick', words: level ? `${model} · ${level}` : model, name: 'Model and thinking',
     label: level ? `Model and thinking: ${model}, ${level}` : `Model and thinking: ${model}`, items, attrs, active, after });
@@ -199,6 +199,8 @@ export function composerState(within, state) {
   form.classList.toggle('is-running', state === 'running');
   form.classList.toggle('is-waiting', state === 'waiting');
   field.disabled = state === 'waiting';
+  const mic = /** @type {HTMLButtonElement | null} */ (form.querySelector('.ck-composer__mic'));
+  if (mic) mic.disabled = state === 'waiting';
   circle.type = state === 'running' ? 'button' : 'submit';
   circle.setAttribute('aria-label', face.label);
   circle.title = face.title;

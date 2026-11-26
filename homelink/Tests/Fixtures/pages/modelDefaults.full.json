@@ -6,8 +6,10 @@
       "use": "chat",
       "label": "Chat",
       "line": "Sign in to Claude again",
+      "working": false,
       "words": "Claude Opus 5.5",
       "value": "claude:claude-opus-5-5",
+      "leaves": true,
       "thinking": {
         "label": "Thinking",
         "value": "high",
@@ -56,32 +58,16 @@
           "work": null
         },
         "off": null
-      },
-      "places": [
-        {
-          "place": "Claude",
-          "value": "claude:claude-opus-5-5",
-          "line": "Connect Claude first",
-          "working": false,
-          "ready": false,
-          "leaves": true
-        },
-        {
-          "place": "ChatGPT",
-          "value": "codex:gpt-6.2-sol",
-          "line": null,
-          "working": false,
-          "ready": true,
-          "leaves": true
-        }
-      ]
+      }
     },
     {
       "use": "pictures",
       "label": "Photos",
       "line": null,
+      "working": false,
       "words": "GPT-6 Luna",
       "value": "codex:gpt-6-luna",
+      "leaves": true,
       "thinking": null,
       "menu": {
         "default": null,
@@ -115,40 +101,16 @@
           "account": null,
           "chosen": false
         }
-      },
-      "places": [
-        {
-          "place": "On this Mac",
-          "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
-          "line": "Download Qwen 3.5 4B · 4 GB",
-          "working": false,
-          "ready": true,
-          "leaves": false
-        },
-        {
-          "place": "Claude",
-          "value": "claude:claude-haiku-5-5",
-          "line": "Connect Claude first",
-          "working": false,
-          "ready": false,
-          "leaves": true
-        },
-        {
-          "place": "ChatGPT",
-          "value": "codex:gpt-6-luna",
-          "line": null,
-          "working": false,
-          "ready": true,
-          "leaves": true
-        }
-      ]
+      }
     },
     {
       "use": "audio",
       "label": "Voice notes",
       "line": null,
+      "working": false,
       "words": "Parakeet",
       "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -181,32 +143,16 @@
           "account": null,
           "chosen": false
         }
-      },
-      "places": [
-        {
-          "place": "On this Mac",
-          "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
-          "line": null,
-          "working": false,
-          "ready": true,
-          "leaves": false
-        },
-        {
-          "place": "On Mac mini",
-          "value": "runner:runner-mac-mini-0002/parakeet-unified-en-0.6b",
-          "line": null,
-          "working": false,
-          "ready": true,
-          "leaves": false
-        }
-      ]
+      }
     },
     {
       "use": "text",
       "label": "Text",
       "line": "Gone One isn't offered now",
+      "working": false,
       "words": "Gone One",
       "value": "openrouter:vendor-a/gone-1",
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -240,40 +186,16 @@
           "account": null,
           "chosen": false
         }
-      },
-      "places": [
-        {
-          "place": "On this Mac",
-          "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
-          "line": "Download Qwen 3.5 4B · 4 GB",
-          "working": false,
-          "ready": true,
-          "leaves": false
-        },
-        {
-          "place": "Claude",
-          "value": "claude:claude-haiku-5-5",
-          "line": "Connect Claude first",
-          "working": false,
-          "ready": false,
-          "leaves": true
-        },
-        {
-          "place": "ChatGPT",
-          "value": "codex:gpt-6-luna",
-          "line": null,
-          "working": false,
-          "ready": true,
-          "leaves": true
-        }
-      ]
+      }
     },
     {
       "use": "search",
       "label": "Search by meaning",
       "line": "Not downloaded",
+      "working": false,
       "words": "EmbeddingGemma 2",
       "value": "runner:runner-macbook-pro-0001/embeddinggemma-2-q8-512",
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -300,24 +222,16 @@
           "account": null,
           "chosen": false
         }
-      },
-      "places": [
-        {
-          "place": "On this Mac",
-          "value": "runner:runner-macbook-pro-0001/embeddinggemma-2-q8-512",
-          "line": "Download EmbeddingGemma 2 · 0.5 GB",
-          "working": false,
-          "ready": true,
-          "leaves": false
-        }
-      ]
+      }
     },
     {
       "use": "hiding",
       "label": "Hiding details",
       "line": "Parakeet doesn't do this",
+      "working": false,
       "words": "Parakeet",
       "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+      "leaves": false,
       "thinking": null,
       "menu": {
         "default": null,
@@ -344,17 +258,7 @@
           "account": null,
           "chosen": false
         }
-      },
-      "places": [
-        {
-          "place": "On this Mac",
-          "value": "runner:runner-macbook-pro-0001/privacy-filter",
-          "line": "Download Privacy Filter · 4 GB",
-          "working": false,
-          "ready": true,
-          "leaves": false
-        }
-      ]
+      }
     }
   ]
 }
