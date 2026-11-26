@@ -367,8 +367,8 @@ const ROOM_WORDS: Readonly<Record<"mac" | "phone", Readonly<Record<Exclude<Room,
   },
 };
 
-const HOTSPOT_WORDS = ["Lifestream is on a hotspot", "History waits for Wi-Fi · Settings › Mobile data"] as const;
-const LOW_DATA_WORDS = ["Low Data Mode is on", "History waits · turn Low Data Mode off in this Mac's network settings"] as const;
+const HOTSPOT_WORDS = ["Lifestream is on a hotspot", "History waits for Wi-Fi · Mobile data, in the Mac app's Settings"] as const;
+const LOW_DATA_WORDS = ["Low Data Mode is on", "History waits · turn Low Data Mode off on the Mac that runs Lifestream"] as const;
 
 function limitNeeds(db: Database.Database, found: Found, root: string, passes: readonly Principal[], stated: Stated | null, home: Room): void {
   if (stated === null) return;

@@ -158,7 +158,7 @@ describe("the home's network", () => {
     const held = await row();
     seen.held = held.health;
     expect([held.health.state, held.health.reason, held.health.words]).toEqual(["waiting", "metered", "Waiting for Wi-Fi"]);
-    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Lifestream is on a hotspot", "History waits for Wi-Fi · Settings › Mobile data"]]);
+    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Lifestream is on a hotspot", "History waits for Wi-Fi · Mobile data, in the Mac app's Settings"]]);
 
     const away = await phone.away();
     const loopback = await phone.exchange();
@@ -186,7 +186,7 @@ describe("the home's network", () => {
 
     expect((await mac.exchange({ network: "low-data" })).status).toBe(200);
     expect(history(await phone.away()).every((each) => !each)).toBe(true);
-    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Low Data Mode is on", "History waits · turn Low Data Mode off in this Mac's network settings"]]);
+    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Low Data Mode is on", "History waits · turn Low Data Mode off on the Mac that runs Lifestream"]]);
     expect((await mac.exchange({ network: "all" })).status).toBe(200);
     expect(history(await phone.away()).every((each) => each)).toBe(true);
     await until("the home reads that the past moves", () => home.logs.some((line) => line.includes('"past":"moves"')) && home.logs.findLastIndex((line) => line.includes('"past":"moves"')) > home.logs.findIndex((line) => line.includes('"past":"waits"')));
@@ -261,7 +261,7 @@ describe("why a photo has no picture, from what the devices stated through the d
     expect((await mac.exchange({ network: "now" })).status).toBe(200);
     seen.homeMac = await words(mac.unit);
     seen.homeHotspot = await words(phone.unit);
-    expect([seen.homeMac, seen.homeHotspot]).toEqual(["no picture yet: on its way from MacBook Pro", "no picture yet: Lifestream is on a hotspot, so older photos from Example Phone wait for Wi-Fi"]);
+    expect([seen.homeMac, seen.homeHotspot]).toEqual(["no picture yet: on its way from MacBook Pro", "no picture yet: on its way from Example Phone; Lifestream is on a hotspot, so its older photos wait for Wi-Fi"]);
 
     expect((await phone.away({ network: "low-data" })).status).toBe(200);
     const lowData = "no picture yet: Example Phone is on Low Data Mode, which holds its large sends";

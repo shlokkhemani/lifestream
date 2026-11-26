@@ -361,6 +361,11 @@ test('W4: Settings: every act of Default models and Providers, This Mac and Upda
     : { ...each, files: each.files.map(file => file.id !== QWEN.id ? file
       : { ...file, state, line, working: state === 'fetching', words: state === 'ready' ? 'Downloaded' : null,
         acts: [state === 'ready' ? { act: /** @type {const} */ ('remove'), words: 'Remove' } : { act: /** @type {const} */ ('cancel'), words: 'Cancel' }] }) }) });
+  door.models = MODELS;
+  await page().load('#view=connectors&dialog=settings/providers');
+  await page().until(`Boolean(${ROW('Claude')}) && Boolean(${ROW('ChatGPT')})`);
+  assert.deepEqual(await page().evaluate(`[${ROW('Claude')}, ${ROW('ChatGPT')}].map(row => row.querySelector('.ck-srow__end')?.textContent.trim())`),
+    MODELS.connections.filter(each => each.kind === 'plan').map(each => each.words), 'a browser, with no Mac to sign in on, says the home\'s word for each plan');
   door.models = MODELS_BARE;
   await page().load('#view=connectors&dialog=settings/providers', host);
   await page().until(`Boolean(${ROW(QWEN.name)}) && Boolean(${rowButton(QWEN.name, 'Download')})`);

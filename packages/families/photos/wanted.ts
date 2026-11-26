@@ -49,9 +49,17 @@ function known(view: OpenView, photos: PhotoRoutes, source: string, asset: strin
   const copy = copyOf(view, photos, { source, key: asset });
   if (copy === null) return false;
   const joined = joinedOf(view, photos, copy);
-  if (joined.erased) return true;
-  const placed = view.extract("photos", `${PHOTO_UNIT}${photoId(joined.placer)}`)?.content as unknown as PhotoContent | undefined;
-  return placed?.records.some((record) => copyIdOf(view, photos, record) === photoId(copy)) === true;
+  const id = photoId(joined.placer);
+  const placed = view.extract("photos", `${PHOTO_UNIT}${id}`)?.content as unknown as PhotoContent | undefined;
+  return settledBy({
+    erased: joined.erased,
+    wanted: wantedOf(view, id) !== null,
+    held: placed?.records.some((record) => copyIdOf(view, photos, record) === photoId(copy)) === true ? placed.held : null,
+  });
+}
+
+export function settledBy(facts: { erased: boolean; wanted: boolean; held: boolean | null }): boolean {
+  return facts.erased || facts.wanted || facts.held === true;
 }
 
 export function askedOf(units: Iterable<WantedContent>, order: Order, source: string, owed: ReadonlySet<string>): WantedAnswer["photos"] {

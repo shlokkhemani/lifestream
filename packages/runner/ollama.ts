@@ -35,6 +35,7 @@ const MANIFEST_MOST_BYTES = 4 * 1024 * 1024;
 const MANIFEST_MS = 30_000;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const PARTIAL = ".manifest.partial";
+const BLOB = /^sha256-[0-9a-f]{64}$/u;
 
 const isLayer = (value: unknown): value is OllamaLayer => typeof value === "object" && value !== null
   && typeof (value as OllamaLayer).mediaType === "string" && typeof (value as OllamaLayer).digest === "string" && DIGEST.test((value as OllamaLayer).digest)
@@ -79,8 +80,9 @@ async function onDisk(file: string, step: () => Promise<void>): Promise<void> {
 
 const written = (file: string, bytes: Buffer): Promise<void> => onDisk(file, async () => {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, bytes);
-  await flushed(file);
+  writeFileSync(`${file}.writing`, bytes);
+  await flushed(`${file}.writing`);
+  renameSync(`${file}.writing`, file);
   await flushed(dirname(file));
 });
 
@@ -127,14 +129,16 @@ export function ollamaLibrary(child: OllamaChild): Library {
       return held === null ? [] : layersOf(held.manifest).map((layer) => layer.digest);
     }));
   };
-  const letGo = async (layers: readonly OllamaLayer[], signal: AbortSignal): Promise<void> => {
+  const sweep = async (signal: AbortSignal): Promise<void> => {
+    const blobs = join(child.models, "blobs");
+    if (!existsSync(blobs)) return;
     const left = named();
-    for (const layer of layers) if (!left.has(layer.digest)) await removeArtifact(blobOf(layer), signal);
+    const loose = new Set(readdirSync(blobs, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => entry.name.split(".")[0]!).filter((name) => BLOB.test(name) && !left.has(name.replace("-", ":"))));
+    for (const name of loose) await removeArtifact(join(blobs, name), signal);
   };
   const drop = async (file: string, signal: AbortSignal): Promise<void> => {
-    const was = heldIn(file);
     rmSync(file, { force: true });
-    if (was !== null) await letGo(layersOf(was.manifest), signal);
+    await sweep(signal);
   };
 
   async function whole(row: OllamaRow, held: Held, signal: AbortSignal): Promise<boolean> {
@@ -170,9 +174,8 @@ export function ollamaLibrary(child: OllamaChild): Library {
       const { manifest, bytes } = await resolve(ollama, signal);
       const total = build + sizeOf(manifest);
       await locked(signal, async () => {
-        const before = heldIn(partialOf(row));
         await written(partialOf(row), bytes);
-        if (before !== null) await letGo(layersOf(before.manifest), signal);
+        await sweep(signal);
       });
       let fetched = build;
       progress(fetched, total);
@@ -182,10 +185,9 @@ export function ollamaLibrary(child: OllamaChild): Library {
         progress(fetched, total);
       }
       await locked(signal, async () => {
-        const before = heldIn(file);
         await placed(partialOf(row), file);
         digests.set(row.id, sha256(bytes));
-        if (before !== null) await letGo(layersOf(before.manifest), signal);
+        await sweep(signal);
       });
     },
     async remove(row, signal) {

@@ -186,7 +186,7 @@ The agent asks `{"from": "2026-10-04"}`. The answer, shortened:
 A picture in a chat or a day is a line of its own with a handle: `read` of that handle shows it.
 A photo whose picture the home does not hold yet says so after its words, and why when the home
 knows: "Photo · no picture yet: iPhone is on Low Data Mode, which holds its large sends", "is out
-of space", "Lifestream is on a hotspot, so older photos from iPhone wait for Wi-Fi", "no picture:
+of space", "on its way from iPhone; Lifestream is on a hotspot, so its older photos wait for Wi-Fi", "no picture:
 the library on iPhone cannot send it", or "no picture yet: on its way from iPhone". Its record,
 read, says the same.
 A page that stops before the end of what was asked ends with `next`, and its first line says
