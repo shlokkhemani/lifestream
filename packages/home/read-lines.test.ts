@@ -57,6 +57,7 @@ interface Case {
   files: Map<string, DayDocument>;
   pending?: string[];
   records?: Map<string, string>;
+  unheld?: (of: unknown) => string | null;
 }
 
 function call(held: Case, params: Record<string, string | string[]>, reader: Reader = "person"): ReadAnswer {
@@ -91,6 +92,7 @@ function onRoute<T>(held: Case, reader: Reader, work: (sources: ReadSources) => 
     recordOf: (record: { key: string }) => ({ family: "notes", read: held.records?.has(record.key) === true ? { text: held.records.get(record.key)! } : null, product: undefined, dated: false }),
     name: (id: string) => id,
     screenIfReady: () => undefined,
+    unheld: (of: unknown) => held.unheld?.(of) ?? null,
   } as unknown as ReadSources;
   try {
     return work(sources);
@@ -113,6 +115,22 @@ const own = (answer: ReadAnswer, ref: string) => {
   const line = answer as LineAnswer;
   return { text: line.lines.find((each) => each.ref === ref)?.text, before: line.lines.findIndex((each) => each.ref === ref) };
 };
+
+describe("a photo with no picture", () => {
+  it("reads why in a passage of its own; a photo whose picture is held, and a line of another family, are never asked", () => {
+    const asked: unknown[] = [];
+    const held: Case = { index: fresh("photo-unheld"), files: new Map(), unheld: (of) => (asked.push(of), "no picture yet: on its way from Example Phone") };
+    const shown = `photo:${"a".repeat(64)}`;
+    write(held.index, held.files, D, "in-1", [
+      note(0, "Photo", T0, { family: "photos", unit: "photos/burst/1", item: shown }),
+      note(1, "Photo", T0 + MINUTE, { family: "photos", unit: "photos/burst/1", item: "photo:apple:CLOUD-0001" }),
+      note(2, "synthetic note", T0 + 2 * MINUTE),
+    ]);
+    const day = call(held, { from: D }) as Lines;
+    expect(day.lines.map((line) => line.text)).toEqual(["Photo", "a picture: `read` it to see it", "Photo\n\nno picture yet: on its way from Example Phone", "synthetic note"]);
+    expect(asked).toEqual([{ burst: "photos/burst/1", item: "photo:apple:CLOUD-0001" }]);
+  });
+});
 
 describe("a day line's one identity", () => {
   it("a notes day, its lines one unit with no item: each line's ref opens that line, each once", () => {

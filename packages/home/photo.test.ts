@@ -8,13 +8,14 @@ import { DAYS_MARK, openHome, openHomeFolder, type BlobStore, type DaySettings, 
 import { BURST_UNIT, messagesFamily, networksIn, photoRoutesIn, photosFamily, renderDay, type BurstContent } from "@lifestreamprotocol/families";
 import { HomeFile } from "./home-file.js";
 import { kindsAnswer, type KindsHit } from "./kinds-contract.js";
-import { photoFrom, preparedFile, readPhoto, type Photo, type PhotoInput } from "./photo.js";
+import { photoFrom, preparedFile, readPhoto, unheldWords, type Photo, type PhotoInput } from "./photo.js";
 import { openReads, type Reply } from "./reads.js";
 import { readRef } from "./refs.js";
 import type { Registry } from "./registry.js";
 import { connectors } from "./registry-home.js";
 import { SearchIndex, searchFileOf, type RecordEntry } from "./search-index.js";
 import { effective, type Settings } from "./settings.js";
+import type { Stated, Statement } from "./stated.js";
 import { RELEASE_FED } from "./test/fed.js";
 import { makeRoot, removeRoot, REPO } from "./test/harness-root.js";
 
@@ -41,6 +42,45 @@ describe("where a photo came from", () => {
 
   it("F2: a home connector's photos are its own product's at any rank", () => {
     for (const rank of [2, 4]) expect(photoFrom(route(rank, false, row("example-album:person-a@example.com:export", "example-album-export")), CONNECTORS)).toBe("example-album");
+  });
+});
+
+describe("why a photo shows no picture", () => {
+  const PHONE = "apple-photos:person-a@example.com:iphone-aa01";
+  const MAC = "apple-photos:person-a@example.com:macbook-pro-0001";
+  const CLOUD = "google-photos:person-a@example.com:export";
+  const sources = new Map([PHONE, MAC, CLOUD].map((id) => [id, row(id, "photos-ios-bundle")]));
+  const view = {
+    source: (id: string) => sources.get(id),
+    tables: {
+      meta: { get: (key: string) => (key === "name:iphone-aa01" ? "Example Phone" : undefined) },
+      devices: { get: (unit: string) => (unit === "iphone-aa01" ? { model: "iPhone" } : unit === "macbook-pro-0001" ? { model: "MacBook Pro" } : undefined) },
+    },
+  } as unknown as OpenView;
+  const said = (room: "ok" | "full", network: "free" | "metered"): Statement => ({ room: { value: room, since_ms: 0 }, network: { value: network, since_ms: 0 } }) as unknown as Statement;
+  const wanted = (...routes: [string, boolean][]) => ({
+    video: false, wanted: { at_ms: 0, missing: [], routes: routes.map(([source, refused]) => ({ source, asset: "asset-0001", files: ["photo"], refused })) },
+  });
+
+  it("U1: the device that holds it says why it waits: mobile data, or a full disk", () => {
+    expect(unheldWords(view, { "iphone-aa01": said("ok", "metered") }, wanted([PHONE, false]))).toBe("no picture yet: Example Phone is on mobile data, so it waits for Wi-Fi");
+    expect(unheldWords(view, { "iphone-aa01": said("full", "free") }, wanted([PHONE, false]))).toBe("no picture yet: Example Phone is out of space");
+  });
+
+  it("U2: a device that can send it is named as where it comes from, before one that waits", () => {
+    const stated: Stated = { "iphone-aa01": said("ok", "metered"), "macbook-pro-0001": said("ok", "free") };
+    expect(unheldWords(view, stated, wanted([PHONE, false], [MAC, false]))).toBe("no picture yet: on its way from MacBook Pro");
+    expect(unheldWords(view, {}, wanted([PHONE, false]))).toBe("no picture yet: on its way from Example Phone");
+  });
+
+  it("U3: a library that refused it on every route says it cannot send it; a refused route never waits for it", () => {
+    expect(unheldWords(view, {}, wanted([PHONE, true]))).toBe("no picture: the library on Example Phone cannot send it");
+    expect(unheldWords(view, { "iphone-aa01": said("ok", "metered") }, wanted([PHONE, true], [MAC, false]))).toBe("no picture yet: on its way from MacBook Pro");
+  });
+
+  it("U4: a copy that is no device names none; a photo no library wants says only that none is held", () => {
+    expect(unheldWords(view, {}, wanted([CLOUD, false]))).toBe("no picture yet: on its way");
+    expect(unheldWords(view, {}, { video: true, wanted: null })).toBe("no video held");
   });
 });
 

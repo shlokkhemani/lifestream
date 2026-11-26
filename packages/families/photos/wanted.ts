@@ -50,7 +50,7 @@ export function coming(units: Iterable<WantedContent>, start_ms: number | null):
   const kept = fromStart(start_ms);
   for (const photo of units) {
     if (!kept(photo)) continue;
-    if (photo.routes.every((route) => route.refused)) {
+    if (unavailable(photo)) {
       counted.unavailable++;
       continue;
     }
@@ -65,6 +65,12 @@ export function coming(units: Iterable<WantedContent>, start_ms: number | null):
 }
 
 const fromStart = (start_ms: number | null) => (photo: WantedContent): boolean => start_ms === null || photo.at_ms === null || photo.at_ms >= start_ms;
+
+export const unavailable = (photo: WantedContent): boolean => photo.routes.every((route) => route.refused);
+
+export function wantedOf(view: Pick<OpenView, "extract">, id: string): WantedContent | null {
+  return (view.extract("photos", `${WANTED_UNIT}${id}`)?.content as unknown as WantedContent | undefined) ?? null;
+}
 
 export function* wantedUnits(served: Served): Iterable<WantedContent> {
   for (const content of served.contents(WANTED_UNIT)) yield content as unknown as WantedContent;

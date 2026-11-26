@@ -1,5 +1,5 @@
 import { accountOf, addDays, canonical, civilDay, dayBounds, GONE, handleId, handleOf, instantIn, type DaySettings, type Json, type RecordRef } from "@lifestreamprotocol/core";
-import type { ConversationDay, DayAtom, DayDocument, DayFileFact, RecordRead as FamilyRecordRead } from "@lifestreamprotocol/families";
+import type { ConversationDay, DayAtom, DayDocument, DayFileFact, RecordRead as FamilyRecordRead, UnshownOf } from "@lifestreamprotocol/families";
 import { AI_FAMILY, chatMembers, MESSAGES_FAMILY, parseMessagesUnit, partyHandle, PHOTOS_FAMILY, recordFocus, resolveChat, unitFocus } from "@lifestreamprotocol/families";
 import { briefOf, leads, type BriefWindow } from "./brief.js";
 import { outsideAccess, tooBroad, type Call, type Reader as ReaderKind, type ServedRef } from "./call.js";
@@ -163,6 +163,7 @@ export interface ReadSources {
   name(id: string): string;
   readonly pieces?: boolean;
   photo(hex: string): HeldPhoto | undefined;
+  unheld(of: UnshownOf): string | null;
   held(blob: string): boolean;
   dayDocument(day: string): DayDocument | undefined;
   freshness(): readonly FreshSource[];
@@ -1066,8 +1067,14 @@ class Reader {
       ref: record === undefined ? lineRef(atom, m) : makeRef("record", record),
       ...(atom.start_ms === null || atom.dated === 1 ? {} : { at: this.at(atom.start_ms)! }),
       day: atom.day, family: familyOf(atom.family),
-      text: leads(atom.title, atom.line) ? `${atom.title}: ${atom.line}` : atom.line,
+      text: this.#unheld(atom, leads(atom.title, atom.line) ? `${atom.title}: ${atom.line}` : atom.line),
     };
+  }
+
+  #unheld(atom: AtomRow, text: string): string {
+    if (atom.family !== PHOTOS_FAMILY || atom.item === null || /^photo:[0-9a-f]{64}$/u.test(atom.item)) return text;
+    const words = this.sources.unheld({ burst: atom.unit, item: atom.item });
+    return words === null ? text : `${text}\n\n${words}`;
   }
 
   #picturesOf(atom: AtomRow): string[] {
@@ -1434,7 +1441,7 @@ class Reader {
       ...(read?.to === undefined ? {} : { to: read.to.map(named) }),
       ...(read?.who === undefined ? {} : { who: read.who.map(named) }),
       ...(read?.link === undefined ? {} : { link: read.link }),
-      text: read?.text ?? "",
+      text: read?.text ?? (family === PHOTOS_FAMILY ? this.sources.unheld({ record }) : null) ?? "",
     };
   }
 
