@@ -250,7 +250,7 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
         days: outbound.get(keys.days)?.list ?? null, page: page?.list ?? null, row: row?.row ?? null,
         outbound: page?.drawn ?? row?.drawn ?? null };
       return settingsDetail({ report, models: changes.models.read, failed: changes.models.drawn, state, id, opened,
-        subscriptions: plans.current(), theme: themeShown(), query, unread: reports.failure() !== '', privacy,
+        subscriptions: host ? plans.current() : null, theme: themeShown(), query, unread: reports.failure() !== '', privacy,
         screen: { read: changes.screen.read, drawn: changes.screen.drawn },
         storage: { read: storage.read, drawn: storage.drawn, more },
         answers: { live: live.answer, pages: Object.fromEntries([...pages].map(([id, page]) => [id, { read: page.answer, drawn: page.drawn }])) } });

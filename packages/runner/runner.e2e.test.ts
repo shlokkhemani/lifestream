@@ -675,7 +675,7 @@ describe("the Ollama library", () => {
     expect(await library.run(row, call("r-1", row.id), signal)).toMatchObject({ text: "A synthetic photo." });
   });
 
-  it("names a fetch's layers on disk before its first blob, so a fetch that ended after one blob leaves nothing behind its next fetch or its removal, after a restart too", async () => {
+  it("names a fetch's layers on disk before its first blob, so a fetch that ended after one blob, or a blob no manifest names, is left behind neither its next fetch nor its removal, after a restart too, and a folder among the blobs stops neither", async () => {
     const layers = ["the first tensor's bytes", "the second tensor's bytes, cut short"];
     const held = (dir: string): string[] => (existsSync(join(dir, "models", "blobs")) ? readdirSync(join(dir, "models", "blobs")).sort() : []);
     const partials = (dir: string): string[] => readdirSync(join(dir, "models")).filter((name) => name.endsWith(".manifest.partial"));
@@ -688,15 +688,20 @@ describe("the Ollama library", () => {
       await expect(ollamaLibrary(child(dir, async () => url)).fetch(row, () => undefined, signal)).rejects.toMatchObject({ name: "ArtifactError", reason: "offline" });
       expect(held(dir)).toEqual([...digests.slice(0, 2), `${digests[2]}.partial`].sort());
       expect(partials(dir)).toEqual([`${row.id}.manifest.partial`]);
+      const stray = `sha256-${sha("a layer of a build no manifest names")}`;
+      writeFileSync(join(dir, "models", "blobs", stray), "a layer of a build no manifest names");
+      writeFileSync(join(dir, "models", "blobs", `${stray}.partial`), "a layer");
+      const folderNamedLikeABlob = `sha256-${sha("a folder, not a blob")}`;
+      mkdirSync(join(dir, "models", "blobs", folderNamedLikeABlob));
       const restarted = ollamaLibrary(child(dir, async () => url));
       if (next === "remove") {
         await restarted.remove(row, signal);
-        expect([held(dir), partials(dir)]).toEqual([[], []]);
+        expect([held(dir), partials(dir)]).toEqual([[folderNamedLikeABlob], []]);
         continue;
       }
       const republished = served.publish("synthetic", ["a republished tensor"]);
       await restarted.fetch(row, () => undefined, signal);
-      expect([held(dir), partials(dir)]).toEqual([[...republished.digests].sort(), []]);
+      expect([held(dir), partials(dir)]).toEqual([[...republished.digests, folderNamedLikeABlob].sort(), []]);
     }
   });
 

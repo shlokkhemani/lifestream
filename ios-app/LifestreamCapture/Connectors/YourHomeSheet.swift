@@ -30,8 +30,8 @@ struct YourHomeSheet: View {
             .task {
                 let link = service.link
                 let changes = link.mobileChanges()
-                past = link.mobile(pressed: false).past.wait
-                for await _ in changes { past = link.mobile(pressed: false).past.wait }
+                past = Self.pastWait(link)
+                for await _ in changes { past = Self.pastWait(link) }
             }
             .confirmationDialog("Unpair from Lifestream?", isPresented: $confirmUnpair, titleVisibility: .visible) {
                 Button("Unpair this iPhone", role: .destructive) { Task { await unpairThisPhone() } }
@@ -39,6 +39,10 @@ struct YourHomeSheet: View {
             } message: {
                 Text("Nothing more is sent to Lifestream. This iPhone keeps recording here, and you can pair again later. What Lifestream already holds stays there; to stop this iPhone there too, open Settings on the Mac, click iPhone, then click Remove beside This iPhone.")
             }
+    }
+
+    private static func pastWait(_ link: HomeLink) -> MobileData.Wait? {
+        link.mobile(pressed: false).past.wait.flatMap { $0 == .past ? $0 : nil }
     }
 
     private func unpairThisPhone() async {

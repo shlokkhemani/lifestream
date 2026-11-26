@@ -148,11 +148,15 @@ actor HealthRecorder {
 
     private let historyStart: @Sendable () async -> Date?
     private let mobile: @Sendable () -> MobileData.Moment
+    private let mobileChanges: @Sendable () -> AsyncStream<Void>
+    private var pastWatch: Task<Void, Never>?
 
-    init(store: CaptureStore, start: @escaping @Sendable () async -> Date?, mobile: @escaping @Sendable () -> MobileData.Moment) {
+    init(store: CaptureStore, start: @escaping @Sendable () async -> Date?, mobile: @escaping @Sendable () -> MobileData.Moment,
+         mobileChanges: @escaping @Sendable () -> AsyncStream<Void> = { AsyncStream { $0.finish() } }) {
         self.store = store
         historyStart = start
         self.mobile = mobile
+        self.mobileChanges = mobileChanges
     }
 
     func newestCheckInWake(now: Date) async -> Date? {
@@ -389,7 +393,22 @@ actor HealthRecorder {
         startObservers()
     }
 
+    private func watchPast() {
+        guard pastWatch == nil else { return }
+        let changes = mobileChanges()
+        pastWatch = Task { [weak self] in
+            guard let self else { return }
+            var moved = mobile().past.moves
+            for await _ in changes {
+                let moves = mobile().past.moves
+                if moves, !moved { _ = await sweepAllTypesCoalesced() }
+                moved = moves
+            }
+        }
+    }
+
     private func startObservers() {
+        watchPast()
         guard observerQueries.isEmpty else { return }
         for type in sampleTypes where type != HKSeriesType.workoutRoute() {
             let query = HKObserverQuery(

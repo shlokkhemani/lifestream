@@ -117,7 +117,7 @@ function holderOf(view: OpenView, stated: Stated, home: HomeNetwork, source: str
   if (said?.room?.value === "full") return waiting(`${name ?? "its device"} is out of space`);
   if (network?.loopback === true) return moving();
   if (network?.allows === "low-data") return waiting(`${name ?? "its device"} is on Low Data Mode, which holds its large sends`);
-  if (home.pastWaits) return waiting(`${home.allows === "low-data" ? "Lifestream's Mac is on Low Data Mode" : "Lifestream is on a hotspot"}, so older photos${from} wait for Wi-Fi`);
+  if (home.pastWaits) return moving(`; ${home.allows === "low-data" ? "Lifestream's Mac is on Low Data Mode" : "Lifestream is on a hotspot"}, so its older photos wait for Wi-Fi`);
   if (network?.allows === "now") return moving(", and its older photos wait for Wi-Fi");
   return moving();
 }

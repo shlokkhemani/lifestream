@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askedOf, coming, WANTED_PAGE, type Order, type WantedContent } from "./wanted.js";
+import { askedOf, coming, settledBy, WANTED_PAGE, type Order, type WantedContent } from "./wanted.js";
 
 const PHONE = "apple-photos:person-a@example.com:iphone-0001";
 const MAC = "apple-photos:person-a@example.com:macbook-pro-0001";
@@ -46,11 +46,19 @@ describe("the wanted page a library is asked for: each way it could fail", () =>
     expect(assets(askedOf(units, macFirst, PHONE, new Set()))).not.toContain("owed-old");
   });
 
-  it("an owed photo the home asks another library for, or that no route may send, is absent, so the library drops it", () => {
+  it("an owed photo the home asks another library for, or that no route may send, is absent from the page", () => {
     const units = [routed("both", START, [PHONE, MAC]), routed("refused", START, [PHONE], true), routed("mine", START - DAY, [PHONE])];
     const owed = new Set(["both", "refused", "mine"]);
     expect(assets(askedOf(units, macFirst, PHONE, owed))).toEqual(["mine"]);
     expect(assets(askedOf(units, macFirst, MAC, owed))).toEqual(["both"]);
+  });
+
+  it("an owed photo is settled only by what one unit holds: erased, its wanted unit derived, or its files held; a photo derived halfway stays owed", () => {
+    expect(settledBy({ erased: true, wanted: false, held: null })).toBe(true);
+    expect(settledBy({ erased: false, wanted: true, held: false })).toBe(true);
+    expect(settledBy({ erased: false, wanted: false, held: true })).toBe(true);
+    expect(settledBy({ erased: false, wanted: false, held: false })).toBe(false);
+    expect(settledBy({ erased: false, wanted: false, held: null })).toBe(false);
   });
 
   it("no owed photos is today's page: newest first, the undated last, ties by asset", () => {
