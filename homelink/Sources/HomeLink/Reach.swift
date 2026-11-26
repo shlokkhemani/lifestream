@@ -264,7 +264,7 @@ extension HomeLink {
             return again && began ? .saving : .unknown(ReachWords.unanswered(again: again, began: began))
         case .busy, .stale, .clockAhead, .whichPhone, .unreadable:
             return .refused(failure.description)
-        case .credentials, .unusableID, .name, .code, .account:
+        case .credentials, .unusableID, .name, .code, .account, .waits:
             return nil
         }
     }

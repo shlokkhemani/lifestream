@@ -41,7 +41,7 @@ export function homeNetwork(read: Pick<ReadTables, "devices"> | null, stated: St
     if (each.network === null || (read?.devices.get(unit)?.retired_ms ?? null) !== null) continue;
     if (newest === null || each.network.since_ms > newest.network.since_ms) newest = { unit, network: each.network };
   }
-  return { unit: newest?.unit ?? null, metered: newest?.network.value === "metered", since_ms: newest?.network.since_ms ?? null };
+  return { unit: newest?.unit ?? null, metered: newest !== null && newest.network.value !== "all", since_ms: newest?.network.since_ms ?? null };
 }
 
 export interface HomeNetwork {

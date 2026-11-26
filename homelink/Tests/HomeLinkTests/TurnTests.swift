@@ -24,10 +24,11 @@ final class TurnTests: XCTestCase {
         Fixture.answer(received: received, imported: 0, turn: Answer.Turn(run: run, n: n))
     }
 
-    private func paired(_ transport: any HomeTransport, credentials: MemoryCredentials = MemoryCredentials()) async throws -> HomeLink {
+    private func paired(_ transport: any HomeTransport, credentials: MemoryCredentials = MemoryCredentials(),
+                        network: (any NetworkWatch)? = nil) async throws -> HomeLink {
         _ = try await HomeLink(device: phone, credentials: credentials, folder: folder, transport: ScriptedTransport([.reply(200, Fixture.paired())]))
             .pair(code: "12345678", name: home, account: Fixture.account)
-        return HomeLink(device: phone, credentials: credentials, folder: folder, transport: transport)
+        return HomeLink(device: phone, credentials: credentials, folder: folder, transport: transport, network: network)
     }
 
     private func bundle() throws -> URL {
@@ -240,7 +241,7 @@ final class TurnTests: XCTestCase {
             heard.add("\(request.url.path) \(status.map(String.init) ?? "unanswered")", metrics.taskInterval.duration >= 0)
             measured.fulfill()
         }
-        let link = try await paired(transport)
+        let link = try await paired(transport, network: MovableNetwork(.home))
         _ = try await link.send(bundle: try bundle(), id: "sha256:00aa", kind: .later)
         _ = try await link.exchange()
         await fulfillment(of: [measured], timeout: 30)

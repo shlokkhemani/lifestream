@@ -2,7 +2,7 @@ import type { Json, OpenView } from "@lifestreamprotocol/core";
 import { compare, routesOf, type Missing, type PhotoRoutes } from "./read.js";
 
 export const WANTED_UNIT = "wanted/";
-const WANTED_PAGE = 1_000;
+export const WANTED_PAGE = 1_000;
 
 export interface WantedContent {
   at_ms: number | null;
@@ -30,19 +30,26 @@ export interface Coming extends Left {
   libraries: Record<string, number>;
 }
 
-export function wanted(view: OpenView, photos: PhotoRoutes, source: string, asking: ReadonlySet<string>, start_ms: number | null): WantedAnswer {
+export type Order = (source: string) => number | null;
+
+export function wanted(view: OpenView, photos: PhotoRoutes, source: string, asking: ReadonlySet<string>, start_ms: number | null, owed: ReadonlySet<string> = new Set()): WantedAnswer {
   const routes = routesOf(view, photos);
-  const asked: { at_ms: number | null; asset: string; files: string[] }[] = [];
-  const order = (id: string) => (routes.get(id)?.rank === 0 ? 1 : asking.has(id) ? 0 : null);
+  const order: Order = (id) => (routes.get(id)?.rank === 0 ? 1 : asking.has(id) ? 0 : null);
   const units = [...wantedUnits(servedOf(view))].filter(fromStart(start_ms));
+  const { unsized: _unsized, libraries: _libraries, ...left } = coming(units, start_ms);
+  return { photos: askedOf(units, order, source, owed), left };
+}
+
+export function askedOf(units: Iterable<WantedContent>, order: Order, source: string, owed: ReadonlySet<string>): WantedAnswer["photos"] {
+  const asked: { at_ms: number | null; asset: string; files: string[] }[] = [];
   for (const photo of units) {
     const first = photo.routes.filter((route) => !route.refused).filter((route) => order(route.source) !== null)
       .sort((one, other) => order(one.source)! - order(other.source)! || compare(one.source, other.source) || compare(one.asset, other.asset))[0];
     if (first?.source === source) asked.push({ at_ms: photo.at_ms, asset: first.asset, files: first.files });
   }
-  asked.sort((one, other) => (other.at_ms ?? Number.MIN_SAFE_INTEGER) - (one.at_ms ?? Number.MIN_SAFE_INTEGER) || compare(one.asset, other.asset));
-  const { unsized: _unsized, libraries: _libraries, ...left } = coming(units, start_ms);
-  return { photos: asked.slice(0, WANTED_PAGE).map(({ asset, files }) => ({ asset, files })), left };
+  const isOwed = (photo: { asset: string }) => (owed.has(photo.asset) ? 0 : 1);
+  asked.sort((one, other) => isOwed(one) - isOwed(other) || (other.at_ms ?? Number.MIN_SAFE_INTEGER) - (one.at_ms ?? Number.MIN_SAFE_INTEGER) || compare(one.asset, other.asset));
+  return asked.slice(0, WANTED_PAGE).map(({ asset, files }) => ({ asset, files }));
 }
 
 export function coming(units: Iterable<WantedContent>, start_ms: number | null): Coming {

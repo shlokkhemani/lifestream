@@ -20,19 +20,19 @@ final class HomeLinkTests: XCTestCase {
     private let phone = HomeLink.Device(kind: .phone, version: "1.4.0", model: "iPhone", serial4: nil)
 
     private func link(_ transport: ScriptedTransport, credentials: MemoryCredentials = MemoryCredentials(),
-                      device: HomeLink.Device? = nil) -> HomeLink {
-        HomeLink(device: device ?? mac, credentials: credentials, folder: folder, transport: transport)
+                      device: HomeLink.Device? = nil, network: (any NetworkWatch)? = nil) -> HomeLink {
+        HomeLink(device: device ?? mac, credentials: credentials, folder: folder, transport: transport, network: network)
     }
 
     private func paired(_ transport: ScriptedTransport, device: HomeLink.Device? = nil,
-                        name: String? = nil) async throws -> (link: HomeLink, pass: String) {
+                        name: String? = nil, network: (any NetworkWatch)? = nil) async throws -> (link: HomeLink, pass: String) {
         let credentials = MemoryCredentials()
         let device = device ?? mac
         let pairing = ScriptedTransport([.reply(200, Fixture.paired())])
         _ = try await link(pairing, credentials: credentials, device: device)
             .pair(code: "12345678", name: name ?? home, account: device.kind == .phone ? Fixture.account : nil)
         let pass = try XCTUnwrap(Fixture.object(pairing.requests[0])["pass"] as? String)
-        return (link(transport, credentials: credentials, device: device), pass)
+        return (link(transport, credentials: credentials, device: device, network: network), pass)
     }
 
 
@@ -447,7 +447,7 @@ final class HomeLinkTests: XCTestCase {
 
         let heard = Heard()
         let progressing = ScriptedTransport([.reply(201, Fixture.answer(received: 2, imported: 0))])
-        let (mac, _) = try await paired(progressing)
+        let (mac, _) = try await paired(progressing, network: MovableNetwork(.home))
         _ = try await mac.send(bundle: bundle, id: "upload:local:unit-0001/2", kind: .later, sent: { heard.add($0) })
         let progress = try XCTUnwrap(progressing.requests.first?.progress)
         progress.heard(1)
@@ -543,16 +543,16 @@ final class HomeLinkTests: XCTestCase {
         }
     }
 
-    func testAPhonesBundleGoesOnItsOwnRouteStatingItsKindAndOneTheNetworkRuleHoldsKeepsOffEveryMeteredPath() async throws {
+    func testAPhonesBundleGoesOnItsOwnRouteStatingItsKindAndCrossesThePathsItsRuleAllows() async throws {
         let bundle = folder.appendingPathComponent("b.zip")
         try Data("zip".utf8).write(to: bundle)
         let large = folder.appendingPathComponent("large.zip")
         FileManager.default.createFile(atPath: large.path, contents: nil)
         let handle = try FileHandle(forWritingTo: large)
-        try handle.truncate(atOffset: UInt64(Transfer.largeBytes))
+        try handle.truncate(atOffset: UInt64(MobileData.largeBytes))
         try handle.close()
         let transport = ScriptedTransport(Array(repeating: .reply(201, Fixture.answer(received: 1, imported: 0)), count: 4))
-        let (device, pass) = try await paired(transport, device: phone)
+        let (device, pass) = try await paired(transport, device: phone, network: MovableNetwork(.home))
         let sent = try await device.send(bundle: bundle, id: "sha256:00aa", kind: .new)
         XCTAssertEqual(sent.sources[Fixture.source]?.received, 1)
         _ = try await device.send(bundle: bundle, id: "sha256:00ab", kind: .later)
@@ -566,14 +566,13 @@ final class HomeLinkTests: XCTestCase {
         XCTAssertEqual(request.headers["Content-Type"], "application/zip")
         XCTAssertEqual(transport.requests.map { $0.headers["Lifestream-Kind"] }, ["new", "later", "new", "new"])
         XCTAssertEqual(request.body, .file(bundle))
-        XCTAssertEqual(transport.requests.map(\.mayUseMetered), [true, false, false, true],
-                       "small new data on any network; a history page, or 50 MB, only off a metered path; a press's on any")
-        for made in transport.requests.map(URLSessionTransport.made) {
-            XCTAssertEqual(made.allowsExpensiveNetworkAccess, made.allowsConstrainedNetworkAccess,
-                           "both of the system's flags: cellular alone lets a hotspot through")
-        }
-        XCTAssertFalse(URLSessionTransport.made(transport.requests[1]).allowsExpensiveNetworkAccess)
-        XCTAssertTrue(URLSessionTransport.made(transport.requests[0]).allowsCellularAccess, "cellular is the metered flags' to judge")
+        XCTAssertEqual(transport.requests.map(\.crossing), [
+            .any, MobileData.Crossing(costly: false, lowData: false), MobileData.Crossing(costly: true, lowData: false), .any,
+        ], "on a free path: small new data crosses any; a history page none that costs; 50 MB new mobile data, not Low Data Mode; a press any")
+        let made = transport.requests.map(URLSessionTransport.made)
+        XCTAssertEqual(made.map(\.allowsExpensiveNetworkAccess), [true, false, true, true], "a path that changes mid-upload: the same rule")
+        XCTAssertEqual(made.map(\.allowsConstrainedNetworkAccess), [true, false, false, true])
+        XCTAssertTrue(made[0].allowsCellularAccess, "cellular is the two flags' to judge")
 
         let raised = ScriptedTransport([.reply(200, Fixture.answer(received: 0, imported: 0, phoneFloor: "2.0.0"))])
         let (below, _) = try await paired(raised, device: phone)

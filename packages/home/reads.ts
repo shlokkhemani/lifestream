@@ -201,6 +201,7 @@ const MAX_KINDS = 16;
 const EXTRACT_CHUNK = 32;
 const PHOTOS_PAGE = 60;
 const PHOTOS_MOST = 120;
+const OWED_MOST = 200;
 const PREPARING_S = 2;
 const GRAINS = ["day", "month", "year"] as const;
 const WHERE_DAYS = 366;
@@ -1018,10 +1019,12 @@ export function openReads(input: {
     return madeReply(ask, position, { photo: found ?? refuse(404, "PHOTO_UNKNOWN", `no photo ${hash}`) });
   };
 
-  const photosWanted = json(["source", "files"], (query, view, ask) => {
+  const photosWanted = json(["source", "files", "owed"], (query, view, ask) => {
     const held = ask.held.photos ?? refuse(403, "PRINCIPAL_SCOPE", "only a pass that delivers a photos library asks for wanted photos");
     if (query.text("files") !== "1") bad("files", "is 1");
-    const answer = wanted(view, photoRoutes, held.source, new Set(held.asking), held.start_ms);
+    const owed = query.all("owed");
+    if (owed.length > OWED_MOST) bad("owed", `is named at most ${OWED_MOST} times`);
+    const answer = wanted(view, photoRoutes, held.source, new Set(held.asking), held.start_ms, new Set(owed));
     const may = historyGate(view.tables, ask.held.stated, held.room).may(held.connector, held.reach);
     return { photos: JSON.stringify(may ? answer.photos : []), left: JSON.stringify(answer.left), ...(may ? {} : { paused: "true" }) };
   });

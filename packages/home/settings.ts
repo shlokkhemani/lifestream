@@ -31,6 +31,15 @@ export interface Settings {
   runners: Record<string, { files?: string[]; save_battery?: boolean }>;
   privacy: PrivacySettings;
   search: SearchSettings;
+  devices: Record<string, { mobile_data: MobileData }>;
+}
+
+export const MOBILE_DATA = ["now", "everything", "small"] as const;
+export type MobileData = (typeof MOBILE_DATA)[number];
+const MOBILE_DATA_DEFAULT: MobileData = "now";
+
+export function mobileDataOf(settings: Pick<Settings, "devices">, unit: string): MobileData {
+  return settings.devices[unit]?.mobile_data ?? MOBILE_DATA_DEFAULT;
 }
 
 export type UseDefaults = Readonly<Record<UseId, string | null>>;
@@ -125,6 +134,7 @@ const SETTINGS: readonly Setting[] = [
   { key: "unit", beforeKey: true, rule: is((value) => typeof value === "string" && UNIT.test(value), "is a unit id") },
   ...USE_IDS.map((use): Setting => ({ key: `model.defaults.${use}`, rule: is((value) => value === null || (typeof value === "string" && ROUTE_ID.test(value)), "is a model id (<connection>:<model>) or null") })),
   { key: "model.thinking.chat", rule: is((value) => value === null || (typeof value === "string" && THINKING.test(value)), "is a thinking level or null") },
+  { key: "devices.*.mobile_data", device: true, default: MOBILE_DATA_DEFAULT, rule: is((value) => (MOBILE_DATA as readonly Json[]).includes(value), `is ${MOBILE_DATA.join(", ")}`) },
   { key: "model.cap", device: true, default: 8, rule: is((value) => Number.isInteger(value), "is a whole number of calls"), limit: { min: 1, max: 256 } },
   { key: "model.transports.*.concurrency", rule: is((value) => Number.isSafeInteger(value) && (value as number) > 0, "is a positive whole number of calls") },
   ...OWN_BLOCKS.map((name): Setting => ({ key: `model.transports.${name}`, rule: anObject })),
@@ -149,7 +159,7 @@ export function lastGood(folder: SettingsFolder, first: Settings = effective(fol
   return () => {
     try {
       const now = effective(folder).settings;
-      good = { ...good, sources: now.sources, sites: now.sites, connectors: now.connectors, clients: now.clients, defaults: now.defaults, thinking: now.thinking, model: now.model, runners: now.runners, privacy: now.privacy, search: now.search, history: now.history };
+      good = { ...good, sources: now.sources, sites: now.sites, connectors: now.connectors, clients: now.clients, defaults: now.defaults, thinking: now.thinking, model: now.model, runners: now.runners, privacy: now.privacy, search: now.search, history: now.history, devices: now.devices };
     } catch (error) {
       if (!(error instanceof SettingsError)) throw error;
     }
@@ -176,6 +186,10 @@ export function isReadBeforeKey(key: string): boolean {
 
 export function deviceSets(key: string): boolean {
   return settingOf(key)?.device === true;
+}
+
+export function unitOfSetting(key: string): string | null {
+  return settingOf(key)?.key.startsWith("devices.*.") === true ? key.split(".")[1]! : null;
 }
 
 export function effective(folder: SettingsFolder): Effective {
@@ -444,6 +458,11 @@ function assemble(values: ReadonlyMap<string, Shown>, where: string): Settings {
     }, {}),
     privacy: readPrivacySettings(Object.fromEntries(PRIVACY_ROWS.map((row) => [row.key, get(row.key)]))),
     search: { power: get("search.meaning.power") as SearchSettings["power"] },
+    devices: [...values.values()].reduce<Settings["devices"]>((devices, shown) => {
+      const [, unit] = /^devices\.([^.]+)\.mobile_data$/u.exec(shown.key) ?? [];
+      if (unit !== undefined && shown.value !== null) devices[unit] = { mobile_data: shown.value as MobileData };
+      return devices;
+    }, {}),
   };
 }
 

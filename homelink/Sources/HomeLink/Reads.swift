@@ -148,8 +148,10 @@ extension HomeLink {
     }
 
 
-    public func photosWanted<Wanted: Decodable>(source: String) async throws -> Wanted {
-        try await read("/v1/photos/wanted", [("source", source), ("files", "1")])
+    public static let owedAtOnce = 200
+
+    public func photosWanted<Wanted: Decodable>(source: String, owed: [String] = []) async throws -> Wanted {
+        try await read("/v1/photos/wanted", [("source", source), ("files", "1")] + owed.map { ("owed", $0) })
     }
 
     public func photo(_ hash: String) async throws -> Photo {

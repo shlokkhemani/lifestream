@@ -7,14 +7,27 @@ public struct NetworkFacts: Sendable, Equatable {
     public let onLocalNetwork: Bool
     public let tunnelUp: Bool
     public let path: Int
-    public let metered: Metered?
+    public let cost: MobileData.Path
 
-    public init(online: Bool, onLocalNetwork: Bool, tunnelUp: Bool, path: Int = 0, metered: Metered? = nil) {
+    public init(online: Bool, onLocalNetwork: Bool, tunnelUp: Bool, path: Int = 0, cost: MobileData.Path = .free) {
         self.online = online
         self.onLocalNetwork = onLocalNetwork
         self.tunnelUp = tunnelUp
         self.path = path
-        self.metered = metered
+        self.cost = cost
+    }
+
+    public init(online: Bool, onLocalNetwork: Bool, tunnelUp: Bool, path: Int = 0, metered: Metered?) {
+        self.init(online: online, onLocalNetwork: onLocalNetwork, tunnelUp: tunnelUp, path: path,
+                  cost: metered.map { $0 == .lowDataMode ? .lowData : .costly } ?? .free)
+    }
+
+    public var metered: Metered? {
+        switch cost {
+        case .free: return nil
+        case .costly: return .expensive
+        case .lowData: return .lowDataMode
+        }
     }
 
     public func changesRoad(from before: NetworkFacts) -> Bool {
@@ -56,10 +69,6 @@ public struct NetworkFacts: Sendable, Equatable {
 
 public enum Metered: Sendable, Equatable {
     case expensive, lowDataMode
-
-    init?(expensive: Bool, constrained: Bool) {
-        if expensive { self = .expensive } else if constrained { self = .lowDataMode } else { return nil }
-    }
 }
 
 public protocol NetworkWatch: Sendable {
@@ -76,7 +85,7 @@ public final class SystemNetwork: NetworkWatch, @unchecked Sendable {
 
     private let lock = NSLock()
     private var monitor: NWPathMonitor?
-    private var latest: (online: Bool, local: Bool, metered: Metered?, path: Int)?
+    private var latest: (online: Bool, local: Bool, cost: MobileData.Path, path: Int)?
     private var readers: [UUID: AsyncStream<NetworkFacts>.Continuation] = [:]
 
     private init() {}
@@ -103,14 +112,14 @@ public final class SystemNetwork: NetworkWatch, @unchecked Sendable {
         }
         return latest.map {
             NetworkFacts(online: $0.online, onLocalNetwork: $0.local, tunnelUp: NetworkFacts.tunnelUp(), path: $0.path,
-                         metered: $0.metered)
+                         cost: $0.cost)
         }
     }
 
     private func update(_ path: NWPath) {
         lock.withLock {
             latest = (path.status == .satisfied, path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet),
-                      Metered(expensive: path.isExpensive, constrained: path.isConstrained), (latest?.path ?? 0) + 1)
+                      MobileData.Path(expensive: path.isExpensive, constrained: path.isConstrained), (latest?.path ?? 0) + 1)
             guard let facts = now() else { return }
             for (id, reader) in readers {
                 if case .terminated = reader.yield(facts) { readers[id] = nil }

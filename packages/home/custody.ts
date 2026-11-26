@@ -17,7 +17,7 @@ import { readHome } from "./lifecycle.js";
 import { deviceOf, readPrincipals, replacedAt, type Principal, type Reach } from "./principals.js";
 import { BUSY_WORDS, type Readers } from "./readers.js";
 import { notNowRefusal, notReadable, Refusal, refuse, RETRY_S } from "./refusal.js";
-import type { Settings } from "./settings.js";
+import { mobileDataOf, type Settings } from "./settings.js";
 import type { Stated as Statements } from "./stated.js";
 import { needs, type Need, type StatusOptions } from "./status.js";
 import type { ExchangeAnswerAdds } from "./wire.js";
@@ -220,6 +220,7 @@ export function openCustody(options: CustodyOptions): Custody {
         ...(pass.account === null ? {} : { account: pass.account }),
         ...(replaced_ms === null ? {} : { replaced: new Date(replaced_ms).toISOString() }),
         ...(pass.kind === "phone" ? { addresses: where() } : {}),
+        ...(device === null ? {} : { mobile_data: mobileDataOf(settings(), pass.unit) }),
         ...adds as JsonObject,
         turn: { run: RUN, n: ++answered },
       };
