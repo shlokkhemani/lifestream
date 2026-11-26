@@ -106,6 +106,16 @@ export const doorAnswers = screen => new Map((screen.stub ?? []).flatMap(rule =>
   return chat ? [[`/v1/ask/chats/${chat}`, rule.json]] : [];
 }));
 
+/**
+ * @param {Map<string, unknown>} answers
+ * @returns {Map<string, unknown>}
+ */
+export const phoneAnswers = answers => new Map([...answers].map(([path, answer]) => {
+  const thread = /** @type {any} */ (answer);
+  return path === `/v1/ask/chats/${DEMO_CHAT.chat}` && Array.isArray(thread?.messages)
+    ? [path, { ...thread, messages: thread.messages.slice(0, 2) }] : [path, answer];
+}));
+
 /** @param {{ door: { url: string }, token?: string, answers?: Map<string, unknown> }} options */
 export async function demoDoor({ door, token, answers }) {
   /**

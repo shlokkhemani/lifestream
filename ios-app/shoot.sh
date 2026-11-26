@@ -29,7 +29,7 @@ if [ "${1:-}" = --holding ]; then
   ./simulator.sh boot "$udid"
   xcrun simctl install "$udid" "$app"
   xcrun simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
-    --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+    --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
   bundle=$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")
   n=0
   for where in "${wheres[@]}"; do
