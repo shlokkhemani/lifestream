@@ -8,15 +8,14 @@ final class MobileDataTests: XCTestCase {
     private enum Column: CaseIterable { case nowSmall, nowLarge, past }
 
     private static let seen: [MobileData.Path: [MobileData.Choice: MobileData.Allows]] = [
-        .free: [.now: .all, .everything: .all, .small: .all],
-        .costly: [.now: .now, .everything: .all, .small: .small],
-        .lowData: [.now: .lowData, .everything: .lowData, .small: .lowData],
+        .free: [.now: .all, .everything: .all],
+        .costly: [.now: .now, .everything: .all],
+        .lowData: [.now: .lowData, .everything: .lowData],
     ]
 
     private static let table: [MobileData.Allows: [Column: Wait?]] = [
         .all: [.nowSmall: nil, .nowLarge: nil, .past: nil],
         .now: [.nowSmall: nil, .nowLarge: nil, .past: .past],
-        .small: [.nowSmall: nil, .nowLarge: .large, .past: .past],
         .lowData: [.nowSmall: nil, .nowLarge: .lowData, .past: .lowData],
     ]
 
@@ -45,6 +44,7 @@ final class MobileDataTests: XCTestCase {
                         let said = "\(path) \(choice) loopback \(loopback) pressed \(pressed)"
                         XCTAssertEqual(moment.stated, Self.seen[path]?[choice], "stated from the path and the choice alone: \(said)")
                         XCTAssertEqual(moment.internet, MobileData.Moment(path: path, choice: choice, loopback: false, pressed: pressed))
+                        XCTAssertEqual(moment.past, moment.decide(.later, bytes: 0), "the past is a history page of any size: \(said)")
                         for kind in WriteKind.allCases {
                             for bytes in Self.sizes {
                                 walked += 1
@@ -61,11 +61,11 @@ final class MobileDataTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(walked, 3 * 3 * 2 * 2 * 2 * 4, "the whole table")
+        XCTAssertEqual(walked, 3 * 2 * 2 * 2 * 2 * 4, "the whole table")
     }
 
     func testTheChoicesAreNestedAndAPressOrLoopbackCrossesEveryPath() {
-        let order: [MobileData.Choice] = [.small, .now, .everything]
+        let order: [MobileData.Choice] = [.now, .everything]
         for path in MobileData.Path.allCases {
             for kind in WriteKind.allCases {
                 for bytes in Self.sizes {
@@ -101,12 +101,12 @@ final class MobileDataTests: XCTestCase {
     }
 
     func testAWaitSaysItsWords() {
-        XCTAssertEqual(Wait.past.words, "Older photos and history wait for Wi-Fi · Settings › Mobile data")
-        XCTAssertEqual(Wait.large.words, "Large sends wait for Wi-Fi · Settings › Mobile data")
-        XCTAssertEqual(Wait.lowData.words, "Large sends wait: Low Data Mode is on")
-        XCTAssertEqual(Wait.allCases.map(\.rawValue), ["past", "large", "low-data"])
-        XCTAssertEqual(MobileData.Allows.allCases.map(\.rawValue), ["all", "now", "small", "low-data"])
-        XCTAssertEqual(MobileData.Choice.allCases.map(\.rawValue), ["now", "everything", "small"])
+        XCTAssertEqual(Wait.past.words, "Older photos and history wait for Wi-Fi")
+        XCTAssertEqual(Wait.lowData.words, "Low Data Mode is on, so only small new sends go")
+        XCTAssertFalse(Wait.allCases.contains { $0.words.contains("Settings") }, "each client points at its own page")
+        XCTAssertEqual(Wait.allCases.map(\.rawValue), ["past", "low-data"])
+        XCTAssertEqual(MobileData.Allows.allCases.map(\.rawValue), ["all", "now", "low-data"])
+        XCTAssertEqual(MobileData.Choice.allCases.map(\.rawValue), ["now", "everything"])
     }
 }
 
@@ -125,7 +125,7 @@ final class MobileDataLinkTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private func paired(_ transport: ScriptedTransport, network: (any NetworkWatch)?, name: String? = nil) async throws -> HomeLink {
+    private func paired(_ transport: any HomeTransport, network: (any NetworkWatch)?, name: String? = nil) async throws -> HomeLink {
         let credentials = MemoryCredentials()
         _ = try await HomeLink(device: phone, credentials: credentials, folder: folder, transport: ScriptedTransport([.reply(200, Fixture.paired())]))
             .pair(code: "12345678", name: name ?? home, account: Fixture.account)
@@ -180,27 +180,58 @@ final class MobileDataLinkTests: XCTestCase {
 
     func testTheChoiceIsTheAnswersAndATakenOneIsKeptUntilTheNextAnswer() async throws {
         let transport = ScriptedTransport([
-            .reply(200, Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"small""#)),
-            .reply(200, "{}"),
             .reply(200, Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"everything""#)),
-            .reply(200, Fixture.answer(received: 0, imported: 0)),
+            .reply(200, "{}"),
+            .reply(200, Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"now""#)),
+            .reply(200, Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"everything""#)),
+            .reply(200, Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"small""#)),
         ])
         let link = try await paired(transport, network: MovableNetwork(Self.on(.costly)))
         var changes = link.mobileChanges().makeAsyncIterator()
         XCTAssertEqual(link.mobile(pressed: false).stated, .now, "unset is now")
         let fresh = try await link.exchange()
-        XCTAssertEqual(fresh.mobileData, .small, "the answer carries the asker's own choice")
+        XCTAssertEqual(fresh.mobileData, .everything, "the answer carries the asker's own choice")
         _ = await changes.next()
-        XCTAssertEqual(link.mobile(pressed: false).stated, .small)
-        let taken = try await link.setHomeSetting(key: key, value: .string("everything"))
+        XCTAssertEqual(link.mobile(pressed: false).stated, .all)
+        let taken = try await link.setHomeSetting(key: key, value: .string("now"))
+        XCTAssertEqual(taken, .taken(.string("now")))
+        _ = await changes.next()
+        XCTAssertEqual(link.mobile(pressed: false).stated, .now, "a taken choice holds at once, with no exchange")
+        _ = try await link.exchange()
+        XCTAssertEqual(link.mobile(pressed: false).stated, .now, "the next answer confirms it")
+        _ = try await link.exchange()
+        _ = await changes.next()
+        XCTAssertEqual(link.mobile(pressed: false).stated, .all)
+        _ = try await link.exchange()
+        _ = await changes.next()
+        XCTAssertEqual(link.mobile(pressed: false).stated, .now, "a word this app does not know is now")
+    }
+
+    func testAnExchangeSentBeforeAChoiceLandedLeavesItTaken() async throws {
+        let transport = Gated([
+            "/v1/exchange": [Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"now""#),
+                             Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"now""#),
+                             Fixture.answer(received: 0, imported: 0, extra: #","mobile_data":"everything""#)],
+            "/v1/settings": ["{}"],
+        ], holding: ["/v1/settings": 0, "/v1/exchange": 1])
+        let link = try await paired(transport, network: MovableNetwork(Self.on(.costly)))
+        _ = try await link.exchange()
+        XCTAssertEqual(link.mobile(pressed: false).stated, .now)
+        let key = key
+        let setting = Task { try await link.setHomeSetting(key: key, value: .string("everything")) }
+        await fulfillment(of: [transport.held("/v1/settings")], timeout: 30)
+        let late = Task { try await link.exchange() }
+        await fulfillment(of: [transport.held("/v1/exchange")], timeout: 30)
+        transport.open("/v1/settings")
+        let taken = try await setting.value
         XCTAssertEqual(taken, .taken(.string("everything")))
-        _ = await changes.next()
-        XCTAssertEqual(link.mobile(pressed: false).stated, .all, "a taken choice holds at once, with no exchange")
+        XCTAssertEqual(link.mobile(pressed: false).stated, .all)
+        transport.open("/v1/exchange")
+        let answered = try await late.value
+        XCTAssertEqual(answered.mobileData, .now, "the home answered it before the write landed")
+        XCTAssertEqual(link.mobile(pressed: false).stated, .all, "an answer to an exchange sent before the write landed leaves the choice taken")
         _ = try await link.exchange()
         XCTAssertEqual(link.mobile(pressed: false).stated, .all, "the next answer confirms it")
-        _ = try await link.exchange()
-        _ = await changes.next()
-        XCTAssertEqual(link.mobile(pressed: false).stated, .now, "an answer that says none is now")
     }
 
     func testAChangeOfPathIsTold() async throws {
@@ -212,18 +243,57 @@ final class MobileDataLinkTests: XCTestCase {
         XCTAssertEqual(link.mobile(pressed: false).stated, .lowData)
     }
 
-    func testAMacStatesWhatItsSendsSee() async throws {
-        let mac = HomeLink.Device(kind: .mac, version: "1.4.0", model: "MacBook Pro", serial4: "0001")
-        let credentials = MemoryCredentials()
-        _ = try await HomeLink(device: mac, credentials: credentials, folder: folder, transport: ScriptedTransport([.reply(200, Fixture.paired())]))
-            .pair(code: "12345678", name: "http://127.0.0.1:4680")
+    func testEveryExchangeStatesWhatItsSendsSeeToldByNoCaller() async throws {
+        let network = MovableNetwork(Self.on(.lowData))
         let transport = ScriptedTransport(Array(repeating: .reply(200, Fixture.answer(received: 0, imported: 0)), count: 3))
-        let link = HomeLink(device: mac, credentials: credentials, folder: folder, transport: transport)
-        link.tell(network: MobileData.Allows.lowData)
-        await fulfillment(of: [transport.reached(1)], timeout: 30)
-        XCTAssertEqual(try Fixture.object(transport.requests[0])["network"] as? String, "low-data")
-        link.tell(network: MobileData.Allows.now)
-        await fulfillment(of: [transport.reached(2)], timeout: 30)
-        XCTAssertEqual(try Fixture.object(transport.requests[1])["network"] as? String, "now")
+        let link = try await paired(transport, network: network)
+        _ = try await link.exchange()
+        network.set(Self.on(.costly))
+        _ = try await link.exchange()
+        network.set(Self.on(.free))
+        _ = try await link.exchange()
+        XCTAssertEqual(try transport.requests.map { try Fixture.object($0)["network"] as? String }, ["low-data", "now", "all"],
+                       "a phone states its network as a Mac does, on every exchange")
+    }
+}
+
+private final class Gated: HomeTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private let replies: [String: [String]]
+    private let holding: [String: Int]
+    private let reached: [String: XCTestExpectation]
+    private var arrived: [String: Int] = [:]
+    private var gates: [String: CheckedContinuation<Void, Never>] = [:]
+
+    init(_ replies: [String: [String]], holding: [String: Int]) {
+        self.replies = replies
+        self.holding = holding
+        reached = Dictionary(uniqueKeysWithValues: holding.keys.map { ($0, XCTestExpectation(description: "\($0) held")) })
+    }
+
+    func held(_ path: String) -> XCTestExpectation { reached[path]! }
+
+    func open(_ path: String) {
+        lock.withLock { gates.removeValue(forKey: path) }?.resume()
+    }
+
+    func identify(_ address: URL, within: TimeInterval) async throws -> String {
+        String(repeating: "A", count: 52)
+    }
+
+    func perform(_ request: HomeRequest) async throws -> HomeResponse {
+        let path = request.url.path
+        let index = lock.withLock { () -> Int in
+            defer { arrived[path, default: 0] += 1 }
+            return arrived[path, default: 0]
+        }
+        if holding[path] == index {
+            await withCheckedContinuation { gate in
+                lock.withLock { gates[path] = gate }
+                reached[path]?.fulfill()
+            }
+        }
+        guard let body = replies[path].flatMap({ index < $0.count ? $0[index] : nil }) else { throw URLError(.cannotConnectToHost) }
+        return HomeResponse(status: 200, body: Data(body.utf8))
     }
 }

@@ -1027,10 +1027,10 @@ enum CannedHome {
         var facts: NetworkFacts? {
             let trips = tunnel.trips
             return switch net {
-            case "offline": NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false)
-            case "tailscale-off", "wifi-only": NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false)
-            case "tailscale-flips": NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: trips != 1, path: trips)
-            default: NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true)
+            case "offline": NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, cost: .free)
+            case "tailscale-off", "wifi-only": NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, cost: .free)
+            case "tailscale-flips": NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: trips != 1, path: trips, cost: .free)
+            default: NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, cost: .free)
             }
         }
 
@@ -1473,7 +1473,7 @@ enum CannedHome {
             case "/v1/sources": return reply(200, home.readThroughs())
             case "/v1/pictures": return reply(200, ["recipe": CannedHome.recipe])
             case "/v1/record": return reply(200, home.record(asked))
-            case "/v1/photos/wanted": return reply(200, ["photos": [String](), "left": ["wanted": 0, "unavailable": 0, "bytes": 0]])
+            case "/v1/photos/wanted": return reply(200, ["photos": [String](), "settled": [String](), "left": ["wanted": 0, "unavailable": 0, "bytes": 0]])
             default: break
             }
             if path.hasPrefix("/v1/days/") {

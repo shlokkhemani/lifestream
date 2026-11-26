@@ -25,6 +25,7 @@ import UserNotifications
     private var watch: Timer?
     private var pace = KnockPace()
     private var following: Task<Void, Never>?
+    private var judging: Task<Void, Never>?
     private var notice = HomeNotice()
     private(set) var posting: Task<Void, Never>?
     private var wakeObserver: NSObjectProtocol?
@@ -62,7 +63,7 @@ import UserNotifications
             grants: { Grant.stated() },
             found: { ShippingDomains.found(stores: stores) },
             stores: stores,
-            settle: { answer in await photos.run(answer) },
+            settle: { answer, pressed in await photos.run(answer, pressed: pressed) },
             keepAwake: { KeepAwake.hold() },
             scratch: scratch)), link: link, limits: limits)
     }
@@ -83,6 +84,7 @@ import UserNotifications
         Task { [weak self] in
             guard await ready.wait() != .stopped, let self, !self.stopped else { return }
             limits?.start()
+            judgeOnMobileChanges()
             wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                     MainActor.assumeIsolated { self?.rearm() }
@@ -105,6 +107,8 @@ import UserNotifications
         watch = nil
         following?.cancel()
         following = nil
+        judging?.cancel()
+        judging = nil
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         wakeObserver = nil
         while running { try? await Task.sleep(for: .milliseconds(100)) }
@@ -170,6 +174,17 @@ import UserNotifications
         let answered = await shipper.knock()
         pace.ended()
         if answered == true, timer != nil { await arm() }
+    }
+
+    private func judgeOnMobileChanges() {
+        guard judging == nil, !stopped else { return }
+        let changes = link.mobileChanges()
+        judging = Task { [weak self] in
+            for await _ in changes {
+                guard let self else { return }
+                await runOrOwe()
+            }
+        }
     }
 
     private func watchKnock() async {

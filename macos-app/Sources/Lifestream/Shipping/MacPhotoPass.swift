@@ -26,22 +26,22 @@ actor MacPhotoPass {
         MachineDirectory.url.appendingPathComponent("scratch/mac/app/photos", isDirectory: true)
     }
 
-    func run(_ answer: FreshAnswer) async -> [ShipperRunRow] {
+    func run(_ answer: FreshAnswer, pressed: Bool) async -> [ShipperRunRow] {
         guard let domain = ShippingDomains.photos(in: Array(answer.sources.keys), paths: paths) else { return [] }
         try? FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if current?.source != domain.sourceId {
             current = (domain.sourceId, PhotoPass(library: PhotoLibrary(), store: domain.photos, build: Self.build, exports: exports))
         }
         let report = await current!.pass.run(.init(seconds: Self.seconds),
-                                             device: device,
+                                             device: device(pressed: pressed),
                                              bringingIn: false,
                                              home: domain.home(answer, link: link, settings: settings))
         return domain.settled(report, failing: await current!.pass.state().failing, pass: answer.pass, link: link, at: Date())
             .map { [$0] } ?? []
     }
 
-    var device: Device {
-        Self.device(link.mobile(pressed: false), onBattery: PowerSource.onBattery(), spare: disk.spare)
+    func device(pressed: Bool) -> Device {
+        Self.device(link.mobile(pressed: pressed), onBattery: PowerSource.onBattery(), spare: disk.spare)
     }
 
     static var build: String {
@@ -51,7 +51,7 @@ actor MacPhotoPass {
     }
 
     static func device(_ mobile: MobileData.Moment, onBattery: Bool, spare: Int64) -> Device {
-        Device(pastMoves: mobile.decide(.later, bytes: 0).moves, iCloud: mobile.internet.decide(.later, bytes: .max).moves,
+        Device(pastMoves: mobile.past.moves, iCloud: mobile.internet.past.moves,
                charging: !onBattery, spare: spare, changeRoom: nil, page: 5_000)
     }
 }

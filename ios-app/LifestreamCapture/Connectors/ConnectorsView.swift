@@ -444,6 +444,7 @@ struct StreamSheetStack: View {
         case .model(let id, let member): StreamModelPage(id: id, member: member, home: home)
         case .status: StatusView()
         case .statusDetails: StatusDetails()
+        case .settings(let id, let title): SettingsPage(id: id, title: title)
         #if !APP_STORE
         case .experiments: ExperimentsView()
         #endif
@@ -545,6 +546,7 @@ enum ConnectorsRoute: Hashable {
     case model(String, String)
     case status
     case statusDetails
+    case settings(String, String)
     #if !APP_STORE
     case experiments
     #endif

@@ -9,7 +9,7 @@ import XCTest
 final class MobileDataJourneyTests: XCTestCase {
     private static let photoBytes = 6_000_000
 
-    func testPhotosTakenOnMobileDataGoAtOnceWaitOnLowDataModeAndAChangeOfChoiceStartsAHeldBundle() async throws {
+    func testPhotosTakenOnMobileDataGoAtOnceWaitOnLowDataModeAndEverythingLetsThePastGo() async throws {
         let rig = try await Rig(paired: true)
         addTeardownBlock { @MainActor in
             await rig.stop()
@@ -51,7 +51,7 @@ final class MobileDataJourneyTests: XCTestCase {
         await shipper.reconcile(.foreground)
         XCTAssertEqual(rig.puts(of: Home.photos).count, 1, "54 MB on Low Data Mode is no request")
         XCTAssertEqual(shipper.waits, [.network(.lowData)])
-        XCTAssertEqual(shipper.shippingDescription, "Large sends wait: Low Data Mode is on")
+        XCTAssertEqual(shipper.shippingDescription, MobileData.Wait.lowData.words)
         let held = await shipper.unsent()
         XCTAssertTrue(held.waitsForNetwork)
 
@@ -66,25 +66,13 @@ final class MobileDataJourneyTests: XCTestCase {
 
         let unit = try XCTUnwrap(shipper.link.unit)
         let key = "devices.\(unit).mobile_data"
-        let small = try await shipper.link.setHomeSetting(key: key, value: .string("small"))
-        XCTAssertEqual(small, .taken(.string("small")))
-        _ = await take(9, from: 34)
-        await shipper.reconcile(.foreground)
-        XCTAssertEqual(rig.puts(of: Home.photos).count, 2, "\"Only small sends\" holds 54 MB")
-        XCTAssertEqual(shipper.waits, [.network(.large)])
-        XCTAssertEqual(shipper.shippingDescription, MobileData.Wait.large.words)
-
+        XCTAssertEqual(shipper.link.mobile(pressed: false).past, .waits(.past), "on mobile data the past waits for Wi-Fi")
         let exchanges = rig.home.exchanges
-        rig.date.addTimeInterval(60)
-        let now = try await shipper.link.setHomeSetting(key: key, value: .string("now"))
-        XCTAssertEqual(now, .taken(.string("now")))
-        try await until("the choice is due at once") { rig.alarms.next == rig.date }
+        let everything = try await shipper.link.setHomeSetting(key: key, value: .string("everything"))
+        XCTAssertEqual(everything, .taken(.string("everything")))
         XCTAssertEqual(rig.home.exchanges, exchanges, "the setting's answer is the choice: no exchange came between")
-        rig.alarms.ring(rig.date)
-        try await until("the bundle held for its size is requested") { rig.puts(of: Home.photos).count == 3 }
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.crossing, MobileData.Crossing(costly: true, lowData: false))
-        XCTAssertEqual(rig.puts(of: Home.photos).map(\.kind), ["new", "new", "new"], "phone bundles stay new")
-        try await until("the third bundle landed") { rig.home.received(Home.photos) == 3 }
+        XCTAssertTrue(shipper.link.mobile(pressed: false).past.moves, "\"Everything\" lets the past cross mobile data")
+        XCTAssertEqual(rig.puts(of: Home.photos).map(\.kind), ["new", "new"], "phone bundles stay new")
         try rig.artifact("mobile-data")
     }
 }

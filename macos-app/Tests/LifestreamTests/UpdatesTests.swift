@@ -170,12 +170,16 @@ final class UpdatesTests: XCTestCase {
 
     func testOnAHotspotTheHourlyCheckWaitsAndAPressDownloads() throws {
         let updates = updates()
-        var moment: MobileData.Moment?
-        updates.mobile = { moment }
         let here = { (path: MobileData.Path, choice: MobileData.Choice) in
             MobileData.Moment(path: path, choice: choice, loopback: true, pressed: false)
         }
-        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "the hourly check waits while there is no link to ask")
+        var moment = Updates.unlinked(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, cost: .free))
+        updates.mobile = { moment }
+        XCTAssertNoThrow(try updates.mayCheck(.updatesInBackground), "with no link the system's path decides: a free one checks by itself")
+        moment = Updates.unlinked(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, cost: .costly))
+        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "and a hotspot holds it, on the default choice")
+        moment = Updates.unlinked(nil)
+        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "a path not known yet costs")
         moment = here(.costly, .now)
         XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground),
                              "a hotspot holds the hourly check, though the home is on this Mac: an update comes over the internet")

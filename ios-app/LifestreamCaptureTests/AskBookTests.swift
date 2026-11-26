@@ -1316,7 +1316,7 @@ final class AskBookTests: XCTestCase {
                       background: @escaping @MainActor () -> Background = { Background {} }) async throws -> (AskBook, AskDoor) {
         let home = folder.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        let network = TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1))
+        let network = TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1, cost: .free))
         let link = HomeLink(device: HomeLink.Device(kind: .phone, version: "1.0.0", model: "iPhone", serial4: nil),
                             credentials: MemoryPass(), folder: home, transport: door,
                             network: network)

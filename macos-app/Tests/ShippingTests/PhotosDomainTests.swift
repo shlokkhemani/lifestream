@@ -38,6 +38,7 @@ final class PhotosDomainTests: XCTestCase {
         let shipper: Shipper
         let clock: FixedClock
         let rows: Collected<ShipperRunRow>
+        let presses: Collected<Bool>
     }
 
     private func rig(_ device: Device = mac) async throws -> Rig {
@@ -50,17 +51,19 @@ final class PhotosDomainTests: XCTestCase {
         let library = SyntheticLibrary()
         let pass = PhotoPass(library: PhotoLibrary(library), store: domain.photos, build: "1 aaaaaaa", now: clock.read)
         let rows = Collected<ShipperRunRow>()
+        let presses = Collected<Bool>()
         let settings = MacSettings(file: state.root.appendingPathComponent(MacSettings.fileName), files: state.files)
         let shipper = Shipper(Shipper.Dependencies(
             state: state, link: link, settings: settings, domains: { $0.contains(Self.source) ? [domain] : [] }, clock: clock.read,
             record: { rows.append($0) },
-            settle: { answer in
+            settle: { answer, pressed in
+                presses.append(pressed)
                 let report = await pass.run(.init(seconds: 60), device: device, bringingIn: false,
                                             home: domain.home(answer, link: link, settings: settings))
                 return domain.settled(report, failing: await pass.state().failing, pass: answer.pass, link: link, at: clock.now)
                     .map { [$0] } ?? []
             }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
-        return Rig(home: home, domain: domain, library: library, shipper: shipper, clock: clock, rows: rows)
+        return Rig(home: home, domain: domain, library: library, shipper: shipper, clock: clock, rows: rows, presses: presses)
     }
 
 
@@ -343,11 +346,13 @@ final class PhotosDomainTests: XCTestCase {
         let manual = await rig.shipper.run(.manual)
         XCTAssertEqual(try rig.domain.photos.lastSequence(), 0, "Sync now waited on the library")
         XCTAssertEqual(manual.outcome, "nothing_new")
+        XCTAssertEqual(rig.presses.all, [], "Sync now runs no pass")
 
         let blocked = rig.domain.photos.stateFile
         try FileManager.default.createDirectory(at: blocked.appendingPathComponent("held", isDirectory: true), withIntermediateDirectories: true)
         rig.clock.move(by: 300)
         let timer = await rig.shipper.run(.timer)
+        XCTAssertEqual(rig.presses.all, [true], "its press is carried to the next pass")
         let failed = try XCTUnwrap(rig.rows.all.last)
         XCTAssertEqual([timer.outcome, failed.domain, failed.source], ["refused LOCAL_ACCESS", "photos", Self.source])
         let words = try XCTUnwrap(failed.reason)
@@ -412,7 +417,7 @@ final class PhotosDomainTests: XCTestCase {
         func run(wanting wanted: [String] = []) async {
             clock.move(by: 60)
             let home = PhotoPass.Home(caughtUp: true, wanted: { _ in
-                PhotosWanted(photos: wanted.map { .init(asset: $0, files: ["photo", "video", "fullSizePhoto"]) },
+                PhotosWanted(photos: wanted.map { .init(asset: $0, files: ["photo", "video", "fullSizePhoto"]) }, settled: [],
                              left: .init(wanted: wanted.count, unavailable: 0, bytes: 0))
             })
             _ = await pass.run(.init(seconds: 60), device: Self.mac, bringingIn: false, home: home)

@@ -147,7 +147,7 @@ final class AppSmokeTests: XCTestCase {
                 samples: 1, deletions: 0, anchor: Data([1]))]
             _ = try await HealthSweep.run(
                 store: store, type: type, start: nil, anchor: nil, past: .moves(.any),
-                read: { _ in pages.isEmpty ? HealthPage(drafts: [], samples: 0, deletions: 0, anchor: Data([2])) : pages.removeFirst() },
+                read: { _, _ in pages.isEmpty ? HealthPage(drafts: [], samples: 0, deletions: 0, anchor: Data([2])) : pages.removeFirst() },
                 committed: { _, first in firstYields.append(first) })
         }
         XCTAssertEqual(firstYields, [true, true])

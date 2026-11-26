@@ -330,7 +330,7 @@ extension PhotosTests {
         synthetic.put(Self.photo("FULL/L0/001", minutes: 0))
         let pass = PhotoPass(store: store, library: PhotoLibrary(synthetic), stateURL: root.appendingPathComponent("cursor.json"),
                              build: "1 aaaaaaa")
-        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) })
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in PhotosWanted(photos: [], settled: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) })
         let full = await pass.run(.wake(.foreground), device: Self.wifi, bringingIn: true, home: home)
         XCTAssertNil(full?.error)
         XCTAssertEqual(full?.waits, .space)
@@ -428,7 +428,7 @@ extension PhotosTests {
         try await until("it says what it waits for") { said.lines == [MobileData.Wait.past.words] }
         paths.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1, cost: .lowData))
         try await until("a Wi-Fi with Low Data Mode is said as such") { said.lines.last == MobileData.Wait.lowData.words }
-        paths.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 2))
+        paths.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 2, cost: .free))
         await network.value
         XCTAssertEqual(said.lines, [MobileData.Wait.past.words, MobileData.Wait.lowData.words], "the module's words, once each")
     }
@@ -522,7 +522,7 @@ private final class PhotoRig {
     }
 
     static func wanting(_ ids: [String], files: [String] = ["photo"], left: (wanted: Int, unavailable: Int)) -> [String: Any] {
-        ["photos": ids.map { ["asset": $0, "files": files] },
+        ["photos": ids.map { ["asset": $0, "files": files] }, "settled": [String](),
          "left": ["wanted": left.wanted, "unavailable": left.unavailable, "bytes": left.wanted * 1_000]]
     }
 

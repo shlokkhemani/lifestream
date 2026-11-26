@@ -203,8 +203,8 @@ final class WiFiTests: XCTestCase {
         _ = roads.take()
         var report: [String: Any] = [:]
 
-        for (name, facts) in [("offline", NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, path: 1)),
-                              ("cellular-tailscale-off", NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, path: 2))] {
+        for (name, facts) in [("offline", NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, path: 1, cost: .free)),
+                              ("cellular-tailscale-off", NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, path: 2, cost: .free))] {
             network.set(facts)
             do { _ = try await phoneLink.exchange(); XCTFail("\(name): an exchange with no road answered") } catch LinkFailure.noAnswer {}
             let looked = await phoneLink.look(for: link)
@@ -213,7 +213,7 @@ final class WiFiTests: XCTestCase {
             report[name] = [String]()
         }
 
-        network.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 3))
+        network.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 3, cost: .free))
         do { _ = try await phoneLink.exchange() } catch { XCTFail("on the Wi-Fi: \(error), asked \(roads.take()), \(roads.errors)"); return }
         let onWiFi = roads.take()
         XCTAssertEqual(onWiFi, ["look mac-a.local", "POST mac-a.local/v1/exchange"])
@@ -224,7 +224,7 @@ final class WiFiTests: XCTestCase {
         XCTAssertEqual(same, ["POST mac-a.local/v1/exchange"])
         report["same-path"] = same
 
-        network.set(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 4))
+        network.set(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 4, cost: .free))
         _ = try await phoneLink.exchange()
         let moved = roads.take()
         XCTAssertFalse(moved.contains { $0.contains("mac-a.local") }, "the Bonjour name off the Wi-Fi: \(moved)")
@@ -232,7 +232,7 @@ final class WiFiTests: XCTestCase {
         XCTAssertTrue(moved.contains("look 100.100.0.1") || moved.contains("look 100.100.0.2"), "looked at first: \(moved)")
         report["cellular-tailscale-on"] = moved
 
-        network.set(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 5))
+        network.set(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 5, cost: .free))
         _ = try await phoneLink.exchange()
         let changed = roads.take()
         let host = String(answeredAt.dropFirst("POST ".count).prefix { $0 != "/" })
@@ -240,7 +240,7 @@ final class WiFiTests: XCTestCase {
         XCTAssertEqual(changed.last.map { $0.hasPrefix("POST ") }, true, changed.description)
         report["path-changed"] = changed
 
-        network.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 6))
+        network.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 6, cost: .free))
         roads.hold("mac-a.local")
         _ = try await phoneLink.exchange()
         let together = roads.take()
@@ -265,7 +265,7 @@ final class WiFiTests: XCTestCase {
                            credentials: try self.credentials(), folder: try folder(), transport: Roads(), finder: Listed([]), network: macFacts)
         _ = try await mac.pair(code: code, name: door)
         _ = try await mac.exchange()
-        XCTAssertEqual(macFacts.reads, 0, "a Mac at loopback read the network")
+        XCTAssertEqual(macFacts.reads, 1, "a Mac at loopback reads the network once, to state it, and never to choose a road")
         report["mac-facts-read"] = macFacts.reads
 
         let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

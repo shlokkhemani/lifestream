@@ -464,7 +464,7 @@ final class ShippingTests: XCTestCase {
         let unsent = await shipper.unsent()
         XCTAssertEqual(unsent, PhoneShipper.Unsent(), "a bundle that waits for a long wake is no work for the clock")
         XCTAssertEqual(shipper.waits, [.longWake])
-        XCTAssertEqual(shipper.shippingDescription, "Large files wait to send until this iPhone charges or the app is open.")
+        XCTAssertEqual(shipper.shippingDescription, "Large sends wait until this iPhone charges or the app is open.")
         rig.long = true
         await shipper.reconcile(.wake)
         XCTAssertEqual(rig.home.received(Home.photos), 1, "a wake that is long sends it")
@@ -481,7 +481,7 @@ final class ShippingTests: XCTestCase {
         _ = await shipper.unsent()
         XCTAssertEqual(shipper.waits, [.longWake, .network(.lowData)])
         XCTAssertEqual(shipper.shippingDescription,
-                       "Large files wait to send until this iPhone charges or the app is open.\n" + MobileData.Wait.lowData.words)
+                       "Large sends wait until this iPhone charges or the app is open.\n" + MobileData.Wait.lowData.words)
         rig.long = true
         rig.path = .costly
         await shipper.reconcile(.foreground)

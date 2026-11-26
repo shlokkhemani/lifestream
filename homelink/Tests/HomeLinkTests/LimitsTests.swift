@@ -122,32 +122,6 @@ final class LimitsTests: XCTestCase {
         XCTAssertEqual(try Fixture.object(transport.requests[3])["room"] as? String, "full")
     }
 
-    func testAMacsNetworkReachesTheHomeOnceAChangeAndEveryExchangeCarriesIt() async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("limits-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let mac = HomeLink.Device(kind: .mac, version: "1.4.0", model: "MacBook Pro", serial4: "0001")
-        let credentials = MemoryCredentials()
-        _ = try await HomeLink(device: mac, credentials: credentials, folder: folder, transport: ScriptedTransport([.reply(200, Fixture.paired())]))
-            .pair(code: "12345678", name: "http://127.0.0.1:4680")
-        let transport = ScriptedTransport([.reply(200, Fixture.answer(received: 0, imported: 0))])
-        let link = HomeLink(device: mac, credentials: credentials, folder: folder, transport: transport)
-        _ = try await link.exchange()
-        XCTAssertNil(try Fixture.object(transport.requests[0])["network"], "none before any is told")
-
-        link.tell(network: MobileData.Allows.now)
-        await fulfillment(of: [transport.reached(2)], timeout: 30)
-        XCTAssertEqual(try Fixture.object(transport.requests[1])["network"] as? String, "now", "a change is one exchange of its own")
-        link.tell(network: MobileData.Allows.now)
-        _ = try await link.exchange()
-        XCTAssertEqual(transport.requests.count, 3, "a repeat makes none")
-        XCTAssertEqual(try Fixture.object(transport.requests[2])["network"] as? String, "now", "an exchange made for another reason carries it")
-        XCTAssertFalse(link.owesExchange)
-        link.tell(network: MobileData.Allows.all)
-        await fulfillment(of: [transport.reached(4)], timeout: 30)
-        XCTAssertEqual(try Fixture.object(transport.requests[3])["network"] as? String, "all")
-    }
-
     func testAnUploadToAHomeOnLoopbackMayTakeAnyPathWhileOneElsewhereIsKeptOffTheCostlyOnes() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("limits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -156,7 +130,7 @@ final class LimitsTests: XCTestCase {
         try Data("zip".utf8).write(to: bundle)
         let mac = HomeLink.Device(kind: .mac, version: "1.4.0", model: "MacBook Pro", serial4: "0001")
         var sent: [MobileData.Crossing] = []
-        let free = Watch(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true))
+        let free = Watch(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, cost: .free))
         for (index, home) in ["http://127.0.0.1:4680", "http://100.100.1.1:4680"].enumerated() {
             let credentials = MemoryCredentials()
             let place = folder.appendingPathComponent("\(index)", isDirectory: true)

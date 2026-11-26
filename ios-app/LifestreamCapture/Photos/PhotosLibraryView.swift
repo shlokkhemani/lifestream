@@ -116,7 +116,7 @@ struct BringInWait: Sendable {
     }
 
     private var pastWait: MobileData.Wait? {
-        if case .waits(let wait) = link.mobile(pressed: false).decide(.later, bytes: 0) { wait } else { nil }
+        link.mobile(pressed: false).past.wait
     }
 
     static func space(_ room: Room, phone: String) -> String {

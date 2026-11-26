@@ -35,7 +35,7 @@ final class MonthsTests: XCTestCase {
                             from start: Date = start) async -> PhotoPass.Report? {
         let mac = Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000, changeRoom: nil, page: page)
         let home = PhotoPass.Home(caughtUp: true, start: start, wanted: { _ in
-            PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0))
+            PhotosWanted(photos: [], settled: [], left: .init(wanted: 0, unavailable: 0, bytes: 0))
         })
         return await pass.run(.init(seconds: 60, background: background), device: mac, bringingIn: false, home: home)
     }

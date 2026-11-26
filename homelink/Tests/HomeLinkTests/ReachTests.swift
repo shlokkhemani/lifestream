@@ -972,7 +972,7 @@ final class ReachTests: XCTestCase {
 
     func testTheCauseIsKeptWithTheRoutesItWasJudgedBy() async throws {
         let door = Door()
-        let network = MovableNetwork(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false))
+        let network = MovableNetwork(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, cost: .free))
         let (link, credentials) = try await paired(door, network: network, grace: 2)
         var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(credentials.read())) as? [String: Any])
         stored["addresses"] = ["https://mac-a.local:4682", "https://100.81.6.81:4682"]
@@ -988,14 +988,14 @@ final class ReachTests: XCTestCase {
 
     func testCheckAgainReadsTheNetworkThenProbesEvenUnderTheNetworksCause() async throws {
         let door = Door()
-        let network = MovableNetwork(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false))
+        let network = MovableNetwork(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, cost: .free))
         let (link, _) = try await paired(door, network: network)
         let seen = Recorder(link, from: start)
-        network.set(NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false))
+        network.set(NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, cost: .free))
         await fulfillment(of: [seen.count(2)], timeout: 30)
         XCTAssertEqual(Said.of(link.snapshot, from: start), "unreachable offline 0")
         XCTAssertEqual(door.requests(at: "/v1/status"), 0, "no road: no probe of its own")
-        network.lag(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false))
+        network.lag(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, cost: .free))
         door.answers(.reply(200, "{}", [:]))
         let after = await link.checkAgain()
         XCTAssertEqual(Said.of(after, from: start), "answering r1")
@@ -1142,8 +1142,8 @@ final class MovableNetwork: NetworkWatch, @unchecked Sendable {
 }
 
 extension NetworkFacts {
-    static let home = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1)
-    static let offline = NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, path: 2)
+    static let home = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1, cost: .free)
+    static let offline = NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: false, path: 2, cost: .free)
 }
 
 final class Door: HomeTransport, @unchecked Sendable {

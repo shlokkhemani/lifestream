@@ -708,7 +708,7 @@ final class AgentAsksTests: XCTestCase {
     private func linked(_ door: Door) async throws -> HomeLink {
         let link = HomeLink(device: HomeLink.Device(kind: .phone, version: "1.0.0", model: "iPhone", serial4: nil),
                             credentials: MemoryPass(), folder: folder.appendingPathComponent(UUID().uuidString), transport: door,
-                            network: TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1)))
+                            network: TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1, cost: .free)))
         _ = try await link.pair(code: "12345678", name: "http://100.64.0.42:4680", account: "person-a@example.com")
         return link
     }

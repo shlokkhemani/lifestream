@@ -10,7 +10,9 @@ final class Updates: NSObject {
     static let whatsNewFor: TimeInterval = 24 * 3600
     static let waitsFor: TimeInterval = 24 * 3600
     var locked: () -> Bool = ScreenLock.now
-    var mobile: () -> MobileData.Moment? = { MacLink.shared?.mobile(pressed: false) }
+    var mobile: () -> MobileData.Moment = {
+        MacLink.shared?.mobile(pressed: false) ?? Updates.unlinked(SystemNetwork.shared.facts)
+    }
     var now: () -> Date = Date.init
     var after: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
         DispatchQueue.main.asyncAfter(wallDeadline: .now() + delay) { MainActor.assumeIsolated(work) }
@@ -107,8 +109,12 @@ final class Updates: NSObject {
     }
 
     func mayCheck(_ check: SPUUpdateCheck) throws {
-        guard check == .updatesInBackground, ready == nil, mobile()?.internet.decide(.later, bytes: 0).moves != true else { return }
+        guard check == .updatesInBackground, ready == nil, !mobile().internet.past.moves else { return }
         throw Self.deferred
+    }
+
+    nonisolated static func unlinked(_ facts: NetworkFacts?) -> MobileData.Moment {
+        MobileData.Moment(path: facts?.cost ?? .costly, choice: .now, loopback: false, pressed: false)
     }
 
     static let deferred = NSError(domain: "org.lifestreamprotocol.updates", code: 1,

@@ -131,7 +131,7 @@ final class HealthSweepTests: XCTestCase {
         let seen = Mutex<[(first: Bool, marked: Bool, transactions: Int)]>([])
         _ = try await HealthSweep.run(
             store: store, type: type, start: nil, anchor: nil, past: .moves(.any),
-            read: { try await health.page(after: $0) },
+            read: { anchor, _ in try await health.page(after: anchor) },
             committed: { _, first in
                 let marked = (try? await store.anchor(self.yieldKey)) != nil
                 let transactions = await store.transactions - before
@@ -222,44 +222,75 @@ final class HealthSweepTests: XCTestCase {
 
     private static func ms(_ date: Date) -> Data { Data(String(Int64(date.timeIntervalSince1970 * 1000)).utf8) }
 
-    func testAWholeReadWaitsWhileThePastWaitsAndAnAnchoredReadGoesOn() async throws {
+    private static let costly = MobileData.Moment(path: .costly, choice: .now, loopback: false, pressed: false).past
+    private static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
+    private var today: Date { lately.addingTimeInterval(2 * 86_400) }
+
+    func testAFirstReadWhileThePastWaitsSendsTodayAndTheOlderSpanGoesOnceThePastMayMove() async throws {
         let store = try await CaptureStore.restored(root: try temporaryDirectory())
         let health = FakeHealthKit(history: [.sample("a")], limit: 2)
-        let costly = MobileData.Moment(path: .costly, choice: .now, loopback: false, pressed: false).decide(.later, bytes: 0)
-        do {
-            _ = try await sweep(store, health, past: costly)
-            XCTFail("a first read is the past's")
-        } catch LinkFailure.waits(let wait) {
-            XCTAssertEqual(wait, .past)
-        }
-        let asked = await health.asked
-        XCTAssertEqual(asked, [], "a held first read asks HealthKit nothing")
+        let now = today.addingTimeInterval(15 * 3_600)
+        let held = try await sweep(store, health, start: longAgo, past: Self.costly, now: now)
+        XCTAssertEqual(held.samples, 1, "today's samples go while the past waits")
+        let spans = await health.spans
+        XCTAssertEqual(spans, [today, today], "a first read on a costly path reads from the start of today")
+        let kept = try await store.anchor(startKey)
+        XCTAssertEqual(kept, Self.ms(today), "the anchor stands under today, so the older span is still owed")
 
+        await health.add(.sample("b"))
+        let anchor = try await store.anchor(anchorKey)
+        let more = try await sweep(store, health, from: anchor, start: longAgo, past: Self.costly, now: now)
+        XCTAssertEqual(more.samples, 1, "what is recorded later goes on the same path")
+        let anchored = await health.asked
+        XCTAssertEqual(anchored[anchored.count - 2], anchor, "it reads on from its anchor")
+
+        let wifi = try await sweep(store, health, from: try await store.anchor(anchorKey), start: longAgo, now: now)
+        let asked = await health.asked
+        XCTAssertNil(asked[asked.count - 2], "once the past may move, the type is read again from no anchor")
+        let all = await health.spans
+        XCTAssertEqual(all.suffix(2), [longAgo, longAgo], "under the start the home asked for")
+        XCTAssertEqual(wifi.samples, 2, "the older span goes")
+        let after = try await store.anchor(startKey)
+        XCTAssertEqual(after, Self.ms(longAgo))
+    }
+
+    func testAStartMovedEarlierWhileThePastWaitsReadsOnFromItsAnchorAndRereadsOnceThePastMayMove() async throws {
+        let store = try await CaptureStore.restored(root: try temporaryDirectory())
+        let health = FakeHealthKit(history: [.sample("a")], limit: 2)
         _ = try await sweep(store, health, start: lately)
         let anchor = try await store.anchor(anchorKey)
-        let later = FakeHealthKit(history: [.sample("a"), .sample("b")], limit: 2)
-        _ = try await sweep(store, later, from: anchor, start: lately, past: costly)
-        let anchored = await later.asked
-        XCTAssertEqual(anchored.first, anchor, "what the anchor reports is now: it reads on a costly path")
+        XCTAssertEqual(anchor, FakeHealthKit.anchor(1))
 
-        do {
-            _ = try await sweep(store, later, from: anchor, start: longAgo, past: costly)
-            XCTFail("a start moved earlier rereads the past")
-        } catch LinkFailure.waits(let wait) {
-            XCTAssertEqual(wait, .past)
-        }
-        let reread = await later.asked
-        XCTAssertEqual(reread, anchored, "a held reread asks HealthKit nothing")
+        await health.add(.sample("b"))
+        let held = try await sweep(store, health, from: anchor, start: longAgo, past: Self.costly)
+        XCTAssertEqual(held.samples, 1, "today's samples go while the past waits")
+        let asked = await health.asked
+        XCTAssertEqual(asked[asked.count - 2], anchor, "the stored anchor is kept and read on from")
+        let spans = await health.spans
+        XCTAssertEqual(spans.suffix(2), [lately, lately], "under the start it was read under")
+        let kept = try await store.anchor(startKey)
+        XCTAssertEqual(kept, Self.ms(lately), "so the earlier start is still owed")
+
+        let wifi = try await sweep(store, health, from: try await store.anchor(anchorKey), start: longAgo)
+        let reread = await health.asked
+        XCTAssertNil(reread[reread.count - 2], "once the past may move, the earlier start rereads from no anchor")
+        XCTAssertEqual(wifi.samples, 2, "the older span goes")
+        let after = try await store.anchor(startKey)
+        XCTAssertEqual(after, Self.ms(longAgo))
     }
 
     private func sweep(
         _ store: CaptureStore, _ health: FakeHealthKit, from anchor: Data? = nil, start: Date? = nil,
-        past: MobileData.Decision = .moves(.any),
+        past: MobileData.Decision = .moves(.any), now: Date = AppClock.now,
         committed: @escaping @Sendable (HealthPage, Bool) -> Void = { _, _ in }
     ) async throws -> (samples: Int, deletions: Int) {
         try await HealthSweep.run(
-            store: store, type: type, start: start, anchor: anchor, past: past,
-            read: { try await health.page(after: $0) },
+            store: store, type: type, start: start, anchor: anchor, past: past, now: now, calendar: Self.utc,
+            read: { try await health.page(after: $0, from: $1) },
             committed: { page, first in committed(page, first) })
     }
 
@@ -284,6 +315,7 @@ actor FakeHealthKit {
     private let limit: Int
     private var failAt: Int?
     private(set) var asked: [Data?] = []
+    private(set) var spans: [Date?] = []
 
     init(history: [Change], limit: Int) {
         self.history = history
@@ -301,8 +333,9 @@ actor FakeHealthKit {
 
     func add(_ change: Change) { history.append(change) }
 
-    func page(after anchor: Data?) throws -> HealthPage {
+    func page(after anchor: Data?, from: Date? = nil) throws -> HealthPage {
         asked.append(anchor)
+        spans.append(from)
         if asked.count == failAt {
             failAt = nil
             throw Failed()

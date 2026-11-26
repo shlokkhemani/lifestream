@@ -379,11 +379,11 @@ final class SendClockTests: XCTestCase {
     }
 
     func testOnlyAPathUpdateThatChangesARoadIsAChangeOfNetwork() {
-        let wifi = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 1)
-        let cellular = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 2)
-        let offline = NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: true, path: 3)
-        let noTunnel = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, path: 4)
-        let again = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 9)
+        let wifi = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 1, cost: .free)
+        let cellular = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 2, cost: .free)
+        let offline = NetworkFacts(online: false, onLocalNetwork: false, tunnelUp: true, path: 3, cost: .free)
+        let noTunnel = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, path: 4, cost: .free)
+        let again = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 9, cost: .free)
         XCTAssertFalse(again.changesRoad(from: wifi), "a path update that changes nothing")
         XCTAssertTrue(cellular.changesRoad(from: wifi), "Wi-Fi to cellular")
         XCTAssertTrue(wifi.changesRoad(from: cellular), "cellular to Wi-Fi")

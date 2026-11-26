@@ -94,7 +94,7 @@ extension PhoneShipper {
 
 extension Device {
     init(_ mobile: MobileData.Moment, charging: Bool, spare: Int64, changeRoom: Int64? = .max) {
-        self.init(pastMoves: mobile.decide(.later, bytes: 0).moves, iCloud: mobile.internet.decide(.later, bytes: .max).moves,
+        self.init(pastMoves: mobile.past.moves, iCloud: mobile.internet.decide(.later, bytes: .max).moves,
                   charging: charging, spare: spare, changeRoom: changeRoom)
     }
 }

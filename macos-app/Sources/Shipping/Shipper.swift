@@ -16,7 +16,7 @@ public actor Shipper {
         public let grants: @Sendable () -> [String: String]?
         public let found: @Sendable () -> [String]?
         public let stores: DeclaredStores?
-        public let settle: @Sendable (FreshAnswer) async -> [ShipperRunRow]
+        public let settle: @Sendable (FreshAnswer, _ pressed: Bool) async -> [ShipperRunRow]
         public let keepAwake: @Sendable () -> @Sendable () -> Void
         public let scratch: URL
 
@@ -30,7 +30,7 @@ public actor Shipper {
                     grants: @escaping @Sendable () -> [String: String]? = { nil },
                     found: @escaping @Sendable () -> [String]? = { nil },
                     stores: DeclaredStores? = nil,
-                    settle: @escaping @Sendable (FreshAnswer) async -> [ShipperRunRow] = { _ in [] },
+                    settle: @escaping @Sendable (FreshAnswer, _ pressed: Bool) async -> [ShipperRunRow] = { _, _ in [] },
                     keepAwake: @escaping @Sendable () -> @Sendable () -> Void = { {} },
                     scratch: URL) {
             self.state = state
@@ -68,6 +68,7 @@ public actor Shipper {
     private var refusedThisRun: Set<String> = []
     private var conflicted: Set<String> = []
     private var pastWaits: MobileData.Wait?
+    private var pressOwed = false
     private var holds: [String: Hold] = [:]
     private var lastAnswered: (asked: Date, received: Date)?
 
@@ -223,7 +224,8 @@ public actor Shipper {
             return finish(rows, at: now)
         }
         let pressed = trigger != .timer
-        pastWaits = Self.wait(of: link.mobile(pressed: pressed).decide(.later, bytes: 0))
+        if pressed { pressOwed = true }
+        pastWaits = Self.wait(of: link.mobile(pressed: pressed).past)
 
         if let found = dependencies.found() { link.tell(found: found) }
         if let grants = dependencies.grants() { link.tell(grants: grants) }
@@ -375,7 +377,9 @@ public actor Shipper {
 
         if trigger == .timer {
             let settle = dependencies.settle
-            for row in await Task.detached(priority: .background, operation: { [answer] in await settle(answer) }).value {
+            let press = pressOwed
+            pressOwed = false
+            for row in await Task.detached(priority: .background, operation: { [answer] in await settle(answer, press) }).value {
                 note(row)
                 if row.outcome == "refused", let source = row.source {
                     refused(source, code: row.code ?? "LOCAL_ACCESS", message: row.message ?? "", at: now)

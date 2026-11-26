@@ -485,7 +485,7 @@ final class LifeReaderTests: XCTestCase {
             + #""turn":{"run":"0000000000000001","n":1}}"#
         let door = Door()
         door.steps = [{ _ in HomeResponse(status: 200, body: Data(#"{"unit":"iphone-aa00","answer":\#(answer)}"#.utf8)) }]
-        let network = TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1))
+        let network = TestNetwork(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1, cost: .free))
         let link = HomeLink(device: HomeLink.Device(kind: .phone, version: "1.0.0", model: "iPhone", serial4: nil),
                             credentials: MemoryPass(), folder: folder, transport: door, network: network,
                             pacer: fires.pacer)

@@ -350,7 +350,7 @@ public final class HomeLink: Sendable {
         if let imports = stated.own.imports { fields["imports"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(imports)) }
         if let sending = stated.riding.sending { fields["sending"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(sending)) }
         if let room = stated.own.room { fields["room"] = room.rawValue }
-        if let network = stated.own.network { fields["network"] = network.rawValue }
+        fields["network"] = mobile(pressed: false).stated.rawValue
         if let recorder = stated.own.recorder { fields["recorder"] = recorder.stated }
         if let stores = stated.own.stores { fields["stores"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(stores)) }
         if let through = stated.riding.through, through.pass == pass {
@@ -436,11 +436,6 @@ public final class HomeLink: Sendable {
 
     public func tell(room: Room) {
         guard told.keep(at: clock(), { $0.own.room = room }) else { return }
-        telling()
-    }
-
-    public func tell(network: MobileData.Allows) {
-        guard told.keep(at: clock(), { $0.own.network = network }) else { return }
         telling()
     }
 
@@ -586,7 +581,7 @@ public final class HomeLink: Sendable {
         encoder.outputFormatting = .sortedKeys
         return try await postSetting(try encoder.encode([key: value])) { response in
             if let unit, key == MobileData.key(of: unit), case .string(let word) = value, let choice = MobileData.Choice(rawValue: word) {
-                choose(choice, after: response.sent ?? newest.sending())
+                choose(choice, after: newest.sending())
             }
             return value
         }
@@ -1428,7 +1423,6 @@ private final class Told: @unchecked Sendable {
             var imports: [MacImport]?
             var recorder: RecorderStatement?
             var room: Room?
-            var network: MobileData.Allows?
             var stores: HomeLink.StoresStated?
         }
         struct Riding: Equatable {

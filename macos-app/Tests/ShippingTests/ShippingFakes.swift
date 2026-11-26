@@ -105,7 +105,7 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
     static let code = "12345678"
 
     static func wanting(_ ids: [String], files: [String] = ["photo"], unavailable: Int = 0) -> [String: Any] {
-        ["photos": ids.map { ["asset": $0, "files": files] },
+        ["photos": ids.map { ["asset": $0, "files": files] }, "settled": [String](),
          "left": ["wanted": ids.count, "unavailable": unavailable, "bytes": ids.count * 1_000]]
     }
 
