@@ -1,5 +1,9 @@
 // @ts-check
-/** @import { DeviceRow, ModelsRead, OutboundList, OutboundOne, PrivacyRead, StorageRead, StreamsReport } from '../../types.js' */
+/** @import { DeviceRow, OutboundList, OutboundOne, PrivacyRead, StreamsReport } from '../../types.js' */
+/** @import { Models, ModelUse, Pages } from '../../pages.js' */
+/** @import { Picked } from './settings-search.js' */
+/** @import { SettingsEntry } from '../../settings-index.js' */
+/** @import { Storage } from './settings-storage.js' */
 /** @import { Flow } from '../flows/model.js' */
 /** @import { HostAct, HostState } from '../../lib/host.js' */
 /** @import { Detail, DetailPart, Opened } from './dialog.js' */
@@ -10,13 +14,15 @@ import { rowOf } from './dialog.js';
 import { lacks } from '../../lib/reach.js';
 import { LACKS, NOT_HERE } from './changes.js';
 import { today } from '../../lib/home-clock.js';
-import { addressAct, addressPage, keyAct, MODEL_FIELDS, modelsParts } from './settings-models.js';
+import { addressAct, addressPage, keyAct, MODEL_FIELDS, modelsParts, morePage, useOf } from './settings-models.js';
 import { listPage, outboundPage, privacyParts, sentPage } from './settings-privacy.js';
 import { meaningParts } from './settings-search.js';
-import { storageModel, WORDS as STORAGE_WORDS } from './settings-storage.js';
+import { storageTerms, WORDS as STORAGE_WORDS } from './settings-storage.js';
+import { answerParts, WORDS as ANSWER_WORDS } from './settings-answer.js';
+import { SETTINGS_INDEX } from '../../settings-index.js';
 import {
-  advancedParts, appearanceParts, chromeParts, homeParts, macsOf, part, phoneParts, phonesOf,
-  recoveryRows, storageParts, thisMacParts, timeParts, updatesParts,
+  appearanceParts, chromeParts, homeParts, macsOf, part, phoneParts,
+  recoveryRows, storageParts, thisMacParts, updatesParts,
 } from './settings-pages.js';
 
 export const SETTINGS = 'settings';
@@ -35,34 +41,12 @@ export const SETTINGS_MEANING = `${SETTINGS}/meaning`;
 /** @param {string} id */
 export const isSettings = id => id === SETTINGS || id.startsWith(`${SETTINGS}/`);
 
-/** @typedef {{ id: string, label: string, icon: string, mac?: boolean }} Page */
+export const ENTRIES = SETTINGS_INDEX.mac.flatMap(group => group.entries);
 
-/** @type {{ label: string, pages: Page[] }[]} */
-export const GROUPS = [
-  { label: 'Lifestream', pages: [
-    { id: 'home', label: 'General', icon: 'home' },
-    { id: 'storage', label: 'Storage', icon: 'drive' },
-    { id: 'time', label: 'Day and time', icon: 'time' },
-    { id: 'recovery', label: 'Recovery key', icon: 'private', mac: true },
-  ] },
-  { label: 'Devices', pages: [
-    { id: 'mac', label: 'This Mac', icon: 'work-mac' },
-    { id: 'iphone', label: 'iPhone', icon: 'phone-screen' },
-    { id: 'chrome', label: 'Chrome extension', icon: 'web' },
-  ] },
-  { label: 'Models', pages: [
-    { id: 'models', label: 'AI models', icon: 'ai' },
-    { id: 'privacy', label: 'Privacy', icon: 'hidden' },
-    { id: 'meaning', label: 'Search by meaning', icon: 'search' },
-  ] },
-  { label: 'App', pages: [
-    { id: 'appearance', label: 'Appearance', icon: 'settings' },
-    { id: 'updates', label: 'Updates', icon: 'update', mac: true },
-    { id: 'advanced', label: 'Advanced', icon: 'filter' },
-  ] },
-];
+/** @param {string} id */
+const entryOf = id => ENTRIES.find(each => each.id === id) ?? null;
 
-const PAGES = GROUPS.flatMap(group => group.pages);
+export const ANSWERED = ENTRIES.filter(each => each.answer === 'settingsPage').map(each => each.id);
 
 /**
  * @param {string} id
@@ -71,7 +55,7 @@ const PAGES = GROUPS.flatMap(group => group.pages);
 export function settingsAt(id) {
   if (!isSettings(id)) return null;
   const [, page = 'home', ...row] = id.split('/');
-  return PAGES.some(each => each.id === page) ? { page, row: row.join('/') } : null;
+  return entryOf(page) ? { page, row: row.join('/') } : null;
 }
 
 /**
@@ -94,7 +78,7 @@ export const SETTINGS_FIND = 'settings.find';
 
 export const OUTBOUND_LACKS = { unread: 'What left Lifestream couldn’t be read.', notHere: 'What left Lifestream isn’t on this Mac yet.' };
 
-/** @typedef {{ drawn: import('../../lib/reach.js').Drawn, notHere: string, unread: string, reread: 'models' | 'privacy' | 'screen' | 'outbound' | 'storage' }} ReadFailed */
+/** @typedef {{ drawn: import('../../lib/reach.js').Drawn, notHere: string, unread: string, reread: 'models' | 'privacy' | 'screen' | 'outbound' | 'storage' | 'settings' }} ReadFailed */
 
 /**
  * @param {import('../../lib/reach.js').Drawn | null} drawn
@@ -181,27 +165,27 @@ function privacyInside(inside, reach, privacy) {
 }
 
 /**
+ * @param {Pages['settings'] | null} live
+ * @param {string} id
+ */
+const valueOf = (live, id) => live?.values.find(each => each.id === id) ?? null;
+
+/**
  * @param {string} page
- * @param {StreamsReport | null} report
+ * @param {Pages['settings'] | null} live
  * @param {HostState | null} state
  */
-function dotted(page, report, state) {
+function dotted(page, live, state) {
   if (page === 'updates') return Boolean(state?.update || state?.general?.update);
   if (page === 'mac') return Boolean(state?.grants.some(grant => !grant.granted && !grant.optional));
-  if (page === 'iphone') return phonesOf(report).some(phone => !phone.retired && phone.health.state === 'needs-you');
-  return false;
+  return Boolean(valueOf(live, page)?.signal);
 }
 
 /**
- * @param {Page} page
- * @param {StreamsReport | null} report
+ * @param {SettingsEntry} entry
+ * @param {Pages['settings'] | null} live
  */
-function nameOf(page, report) {
-  const held = (/** @type {'mac' | 'phone'} */ kind) => (report?.devices ?? []).filter(each => each.kind === kind && !each.retired).length;
-  if (page.id === 'mac' && held('mac') > 1) return 'Macs';
-  if (page.id === 'iphone' && held('phone') > 1) return 'iPhones';
-  return page.label;
-}
+const nameOf = (entry, live) => valueOf(live, entry.id)?.label ?? entry.label;
 
 /** @typedef {{ read: PrivacyRead | null, drawn: import('../../lib/reach.js').Drawn | null, days: OutboundList | null, page: OutboundList | null, row: OutboundOne | null, outbound: import('../../lib/reach.js').Drawn | null }} PrivacyReads */
 
@@ -213,13 +197,19 @@ export const NO_SCREEN = { read: null, drawn: null };
 /** @type {PrivacyReads} */
 export const NO_PRIVACY = { read: null, drawn: null, days: null, page: null, row: null, outbound: null };
 
-/** @typedef {{ read: StorageRead | null, drawn: import('../../lib/reach.js').Drawn | null, more?: boolean }} StorageReads */
+/** @typedef {{ read: Storage | null, drawn: import('../../lib/reach.js').Drawn | null, more?: boolean }} StorageReads */
 
 /** @type {StorageReads} */
 export const NO_STORAGE = { read: null, drawn: null };
 
-/** @param {Reach} reach */
-const runnerOf = reach => reach.home && reach.state ? `runner-${reach.state.unit}` : null;
+/** @typedef {{ read: Pages['settingsPage'] | null, drawn: import('../../lib/reach.js').Drawn | null }} PageRead */
+
+/** @typedef {{ live: Pages['settings'] | null, pages: Readonly<Record<string, PageRead | undefined>> }} SettingsReads */
+
+/** @type {SettingsReads} */
+export const NO_SETTINGS = { live: null, pages: {} };
+
+const settingsFailed = () => ({ notHere: ANSWER_WORDS.notHere, unread: ANSWER_WORDS.unread });
 
 /**
  * @param {Reach} reach
@@ -227,40 +217,64 @@ const runnerOf = reach => reach.home && reach.state ? `runner-${reach.state.unit
  * @returns {{ parts: DetailPart[], reading: boolean, storage: Detail['storage'], failed: ReadFailed | null }}
  */
 function storagePage(reach, { read, drawn, more = false }) {
-  return { parts: storageParts(reach, read?.disk.keep_bytes ?? null), reading: !read && !ownFailure(drawn),
-    storage: read ? storageModel(read, { report: reach.report, today: reach.report?.day ?? today(), more }) : null,
+  return { parts: storageParts(reach, read?.keep ?? null), reading: !read && !ownFailure(drawn),
+    storage: read ? { answer: read, more } : null,
     failed: failedRead(drawn, 'storage', { notHere: STORAGE_WORDS.notHere, unread: STORAGE_WORDS.failed }) };
 }
 
 /**
+ * @param {PageRead | undefined} held
+ * @param {boolean} home
+ * @returns {{ parts: DetailPart[], reading: boolean, failed: ReadFailed | null }}
+ */
+const answeredPage = (held, home) => ({ parts: held?.read ? answerParts(held.read, home) : [],
+  reading: !held?.read && !ownFailure(held?.drawn ?? null), failed: failedRead(held?.drawn ?? null, 'settings', settingsFailed()) });
+
+/**
+ * @param {Models | null} models
+ * @param {ModelUse['use']} use
+ * @returns {Picked | null}
+ */
+const pickedOf = (models, use) => {
+  const picked = models && useOf(models, use);
+  return picked ? { words: picked.words, line: picked.line, chosen: picked.value !== null } : null;
+};
+
+/** @type {Do} */
+const CHOOSE = { open: SETTINGS_MODELS };
+
+/**
  * @param {string} page
  * @param {Reach} reach
- * @param {{ models: ModelsRead | null, failed: import('../../lib/reach.js').Drawn | null, subscriptions: Flow | null,
- *   privacy: PrivacyReads, screen: ScreenReads, storage: StorageReads }} read
+ * @param {{ models: Models | null, failed: import('../../lib/reach.js').Drawn | null, subscriptions: Flow | null,
+ *   privacy: PrivacyReads, screen: ScreenReads, storage: StorageReads, answers: SettingsReads }} read
  * @returns {{ parts: DetailPart[], reading: boolean, storage?: Detail['storage'], failed?: ReadFailed | null }}
  */
-function partsOf(page, reach, { models, failed, subscriptions, privacy, screen, storage }) {
+function partsOf(page, reach, { models, failed, subscriptions, privacy, screen, storage, answers }) {
   const { report, state, home, answering } = reach;
   const awaiting = { parts: [], reading: true };
-  const settings = report?.home.settings ?? null;
+  const answer = entryOf(page)?.answer;
+  if (answer === 'settingsPage') return answeredPage(answers.pages[page], home);
+  if (answer === 'models') {
+    return { ...modelsParts({ models, failed: ownFailure(failed), subscriptions, acts: home, opened: reach.opened }),
+      failed: failedRead(failed, 'models', { notHere: NOT_HERE.models, unread: LACKS.models }) };
+  }
   switch (page) {
     case 'home': return report || !answering ? { parts: homeParts(reach), reading: false } : awaiting;
     case 'storage': return storagePage(reach, storage);
-    case 'time': return settings ? { parts: timeParts(settings), reading: false } : awaiting;
     case 'recovery': return { parts: state ? [part({ rows: recoveryRows(state) })] : [], reading: state?.vault === null };
     case 'mac': return report || state ? { parts: thisMacParts(reach), reading: !report } : awaiting;
     case 'iphone': return report ? { parts: phoneParts(reach), reading: false } : awaiting;
     case 'chrome': return report ? { parts: chromeParts(reach), reading: false } : awaiting;
     case 'appearance': return { parts: appearanceParts(reach), reading: false };
     case 'updates': return { parts: state ? updatesParts(state) : [], reading: false };
-    case 'advanced': return report && settings ? { parts: advancedParts(report, settings, home), reading: false } : awaiting;
     case 'privacy': return { ...privacyParts({ privacy: privacy.read, failed: ownFailure(privacy.drawn), days: privacy.days,
-      acts: home, runner: runnerOf(reach), today: today() }),
+      acts: home, model: pickedOf(models, 'hiding'), choose: CHOOSE, today: today() }),
     failed: failedRead(privacy.drawn, 'privacy', { notHere: NOT_HERE.privacy, unread: LACKS.privacy }) };
-    case 'meaning': return { ...meaningParts({ state: screen.read, failed: ownFailure(screen.drawn), acts: home, runner: runnerOf(reach) }),
-      failed: failedRead(screen.drawn, 'screen', { notHere: NOT_HERE.screen, unread: LACKS.screen }) };
-    default: return { ...modelsParts({ models, failed: ownFailure(failed), subscriptions, state, acts: home, opened: reach.opened }),
-      failed: failedRead(failed, 'models', { notHere: NOT_HERE.models, unread: LACKS.models }) };
+    case 'meaning': return { ...meaningParts({ state: screen.read, failed: ownFailure(screen.drawn), acts: home,
+      model: pickedOf(models, 'search'), choose: CHOOSE }),
+    failed: failedRead(screen.drawn, 'screen', { notHere: NOT_HERE.screen, unread: LACKS.screen }) };
+    default: return { parts: [], reading: false };
   }
 }
 
@@ -272,38 +286,39 @@ const ON_HOME = new Set(['home', 'iphone', 'chrome', 'models', 'privacy', 'meani
  */
 const termsOf = (name, parts) => [name, ...parts.flatMap(each => [each.label, ...each.panel?.rows.map(row => row.label) ?? []])];
 
-const STORAGE_TERMS = [STORAGE_WORDS.growth, STORAGE_WORDS.uses, STORAGE_WORDS.own];
-
 /**
- * @param {{ report: StreamsReport | null, models: ModelsRead | null, failed?: import('../../lib/reach.js').Drawn | null, state: HostState | null, id: string, opened: Opened, subscriptions: Flow | null, theme?: 'system' | 'light' | 'dark', query?: string, unread?: boolean, privacy?: PrivacyReads, screen?: ScreenReads, storage?: StorageReads }} read
+ * @param {{ report: StreamsReport | null, models: Models | null, failed?: import('../../lib/reach.js').Drawn | null, state: HostState | null, id: string, opened: Opened, subscriptions: Flow | null, theme?: 'system' | 'light' | 'dark', query?: string, unread?: boolean, privacy?: PrivacyReads, screen?: ScreenReads, storage?: StorageReads, answers?: SettingsReads }} read
  * @returns {Detail | null}
  */
 export function settingsDetail({ report, models, failed = null, state, id, opened, subscriptions, theme = 'system', query = '',
-  unread = false, privacy = NO_PRIVACY, screen = NO_SCREEN, storage = NO_STORAGE }) {
+  unread = false, privacy = NO_PRIVACY, screen = NO_SCREEN, storage = NO_STORAGE, answers = NO_SETTINGS }) {
   const at = settingsAt(id);
-  const page = at && PAGES.find(each => each.id === at.page);
-  if (!at || !page || (page.mac && !state)) return null;
+  const page = at && entryOf(at.page);
+  if (!at || !page || (page.host && !state)) return null;
   const answering = !unread && !lacks(state?.reach);
   const holds = state !== null && state.folder !== null;
   /** @type {Reach} */
   const reach = { report, state, opened, theme, answering, home: state !== null && report !== null && answering && holds };
-  const read = { models, failed, subscriptions, privacy, screen, storage };
+  const read = { models, failed, subscriptions, privacy, screen, storage, answers };
+  const { live } = answers;
   const words = query.trim().toLocaleLowerCase();
-  const finds = (/** @type {Page} */ each) => !words || [...termsOf(nameOf(each, report), partsOf(each.id, reach, read).parts),
-    ...each.id === 'storage' ? STORAGE_TERMS : []].some(term => term.toLocaleLowerCase().includes(words));
-  const nav = { label: 'Settings', query, groups: GROUPS.map(group => ({ label: group.label, items: group.pages
-    .filter(each => !each.mac || state)
+  const finds = (/** @type {SettingsEntry} */ each) => !words || [...termsOf(nameOf(each, live), partsOf(each.id, reach, read).parts),
+    ...each.answer === 'storage' && storage.read ? storageTerms(storage.read) : []].some(term => term.toLocaleLowerCase().includes(words));
+  const nav = { label: 'Settings', query, groups: SETTINGS_INDEX.mac.map(group => ({ label: group.label, items: group.entries
+    .filter(each => !each.host || state)
     .filter(finds)
-    .map(each => ({ id: each.id, label: nameOf(each, report), icon: each.icon, on: each.id === page.id,
-      dot: dotted(each.id, report, state), do: /** @type {Do} */ ({ open: `${SETTINGS}/${each.id}` }) })) }))
+    .map(each => ({ id: each.id, label: nameOf(each, live), icon: each.icon, on: each.id === page.id,
+      dot: dotted(each.id, live, state), do: /** @type {Do} */ ({ open: `${SETTINGS}/${each.id}` }) })) }))
     .filter(group => group.items.length) };
   const note = !ON_HOME.has(page.id) ? '' : !state ? NOTES.browser : !answering ? '' : !holds ? NOTES.elsewhere : '';
-  const name = nameOf(page, report);
+  const name = nameOf(page, live);
   /** @type {Detail} */
   const base = { id, icon: page.icon, name, line: '', state: null, callout: null, figure: null, parts: [], panels: [], back: null,
     foot: null, confirm: null, reading: false, ticking: false, nav, note, at: at.row };
   const inside = opened.pages.at(-1);
   if (page.id === 'models' && inside === 'address' && reach.home) return { ...base, back: { label: name }, parts: [addressPage(opened)] };
+  const more = page.id === 'models' ? morePage(models, opened, reach.home) : null;
+  if (more) return { ...base, back: { label: name }, name: more.title, parts: more.parts };
   const mac = page.id === 'mac' && reach.home ? renamed(opened, report) : null;
   if (mac) return { ...base, back: { label: name }, parts: [renamePage(opened, mac, report, mac.unit === state?.unit)] };
   const inPrivacy = page.id === 'privacy' && inside ? privacyInside(inside, reach, privacy) : null;
@@ -325,7 +340,7 @@ export function settingsDetail({ report, models, failed = null, state, id, opene
 function failedOf(failed, reading, state, page = '') {
   const lacking = lacks(state?.reach);
   if (failed) return { ...failed, lacking };
-  const own = READS[page];
+  const own = READS[page] ?? (entryOf(page)?.answer === 'settingsPage' ? { reread: /** @type {const} */ ('settings'), ...settingsFailed() } : undefined);
   return own && reading && lacking ? { drawn: { kind: 'reach' }, ...own, lacking } : null;
 }
 

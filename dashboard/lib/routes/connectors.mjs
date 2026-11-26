@@ -27,20 +27,6 @@ async function jsonBody(req) {
  */
 export function connectorRoutes(door) {
   return [{
-    method: 'GET', path: '/api/models',
-    handle: async () => {
-      if (!door) throw statusError(NO_TOKEN, 503);
-      const { position: _position, ...models } = /** @type {Record<string, unknown>} */ (await door.json('/v1/models'));
-      return reply(models);
-    },
-  }, {
-    method: 'GET', path: '/api/storage',
-    handle: async () => {
-      if (!door) throw statusError(NO_TOKEN, 503);
-      const { position: _position, ...storage } = /** @type {Record<string, unknown>} */ (await door.json('/v1/storage'));
-      return reply(storage);
-    },
-  }, {
     method: 'GET', path: '/api/start/cost',
     handle: async () => {
       if (!door) throw statusError(NO_TOKEN, 503);

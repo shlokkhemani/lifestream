@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { HIDING_META } from "./copies.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { admit, admittedNone, imports, vendorOf, declarations, Refused, type Connector, type HeldSite, type KindExport } from "@lifestreamprotocol/connect";
-import { openLedger, type Abilities, type RunnerFile, type RunnerListing } from "@lifestreamprotocol/model";
+import { openLedger, type Abilities, type RunnerFile, type RunnerListing, type UseId } from "@lifestreamprotocol/model";
 import { openHome, openHomeFolder, readTables, type DaySettings, type Guard, type Json, type JsonObject, type ReaderOutput } from "@lifestreamprotocol/core";
 import { CAPTION_PROMPT, MESSAGES_FAMILY, TRANSCRIPT_PROMPT } from "@lifestreamprotocol/families";
 import { readPrivacySettings } from "@lifestreamprotocol/privacy";
@@ -13,6 +13,7 @@ import { installCommand } from "./command.js";
 import { DISMISSED, readConnectors, refusedWords, type ConnectorsInput } from "./connectors.js";
 import { chooseFor, openMade } from "./made.js";
 import { restRefusal } from "./jobs.js";
+import { ADDRESS_WINDOW, MENU } from "./models-read.js";
 import { MODELS_META, readRouting, type ModelRoute } from "./models.js";
 import { peopleFileOf } from "./people.js";
 import { PEOPLE, writePrepared } from "./prepared.js";
@@ -45,7 +46,7 @@ const FIXTURE = join(FIXTURES, "report.json");
 const PHONE_FIXTURE = join(FIXTURES, "pages", "canned", "connectors.report.json");
 const WRITE_FIXTURES = process.env.LIFESTREAM_FIXTURES === "write";
 
-const ROUTE = { output: "text", tools: false, context_tokens: null, thinking: [], offered: true, runner: null, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
+const ROUTE = { output: "text", tools: false, context_tokens: null, thinking: [], suggested: [], offered: true, runner: null, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
 const VISION: ModelRoute = {
   ...ROUTE, id: "openrouter:vendor-a/vision-1", transport: "openrouter", model: "vendor-a/vision-1", name: "Vision One", input: ["text", "image"], chat: "door",
   leaves: "OpenRouter", where: "Sent to OpenRouter", cost: "priced", state: "ready", line: null,
@@ -70,12 +71,12 @@ const RUNNER: RunnerListing = {
   ],
 };
 const ON_RUNNER = {
-  transport: "runner", offered: true, runner: { unit: RUNNER_UNIT, name: "MacBook Pro", battery: false }, leaves: null, where: "Stays on MacBook Pro", cost: "free",
+  transport: "runner", suggested: [], offered: true, runner: { unit: RUNNER_UNIT, name: "MacBook Pro", battery: false }, leaves: null, where: "Stays on MacBook Pro", cost: "free",
   request: { effort: "none", sampling: null, timeout_ms: 300_000 },
 } as const;
 const onRunner = (file: RunnerFile) => ({ ...ON_RUNNER, id: `runner:${RUNNER_UNIT}/${file.id}`, model: file.id, name: file.name, chat: "door" as const,
   input: file.input, output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: file.thinking });
-const QWEN: ModelRoute = { ...onRunner(RUNNER.files[0]!), state: "ready", line: null };
+const QWEN: ModelRoute = { ...onRunner(RUNNER.files[0]!), suggested: ["pictures"], state: "ready", line: null };
 const PARAKEET: ModelRoute = { ...onRunner(RUNNER.files[1]!), state: "unavailable", line: "Downloading, 0.3 of 0.7 GB" };
 const NEMOTRON: ModelRoute = { ...onRunner(RUNNER.files[2]!), state: "unavailable", line: "Not downloaded" };
 const ROUTES = [VISION, PLAN, QWEN, PARAKEET, NEMOTRON];
@@ -322,8 +323,8 @@ function canned(prefix: string, settings: JsonObject = {}, now = NOW) {
       writePrepared(openHomeFolder(root), peopleFileOf(root, self.machine), PEOPLE, { rows: new Map([["answer", new Map([["quiet", counts]])]]), position: "1" });
       return self;
     },
-    models(routes: readonly ModelRoute[], connected = false, runners: readonly RunnerListing[] = []) {
-      raw.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(MODELS_META, JSON.stringify({ routes, runners: runners.map((runner) => ({ ...runner, below: null })), openrouter: { connected } }));
+    models(routes: readonly ModelRoute[], runners: readonly RunnerListing[] = []) {
+      raw.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(MODELS_META, JSON.stringify({ routes, runners: runners.map((runner) => ({ ...runner, below: null })), connections: {} }));
       return self;
     },
     asks(work_id: string, prompt: string, rows: { item: string; at_ms: number; state?: "pending" | "given-up" | "done"; content?: Json; reply_key?: string }[]) {
@@ -399,7 +400,7 @@ function typedNote(root: string, day: string, blocks: Readonly<Record<string, Js
     const [settings, families] = [readOpsSettings(root), familiesOf(root)];
     return withLedger(openHomeFolder(root), (ledger) => db.transaction(() => readProcessing(readTables(db), ledger!.rates(NOW), {
       connectors: DECLARED, families, blocks, defaults: { pictures: VISION.id, audio: null, text: null }, runners: {}, day: DAY, now_ms: NOW, typed: day,
-      histories: readHistories(db, { folder: openHomeFolder(root), now_ms: NOW, settings, connectors: DECLARED, families, ledger: null }), privacy: settings.privacy, home: settings.unit,
+      histories: readHistories(db, { folder: openHomeFolder(root), now_ms: NOW, settings, connectors: DECLARED, families, ledger: null }), privacy: settings.privacy,
     }).get("whatsapp")!.typed)());
   } finally {
     db.close();
@@ -475,7 +476,7 @@ describe("the streams report", () => {
     at.pass(MAC_A, "mac", [SCREEN], NOW - 2 * DAY_MS);
     at.source(WHATSAPP, "whatsapp-mac").land(WHATSAPP, [item("message", "w1", NOW - 30 * MINUTE), item("message", "w2", NOW - 2 * HOUR), item("message", "w3", NOW - 5 * HOUR)]);
     at.delivery(WHATSAPP, NOW - 2 * MINUTE, { left: 0 }).quiet({ whatsapp: 4 });
-    at.models(ROUTES, false, [RUNNER]).replied(VISION, CAPTION_PROMPT, 20, 0.6)
+    at.models(ROUTES, [RUNNER]).replied(VISION, CAPTION_PROMPT, 20, 0.6)
       .asks("whatsapp/photos", CAPTION_PROMPT, [
         { item: chatFile(1), at_ms: NOW - HOUR }, { item: chatFile(2), at_ms: NOW - 40 * DAY_MS }, { item: chatFile(3), at_ms: NOW - 400 * DAY_MS },
         { item: chatFile(4), at_ms: NOW - 2 * HOUR, state: "given-up" },
@@ -657,8 +658,8 @@ describe("the streams report", () => {
       .toEqual([["llm.photos", null, release("whatsapp").processing!.photos!.about], ["llm.voice", null, release("whatsapp").processing!.voice!.about], ["llm.range", null, null]]);
     expect([connectorOf(report, "apple-photos").backfill_about, connectorOf(report, "whatsapp").backfill_about]).toEqual([release("apple-photos").backfill!.about, null]);
     expect(connectorOf(report, "gmail").processing).toBeNull();
-    expect(connectorOf(report, "screen").members.find((member) => member.key === "llm.screen")!.steps!.slice(2))
-      .toEqual([{ value: VISION.id, words: "Vision One", note: "Sent to OpenRouter" }, { value: PLAN.id, words: "Plan Model One", note: PLAN_LINE }]);
+    const screenMenu = connectorOf(report, "screen").members.find((member) => member.key === "llm.screen")!.menu!;
+    expect([screenMenu.rows, screenMenu.local]).toEqual([[{ value: VISION.id, name: "Vision One", account: null, chosen: false }], null]);
     expect(connectorOf(report, "screen").processing).toEqual({ rows: [{ member: "llm.screen", shape: "needs", line: "Connect a model that takes text", privacy: null }, { member: "llm.range", shape: null, line: null, privacy: null }] });
     const fixture = `${JSON.stringify(streamsAnswer(report, 0, { device: "mac", unit: null }), null, 2)}\n`;
     if (WRITE_FIXTURES) writeFileSync(FIXTURE, fixture);
@@ -1330,11 +1331,11 @@ describe("the streams report", () => {
     expect(off.needs.map((need) => [need.id, need.state, need.words])).toEqual([[`grant:health:${PHONE}`, "needs-you", "Allow Health"]]);
   });
 
-  it("28. LLM processing: a work's part in every shape, its range's steps what each would read and cost, its menu every route that serves it; an item's Made in every state (the item fixture)", () => {
+  it("28. LLM processing: a work's part in every shape, its range's steps what each would read and cost, its menu the routes that serve it and are suggested or in use, then More; an item's Made in every state (the item fixture)", () => {
     const WHATSAPP = `whatsapp:+15550000001:${MAC_B}`;
     const at = home("lifestream-report-processing-", DEFAULTS);
     const REPLY = `${VISION.id}/${CAPTION_PROMPT}/reply-0`;
-    at.source(WHATSAPP, "whatsapp-mac").models(ROUTES, false, [RUNNER]).replied(VISION, CAPTION_PROMPT, 20, 0.6)
+    at.source(WHATSAPP, "whatsapp-mac").models(ROUTES, [RUNNER]).replied(VISION, CAPTION_PROMPT, 20, 0.6)
       .asks("whatsapp/photos", CAPTION_PROMPT, [
         { item: chatFile(1), at_ms: NOW - 6 * HOUR }, { item: chatFile(2), at_ms: NOW - 40 * DAY_MS }, { item: chatFile(3), at_ms: NOW - 400 * DAY_MS },
         { item: chatFile(4), at_ms: NOW - 2 * HOUR, state: "given-up" }, { item: chatFile(6), at_ms: NOW - DAY_MS, state: "done", content: "synthetic caption", reply_key: REPLY },
@@ -1358,10 +1359,15 @@ describe("the streams report", () => {
       ["2025-10-28", "Last year", `${nb("2 photos")} · about\u00a0$1`], ["all", "All time", `${nb("3 photos")} · about\u00a0$2`],
     ]);
     expect(members.find((member) => member.key === "llm.photos")).toMatchObject({
-      words: "Vision One · OpenRouter", panel: null,
-      steps: [{ value: "off", words: "Off", note: null }, { value: "default", words: "Default", note: "Vision One" },
-        { value: VISION.id, words: "Vision One", note: "Sent to OpenRouter" }, { value: PLAN.id, words: "Plan Model One", note: PLAN_LINE },
-        { value: QWEN.id, words: "Qwen 3.5", note: "Stays on MacBook Pro" }],
+      words: "Default · Vision One", panel: null,
+      steps: null, control: "menu",
+      menu: {
+        default: { value: "default", name: "Default · Vision One", account: null, chosen: true },
+        rows: [{ value: VISION.id, name: "Vision One", account: null, chosen: false }],
+        local: { label: MENU.local, rows: [{ value: QWEN.id, name: "Qwen 3.5", account: null, chosen: false }] },
+        more: { words: MENU.more, use: "pictures", work: "whatsapp/photos" },
+        off: { value: "off", name: MENU.off, account: null, chosen: false },
+      },
     });
     expect(typedNote(at.root, "2026-09-01")).toBe(`${nb("2 photos")} · about\u00a0$1`);
     const made = (file: number) => {
@@ -1429,7 +1435,7 @@ describe("the streams report", () => {
     const IMESSAGE = `imessage:person-a@example.com:${MAC_B}`;
     const connectors = [...DECLARED, declarations().find((each) => each.id === "imessage")!];
     const at = home("lifestream-report-counting-", DEFAULTS);
-    at.source(WHATSAPP, "whatsapp-mac").source(IMESSAGE, "imessage-db").models(ROUTES, false, [RUNNER]).replied(VISION, CAPTION_PROMPT, 20, 0.6)
+    at.source(WHATSAPP, "whatsapp-mac").source(IMESSAGE, "imessage-db").models(ROUTES, [RUNNER]).replied(VISION, CAPTION_PROMPT, 20, 0.6)
       .asks("whatsapp/photos", CAPTION_PROMPT, [{ item: chatFile(2), at_ms: NOW - 40 * DAY_MS }, { item: chatFile(3), at_ms: NOW - 400 * DAY_MS }])
       .land(WHATSAPP, [item("msg", "w1", NOW - 100 * DAY_MS)]).land(IMESSAGE, [item("msg", "i1", NOW - 2 * HOUR)]).done();
     const set = (block: JsonObject) => planned(at.root, { "connectors.whatsapp": block }).write();
@@ -1511,17 +1517,17 @@ describe("the streams report", () => {
     summary.counting = { whole: WHOLE, counting: COUNTING };
   });
 
-  it("through the door: the report and status carry one list of needs; the models read and a range's typed day are the home's (the models fixture)", async () => {
+  it("through the door: the report and status carry one list of needs; the models read (connections, uses and rows) and a range's typed day are the home's (the models fixture)", async () => {
     const at = home("lifestream-report-door-", {
       "connectors.github": { login: "person-a", route: "github-api" }, ...DEFAULTS,
-      "model.transports.address": { url: "http://127.0.0.1:8080/v1", model: "local-model-1", kinds: ["pictures", "text"] },
+      "model.transports.address": { url: "http://127.0.0.1:8080/v1", input: ["text", "image"] },
     }, Date.now());
     const copy = "github:person-a:cloud";
     const chats = `whatsapp:+15550000001:${MAC_B}`;
     const now = Date.now();
     at.source(copy, "github-api").land(copy, [item("contribution", "c1", now - 3 * DAY_MS)]).poll("github-api")
       .attempt("fetch:github-api", copy, "fail", "failing", { since_ms: now - HOUR, fails: 4 })
-      .source(chats, "whatsapp-mac").models(ROUTES, true, [RUNNER])
+      .source(chats, "whatsapp-mac").models(ROUTES, [RUNNER])
       .asks("whatsapp/photos", CAPTION_PROMPT, [{ item: chatFile(1), at_ms: now - 2 * DAY_MS }, { item: chatFile(2), at_ms: now - 20 * DAY_MS }]).done();
     const reader = mintPrincipal(openHomeFolder(at.root), { unit: "reader-report", scopes: ["read"], now_ms: now });
     const door = await doorHere(at.root, { registry: homeRegistryModule() });
@@ -1536,25 +1542,34 @@ describe("the streams report", () => {
         state: "broken", reason: "failing", words: "Couldn’t read GitHub", connector: "github", copy, acts: [{ do: "try", label: "Try now", need: "poll:github-api" }],
       });
       const { position: _position, ...models } = await get("/v1/models");
-      const vision = { value: VISION.id, words: "Vision One", note: "Sent to OpenRouter" };
-      const plan = { value: PLAN.id, words: "Plan Model One", note: PLAN_LINE };
-      const qwen = { value: QWEN.id, words: "Qwen 3.5", note: "Stays on MacBook Pro" };
-      const off = { value: "none", words: "Off", note: null };
-      expect(models).toEqual({
-        defaults: {
-          pictures: { value: VISION.id, words: "Vision One · OpenRouter", steps: [off, vision, plan, qwen] },
-          audio: { value: "none", words: "Off", steps: [off, plan, { value: PARAKEET.id, words: "Parakeet", note: "Downloading, 0.3 of 0.7 GB" }, { value: NEMOTRON.id, words: "Nemotron Speech", note: "Not downloaded" }] },
-          text: { value: null, words: "No model yet", steps: [vision, plan, qwen] },
+      const row = (route: ModelRoute, connection: string, group: string) => ({
+        id: route.id, connection, model: route.model, name: route.name, input: route.input, tools: route.tools, thinking: route.thinking, context_tokens: route.context_tokens,
+        chat: route.chat, suggested: route.suggested, group, leaves: route.leaves, state: route.state, line: route.line,
+      });
+      const runner = `runner:${RUNNER_UNIT}`;
+      const listedRow = (route: ModelRoute, value: string | null) => ({ value: route.id, name: route.name, account: null, chosen: route.id === value });
+      const use = (of: UseId, fits: ModelRoute[], value: string | null = null, rows: ModelRoute[] = [], local: ModelRoute[] = []) => ({
+        value, thinking: null, fits: fits.map((each) => each.id),
+        menu: {
+          default: null, rows: rows.map((each) => listedRow(each, value)), local: local.length === 0 ? null : { label: MENU.local, rows: local.map((each) => listedRow(each, value)) },
+          more: { words: MENU.more, use: of, work: null }, off: of === "chat" ? null : { value: "none", name: MENU.off, account: null, chosen: value === null },
         },
-        runners: [{
-          unit: RUNNER_UNIT, name: "MacBook Pro", line: null, paused: null, battery: { on: true, held: null }, files: [
-            { id: "qwen3.5-4b", name: "Qwen 3.5", about: "Describes photos and sums up text · 4 GB", state: "ready", line: null, suggested: false, fits: true },
-            { id: "parakeet-unified-en-0.6b", name: "Parakeet", about: "Transcribes voice notes in English · 0.7 GB", state: "fetching", line: "Downloading, 0.3 of 0.7 GB", suggested: true, fits: true },
-            { id: "nemotron-3.5-asr-0.6b", name: "Nemotron Speech", about: "Transcribes voice notes in English, Hindi and 26 more languages · 0.8 GB", state: "absent", line: "Not downloaded", suggested: false, fits: true },
-          ],
-        }],
-        openrouter: { connected: true },
-        address: { url: "http://127.0.0.1:8080/v1", model: "local-model-1", words: "local-model-1 at http://127.0.0.1:8080/v1", takes: "Takes pictures and text" },
+      });
+      expect(models).toEqual({
+        connections: [
+          { id: runner, kind: "runner", name: "MacBook Pro", line: null },
+          { id: "openrouter", kind: "key", name: "OpenRouter", line: null },
+          { id: "claude", kind: "plan", name: "Claude", line: PLAN_LINE },
+          { id: "address", kind: "address", name: "Custom address", line: ADDRESS_WINDOW },
+        ],
+        uses: {
+          pictures: use("pictures", [QWEN, VISION, PLAN], VISION.id, [VISION], [QWEN]), audio: use("audio", [PLAN, PARAKEET, NEMOTRON]), text: use("text", [VISION, PLAN, QWEN], null, [VISION]),
+          chat: use("chat", []), search: use("search", []), hiding: use("hiding", []),
+        },
+        models: {
+          [VISION.id]: row(VISION, "openrouter", "OpenRouter"), [PLAN.id]: row(PLAN, "claude", "Claude"),
+          [QWEN.id]: row(QWEN, runner, "MacBook Pro"), [PARAKEET.id]: row(PARAKEET, runner, "MacBook Pro"), [NEMOTRON.id]: row(NEMOTRON, runner, "MacBook Pro"),
+        },
       });
       const typed = new Date(now - 10 * DAY_MS).toISOString().slice(0, 10);
       expect(await get(`/v1/processing/range?connector=whatsapp&value=${typed}`)).toMatchObject({ value: typed, note: nb("1 photo") });

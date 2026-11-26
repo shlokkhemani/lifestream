@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { startHome } from "./home.js";
-import { BATTERY_HELD, type ModelsRead } from "./models-read.js";
+import { WORDS } from "./page-models.js";
 import { checkoutProgram } from "./programs.js";
 import { askHome } from "./socket.js";
 import { artifact, FAKES, makeRoot, readHome, removeRoot, TICK_MS, until } from "./test/harness-root.js";
@@ -11,6 +11,7 @@ import { ship } from "./test/harness-deliveries.js";
 import { doorHere } from "./test/harness-door.js";
 import { REPO } from "./test/support.js";
 import { testSocket } from "./test/folder.js";
+import { modelsPageOf, runnerOf } from "./test/harness-status.js";
 
 const RUNNER = "runner-macbook-pro-0001";
 const MODEL = "qwen3.5-4b";
@@ -48,8 +49,8 @@ describe("a runner's Save battery", () => {
       }));
       await until("the runner's file a ready route of the home", () => stored().routes.some((each) => each.id === route && each.state === "ready"))
         .catch((error: Error) => { throw new Error(`${error.message}; the home stored ${JSON.stringify(stored())}; the runner said ${said.join("")}`); });
-      const before = await verb("models", []) as ModelsRead;
-      expect(before.runners.map((runner) => [runner.unit, runner.battery])).toEqual([[RUNNER, { on: true, held: BATTERY_HELD }]]);
+      const battery = () => runnerOf(modelsPageOf(root), RUNNER).battery;
+      expect(battery()).toEqual({ on: true, line: WORDS.batteryHeld });
 
       await verb("connectors", ["set", "fake-poll", "llm.photos", route]);
       await verb("connectors", ["set", "fake-poll", "llm.range", "all"]);
@@ -64,13 +65,15 @@ describe("a runner's Save battery", () => {
       const held = { done: done(), line: await line() };
       expect(held.done).toHaveLength(1);
 
-      const spent = await verb("models", ["battery", RUNNER, "spend"]) as ModelsRead;
-      expect(spent.runners.map((runner) => runner.battery)).toEqual([{ on: false, held: null }]);
+      await verb("models", ["battery", RUNNER, "spend"]);
+      const spent = battery();
+      expect(spent).toEqual({ on: false, line: WORDS.saveBattery });
       await until("the older photo answered on battery", () => done().length === 2);
       expect(await line()).not.toMatch(/plugged in/u);
       await expect(verb("models", ["battery", "runner-nobody-0000", "spend"])).rejects.toThrow("That runner isn't connected.");
-      expect(((await verb("models", ["battery", RUNNER, "save"])) as ModelsRead).runners.map((runner) => runner.battery)).toEqual([{ on: true, held: BATTERY_HELD }]);
-      artifact(root, "runner-battery", { held, spent: spent.runners, done: done() });
+      await verb("models", ["battery", RUNNER, "save"]);
+      expect(battery()).toEqual({ on: true, line: WORDS.batteryHeld });
+      artifact(root, "runner-battery", { held, spent, done: done() });
     } finally {
       program.kill("SIGTERM");
       await exited;

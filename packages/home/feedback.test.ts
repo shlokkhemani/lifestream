@@ -37,7 +37,7 @@ const PEOPLE: NameTable = {
   ],
 };
 
-const NONE: PrivacySettings = { level: "none", chat: "none", detector: "off", links: "tokens", always: [], never: [] };
+const NONE: PrivacySettings = { level: "none", chat: "none", links: "tokens", always: [], never: [] };
 
 function realHider(settings: Partial<PrivacySettings> = {}): Hider {
   return openHider({

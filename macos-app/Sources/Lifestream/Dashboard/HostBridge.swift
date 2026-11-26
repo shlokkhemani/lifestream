@@ -176,25 +176,31 @@ enum HostAct: Equatable {
     case agentKey(app: HomeLink.KeyApp, name: String?, access: HomeLink.DraftAccess)
     case agentSignIn(id: String)
     case screenshotTake
-    enum ModelKind: String, CaseIterable, Equatable, Sendable {
-        case pictures, audio, text
+    enum ModelUse: String, CaseIterable, Equatable, Sendable {
+        case pictures, audio, text, chat, search, hiding
+    }
+
+    enum ModelInput: String, CaseIterable, Equatable, Sendable {
+        case text, image
     }
 
     enum ModelsAct: Equatable, Sendable {
-        case `default`(kind: ModelKind, route: String)
+        static let off = "none"
+
+        case `default`(use: ModelUse, model: String, thinking: String? = nil)
         case file(runner: String, id: String, fetch: Bool)
         case runner(String, pause: Bool)
         case battery(String, save: Bool)
-        case address(url: String, model: String, kinds: [ModelKind])
+        case address(url: String, input: [ModelInput]?)
         case addressNone
 
         var args: [String] {
             switch self {
-            case .default(let kind, let route): ["default", kind.rawValue, route]
+            case .default(let use, let model, let thinking): ["default", use.rawValue, model] + (thinking.map { ["--thinking", $0] } ?? [])
             case .file(let runner, let id, let fetch): ["file", runner, id, fetch ? "fetch" : "remove"]
             case .runner(let runner, let pause): ["runner", runner, pause ? "pause" : "resume"]
             case .battery(let runner, let save): ["battery", runner, save ? "save" : "spend"]
-            case .address(let url, let model, let kinds): ["address", url, model, kinds.map(\.rawValue).joined(separator: ",")]
+            case .address(let url, let input): ["address", url] + (input.map { [$0.map(\.rawValue).joined(separator: ",")] } ?? [])
             case .addressNone: ["address", "none"]
             }
         }
@@ -210,21 +216,12 @@ enum HostAct: Equatable {
     }
 
     enum HomeSetting: Equatable, Sendable {
-        case modelCap(Int?)
+        case modelCap(Int)
         case historyStart(String)
         case privacy([Privacy])
-        case meaning([Meaning])
+        case meaningPower(String?)
 
-        struct Meaning: Equatable, Sendable {
-            let key: MeaningWord
-            let word: String?
-
-            var value: HomeLink.JSON { word.map(HomeLink.JSON.string) ?? .null }
-        }
-
-        enum MeaningWord: String, CaseIterable, Sendable {
-            case meaning = "search.meaning", model = "search.meaning.model", power = "search.meaning.power"
-        }
+        static let meaningPower = "search.meaning.power"
 
         enum Privacy: Equatable, Sendable {
             case word(PrivacyWord, String?)
@@ -247,7 +244,7 @@ enum HostAct: Equatable {
         }
 
         enum PrivacyWord: String, CaseIterable, Sendable {
-            case level = "privacy.level", chat = "privacy.chat", detector = "privacy.detector", links = "privacy.links"
+            case level = "privacy.level", chat = "privacy.chat", links = "privacy.links"
         }
 
         enum PrivacyWords: String, CaseIterable, Sendable {
@@ -256,11 +253,10 @@ enum HostAct: Equatable {
 
         var args: [String] {
             switch self {
-            case .modelCap(let cap?): ["set", "model.cap", String(cap)]
-            case .modelCap(nil): ["reset", "model.cap"]
+            case .modelCap(let cap): ["set", "model.cap", String(cap)]
             case .historyStart(let start): ["set", HostAct.json(["history.start": start])]
             case .privacy(let settings): ["set", HostAct.json(Dictionary(uniqueKeysWithValues: settings.map { ($0.key, $0.value) }))]
-            case .meaning(let settings): ["set", HostAct.json(Dictionary(uniqueKeysWithValues: settings.map { ($0.key.rawValue, $0.value) }))]
+            case .meaningPower(let power): ["set", HostAct.json([HomeSetting.meaningPower: power.map(HomeLink.JSON.string) ?? .null])]
             }
         }
     }
@@ -554,13 +550,9 @@ enum HostAct: Equatable {
             return (body["theme"] as? String).flatMap(AppAppearance.init(rawValue:)).map { .general(.appearance($0)) }
         case "home-setting" where body["settings"] != nil:
             guard Set(body.keys) == ["type", "act", "settings"], let settings = body["settings"] as? [String: Any], json(settings) != nil else { return nil }
-            if let key = settings.keys.first, HomeSetting.MeaningWord(rawValue: key) != nil {
-                guard (1...HomeSetting.MeaningWord.allCases.count).contains(settings.count) else { return nil }
-                let read = settings.sorted { $0.key < $1.key }.map { key, value in
-                    HomeSetting.MeaningWord(rawValue: key).flatMap { word in nullable(value, id).map { HomeSetting.Meaning(key: word, word: $0) } }
-                }
-                guard read.allSatisfy({ $0 != nil }) else { return nil }
-                return .homeSetting(.meaning(read.compactMap { $0 }))
+            if let power = settings[HomeSetting.meaningPower] {
+                guard settings.count == 1 else { return nil }
+                return nullable(power, id).map { .homeSetting(.meaningPower($0)) }
             }
             guard (1...HomeSetting.PrivacyWord.allCases.count + HomeSetting.PrivacyWords.allCases.count).contains(settings.count) else { return nil }
             let read = settings.sorted { $0.key < $1.key }.map { key, value in privacySetting(key, value) }
@@ -570,7 +562,6 @@ enum HostAct: Equatable {
             guard Set(body.keys) == ["type", "act", "key", "value"] else { return nil }
             switch body["key"] as? String {
             case "model.cap":
-                if body["value"] is NSNull { return .homeSetting(.modelCap(nil)) }
                 return whole(body["value"]).map { .homeSetting(.modelCap($0)) }
             case "history.start":
                 return start(body["value"]).map { .homeSetting(.historyStart($0)) }
@@ -601,8 +592,13 @@ enum HostAct: Equatable {
     private static func modelsAct(_ body: [String: Any]) -> ModelsAct? {
         switch body["do"] as? String {
         case "default":
-            guard let kind = (body["kind"] as? String).flatMap(ModelKind.init(rawValue:)), let route = id(body["route"]) else { return nil }
-            return .default(kind: kind, route: route)
+            guard let use = (body["use"] as? String).flatMap(ModelUse.init(rawValue:)), let model = id(body["model"]) else { return nil }
+            guard use != .chat || model != ModelsAct.off else { return nil }
+            guard let level = body["thinking"] else {
+                return Set(body.keys) == ["type", "act", "do", "use", "model"] ? .default(use: use, model: model) : nil
+            }
+            guard use == .chat, let thinking = id(level) else { return nil }
+            return .default(use: use, model: model, thinking: thinking)
         case "file":
             guard let runner = id(body["runner"]), let file = id(body["id"]), let fetch = choice(body["to"], "fetch", "remove") else { return nil }
             return .file(runner: runner, id: file, fetch: fetch)
@@ -615,11 +611,12 @@ enum HostAct: Equatable {
         case "address" where body["none"] != nil:
             return boolean(body["none"]) == true && Set(body.keys) == ["type", "act", "do", "none"] ? .addressNone : nil
         case "address":
-            guard let url = body["url"] as? String, !url.isEmpty, url.count <= urlLimit, let model = id(body["model"]),
-                  let names = strings(body["kinds"], most: ModelKind.allCases.count) else { return nil }
-            let kinds = names.compactMap(ModelKind.init(rawValue:))
-            guard kinds.count == names.count else { return nil }
-            return .address(url: url, model: model, kinds: kinds)
+            guard let url = body["url"] as? String, !url.isEmpty, url.count <= urlLimit, url != ModelsAct.off else { return nil }
+            guard let said = body["input"] else { return Set(body.keys) == ["type", "act", "do", "url"] ? .address(url: url, input: nil) : nil }
+            guard let names = strings(said, most: ModelInput.allCases.count) else { return nil }
+            let input = names.compactMap(ModelInput.init(rawValue:))
+            guard input.count == names.count, input.first == .text, Set(input).count == input.count else { return nil }
+            return .address(url: url, input: input)
         default:
             return nil
         }

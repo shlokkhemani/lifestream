@@ -51,7 +51,8 @@ import { restoredSources } from "./restore.js";
 import { importsIn, foundIn, grantsIn, networkIn, openStated, recorderIn, roomIn, sendingIn, settingsIn, STATED_ROUTE, throughIn, type StatedStore, type ThroughStated } from "./stated.js";
 import { storesIn } from "./stores.js";
 import { HOME_FAILED, homeFailed, LOCKED, LOCKED_WORDS, NOT_NOW, OUTCOME_UNKNOWN, notNow, notNowRefusal, notReadable, outcomeUnknown, refuse, Refusal, RETRY_FULL_S, RETRY_S, RETRY_SOON_S, type Said, STARTING, STARTING_SAID, starting, waitBody, type Wait } from "./refusal.js";
-import { lastGood, type DoorAddress } from "./settings.js";
+import { chosenFor, effectiveOf, lastGood, personal, settingsPath, type DoorAddress } from "./settings.js";
+import { movedSettings } from "./models-move.js";
 import type { DiskSpace } from "./status.js";
 import { startOf } from "./start.js";
 import { fieldRoutes, isFieldRoute } from "./field-routes.js";
@@ -67,7 +68,7 @@ import { openRunners, wantedOn } from "./runners.js";
 import { hidingFile, openDetector } from "./detector.js";
 import { EmbedderError, openEmbedder } from "./embedder.js";
 import { askedOf, ASK_CHARS, type AskedMeaning, type HeldMeaning } from "./screen-reads.js";
-import { meaningAsked } from "./search-route.js";
+import { meaningAsked, meaningModel } from "./search-route.js";
 import { ENGINE_MS, findingsDirOf, forgetFindings, keepMatch, matchesForgotten, openEnginePictures } from "./engine-pictures.js";
 import { facesRun, facesSettings, workIn } from "./registry-home.js";
 import { homeOf } from "./registry.js";
@@ -135,6 +136,8 @@ export interface Door {
 }
 
 const OWNER_ACT_ROUTE = "/v1/owner/act";
+const MODELS_ROUTE = "/v1/models";
+const MODELS_READ_ROUTE = "/v1/models/read";
 const WAIT_MS = 30_000;
 const TELL_MS = 30_000;
 const SECOND_MS = 1_000;
@@ -160,9 +163,9 @@ const OWN_ACTS = {
   "POST /v1/feedback/send": { again: true, wait_ms: WAIT_MS },
   "POST /v1/subscriptions/<name>": { again: true, wait_ms: WAIT_MS },
   "GET /v1/subscriptions": { again: true, wait_ms: WAIT_MS },
-  "GET /v1/secrets/openrouter": { again: true, wait_ms: WAIT_MS },
   "POST /v1/chat/completions": { again: false, wait_ms: 5_000, streams: true },
   "POST /v1/ask/words": { again: true, wait_ms: 15_000 },
+  "POST /v1/models/read": { again: true, wait_ms: WAIT_MS },
   "GET /v1/places/suggest": { again: false, wait_ms: 5_000 },
   "GET /v1/agents/waiting": { again: true, wait_ms: WAIT_MS },
   "GET /v1/agents/signins/<id>": { again: true, wait_ms: WAIT_MS },
@@ -282,7 +285,7 @@ const MODEL_REACHES: readonly ModelReach[] = [
   { method: "POST", path: KEEP_ROUTE, own: true },
   { method: "POST", path: OUTBOUND_ROUTE },
   { method: "GET", path: "/v1/clock" },
-  { method: "GET", path: "/v1/models" },
+  { method: "GET", path: MODELS_ROUTE },
   { method: "GET", path: "/v1/people", asked: { id: "me" } },
   { method: "GET", path: "/v1/sources" },
   { method: "GET", path: "/v1/record" },
@@ -303,7 +306,6 @@ const OUTBOUND_SEQ = /^[1-9]\d{0,14}$/u;
 const OUTBOUND_ROW = /^\/v1\/outbound\/([1-9]\d{0,14})$/u;
 const AGENTS_PREFIX = "/v1/agents/";
 const SUBSCRIPTIONS_ROUTE = /^\/v1\/subscriptions(?:\/([^/]+))?$/u;
-const ASK_KEY_ROUTE = "/v1/secrets/openrouter";
 const AGENT_STATE_ROUTE = /^request\/([^/]+)$/u;
 const ASK_SERVER = "http://127.0.0.1:4681";
 const ASK_SENT = ["lifestream-device", "content-type", "content-length", "accept"];
@@ -530,7 +532,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
   const calls = callsLock(join(folder, "replies", "replies.db"));
   const home = new HomeFile(handle);
   const stored = handle.blobs(join(folder, "blobs"), { reading: true });
-  const settingsNow = lastGood(handle);
+  const settingsNow = lastGood(handle, effectiveOf(movedSettings(personal(handle), null), settingsPath(folder)).settings);
   const read: typeof settingsNow = () => stall.timed("settings", settingsNow);
   const dayClock = homeClock(settingsNow().day);
   const undo: (() => unknown)[] = [];
@@ -555,9 +557,9 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
   const replacedPass = (pass: Principal): boolean => (pass.kind === "phone" || pass.kind === "mac") && custody.replaced(pass);
   const runners = opening(() => openRunners({ wanted: (runner) => wantedOn(read(), runner) }), (opened) => opened.close());
   const marks = opening(() => openMarks(handle, marksFileOf(folder, at.dir)), (opened) => opened.close());
-  const detector = openDetector({ runner: () => read().privacy.detector, line: "hide", drive: { place: (placed, signal, handed) => runners.place(placed, signal, handed), list: async () => runners.listing() } });
+  const detector = openDetector({ chosen: () => chosenFor(read(), "hiding"), line: "hide", drive: { place: (placed, signal, handed) => runners.place(placed, signal, handed), list: async () => runners.listing() } });
   const embedder = openEmbedder({
-    runner: () => read().search.meaning, model: () => read().search.model, timeout_ms: MEANING_ASK_MS,
+    meaning: () => meaningModel(read()), timeout_ms: MEANING_ASK_MS,
     drive: { place: (placed, signal, handed) => runners.place(placed, signal, handed, true), list: async () => runners.listing() },
   });
   const stage = openStage(handle, clock);
@@ -607,17 +609,20 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     }
     return said as unknown as DescribeAnswer;
   };
+  const storedLeaves = async (model: string): Promise<string | null | undefined> => (await readers.read<{ leaves: string | null } | null>({ leaves: model }))?.leaves;
   const hiding = openHiding({
     settings: () => read().privacy,
     names: (known) => readers.read({ names: { machine: at.dir, known } }),
     detector,
-    hidingFile: () => hidingFile(runners.listing(), read().privacy.detector),
+    chosen: () => chosenFor(read(), "hiding"),
+    hidingFile: () => hidingFile(runners.listing(), chosenFor(read(), "hiding")),
     pictures,
     marks, writer: options.hiding?.writes?.(writer) ?? writer, progress: () => {
       const now = detector.state();
       return readers.read<MarkingProgress | null>({ marking: { machine: at.dir, store: marks.id, model: now.state === "ready" ? now.model : null } });
     }, day: () => read().day, clock,
     voice: () => readers.read<string | null>({ voice: { now_ms: clock() } }),
+    leavesOf: storedLeaves,
     ...(options.hiding?.boundMs === undefined ? {} : { bound: within(options.hiding.boundMs) }),
     log: (line) => log(JSON.stringify({ at: new Date(clock()).toISOString(), ...line })),
     existing: () => viewed<EditorAccount[]>({ offered: true }),
@@ -841,7 +846,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
 
   const meaningAsk = async (asked: string, signal: AbortSignal): Promise<AskedMeaning | undefined> => {
     const q = asked.trim();
-    if (read().search.meaning === "off" || q === "" || q.length > ASK_CHARS) return undefined;
+    if (meaningModel(read()) === null || q === "" || q.length > ASK_CHARS) return undefined;
     const admitted = await embedder.admits("query");
     if (!admitted.go) refuse(503, "MEANING_NOT_NOW", admitted.words, RETRY_SOON_S);
     try {
@@ -1104,15 +1109,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     return [200, await relay({ verb: "subscriptions", ...asked }, "choose" in asked ? "POST /v1/subscriptions/<name>" : "GET /v1/subscriptions", request) as JsonObject];
   };
 
-  const askKey = async (principal: Principal, request: IncomingMessage, reach: Reach): Promise<[number, JsonObject]> => {
-    const own = () => askServerOnly(principal, request, reach, "the OpenRouter key is read by Chat alone, on the home's Mac");
-    own();
-    const answer = await relay({ verb: "ask-key" }, "GET /v1/secrets/openrouter", request) as JsonObject;
-    own();
-    return [200, answer];
-  };
-
-  const relayChat = chatRoute({ clock, reach: async (model, http) => await relay({ verb: "model-reach", model }, "POST /v1/chat/completions", http) as Reached });
+  const relayChat = chatRoute({ clock, leavesOf: storedLeaves, reach: async (model, http) => await relay({ verb: "model-reach", model }, "POST /v1/chat/completions", http) as Reached });
   const chatting = async (principal: Principal, request: IncomingMessage, response: ServerResponse, reach: Reach): Promise<void> => {
     const own = () => askServerOnly(principal, request, reach, "a model is reached for Chat's own loop alone, on the home's Mac");
     own();
@@ -1277,6 +1274,11 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       const taken = held.has(file) ? takenOf(file) : undefined;
       return taken === undefined ? { file } : { file, taken: takenAnswer(taken) };
     }) }];
+  };
+
+  const modelsRead = async (principal: Principal, request: IncomingMessage, reach: Reach): Promise<[number, JsonObject]> => {
+    askServerOnly(principal, request, reach, "the models are read again for Chat's sign-ins and turns alone, on the home's Mac");
+    return [200, await relay({ verb: "models-read" }, "POST /v1/models/read", request) as JsonObject];
   };
 
   const askErased = (principal: Principal, request: IncomingMessage, reach: Reach, chats: readonly string[]): [number, JsonObject] => {
@@ -1875,6 +1877,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
             const asked = pathname === ASK_CONNECTORS_ROUTE && url.search === "" && askPassAt(request, reach);
             if (!back && !driven && !asked && photos === undefined) assertAllowed(principal, "read");
             device(principal.kind, request);
+            if (pathname === MODELS_ROUTE || pathname === PAGES.models.route) void tell({ verb: "models-list" });
             const gzip = /\bgzip\b/u.test(request.headers["accept-encoding"] ?? "");
             const etag = request.headers["if-none-match"];
             const reader = principal.kind === "agent" || principal.turn !== undefined || request.headers[READER_HEADER] === "model" ? "model" as const : undefined;
@@ -1949,13 +1952,13 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
           else if (person.routes(request.method, pathname)) result = await personRoute(principal, reach, request, url);
           else if (pathname.startsWith(AGENTS_PREFIX)) result = await agentsRoute(principal, reach, request, pathname);
           else if (SUBSCRIPTIONS_ROUTE.test(pathname)) result = await subscriptions(principal, reach, request, pathname);
-          else if (request.method === "GET" && pathname === ASK_KEY_ROUTE) result = await askKey(principal, request, reach);
           else if (request.method === "POST" && pathname === ASK_FILES_ROUTE) result = await askFile(principal, request);
           else if (request.method === "PUT" && ASK_FILE_ROUTE.test(pathname)) result = await stageAskFile(principal, request, reach, decodeSegment(ASK_FILE_ROUTE.exec(pathname)![1]!) ?? "");
           else if (request.method === "DELETE" && ASK_FILE_ROUTE.test(pathname)) result = dropAskFile(principal, request, reach, decodeSegment(ASK_FILE_ROUTE.exec(pathname)![1]!) ?? "");
           else if (ASK_NOTE_ROUTE.test(pathname)) result = await askNote(principal, request, reach, ASK_NOTE_ROUTE.exec(pathname)![1]!, ASK_NOTE_ROUTE.exec(pathname)![2]);
           else if (request.method === "POST" && pathname === ASK_WORDS_ROUTE) result = await askWords(principal, request, reach);
           else if (request.method === "POST" && pathname === ASK_TAKEN_ROUTE) result = await askTaken(principal, request, reach);
+          else if (request.method === "POST" && pathname === MODELS_READ_ROUTE) result = await modelsRead(principal, request, reach);
           else if (request.method === "GET" && pathname === ASK_ERASED_ROUTE) result = askErased(principal, request, reach, url.searchParams.getAll("chat"));
           else if (noting) result = await feedback(principal, request);
           else if (REPORT_ROUTE.test(pathname)) result = await report(principal, request, url, REPORT_ROUTE.exec(pathname)![1]!);

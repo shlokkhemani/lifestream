@@ -310,7 +310,7 @@ describe("the outbound log", () => {
       asked("sha256:memo-1", "voice", "voice-transcript");
       asked("sha256:other-1", "ai", "ask-image");
       const handover = (at_ms: number, key: string, attempt: number): NewOutbound => ({
-        at_ms, receiver: "OpenRouter", route: "openrouter-voice:elevenlabs/scribe-v2", by: null, what: "ask", tool: null, level: "none", counts: {}, chars: 0, pictures: 0, key, attempt,
+        at_ms, receiver: "OpenRouter", route: "openrouter:elevenlabs/scribe-v2", by: null, what: "ask", tool: null, level: "none", counts: {}, chars: 0, pictures: 0, key, attempt,
       });
       ledger.outbound.write(handover(nov16 + 1_000, "sha256:note-1", 1));
       ledger.outbound.write(handover(nov16 + 2_000, "sha256:note-1", 2));

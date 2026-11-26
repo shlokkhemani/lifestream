@@ -13,13 +13,15 @@ private let precision: [MenuRow<String>.Option] = [
 ]
 
 private let models: [MenuRow<String>.Option] = [
-    .init("runner", "Qwen 3.5", note: "Stays on MacBook Pro"),
-    .init("openrouter", "Gemini 3.8 Flash", note: "Sent to OpenRouter"),
+    .init("default", "Default · Vision One"), .init("openrouter", "Vision One"),
+    .init("runner", "Qwen 3.5", group: "Local"),
+    .init("\n", "More", apart: true, opens: true), .init("off", "Off"),
 ]
 
 private let askModels: [MenuRow<String>.Option] = [
-    .init("claude/opus", "Opus", group: "Claude"),
-    .init("gpt-6.1-terra", "GPT-6.1 Terra", group: "ChatGPT"), .init("gpt-6-luna", "GPT-6 Luna", group: "ChatGPT"),
+    .init("claude/opus", "Opus 5.5", note: "Claude"), .init("openrouter/opus", "Opus 5.5", note: "OpenRouter"), .init("gpt-6.2-sol", "GPT-6.2 Sol"),
+    .init("runner", "Qwen 3.5 9B", group: "Local"),
+    .init("\n", "More", apart: true, opens: true),
 ]
 
 private let about = "Battery saving records where you stay and each move of a few hundred metres, not every street."
@@ -38,13 +40,13 @@ private let about = "Battery saving records where you stay and each move of a fe
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.bottom, 132)
     }
-    Specimen("Open: a model's menu, where each runs in its note") {
-        set(MenuRow("Screen descriptions", selection: .constant("runner"), options: models, default: "runner"), \.forcedOpen, true)
+    Specimen("Open: a stream's model menu, names only, Local under its header, More, Off last") {
+        set(MenuRow("Photo descriptions", selection: .constant("default"), options: models), \.forcedOpen, true)
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.bottom, 132)
+            .padding(.bottom, 250)
     }
-    Specimen("Open: Ask’s models, each plan a section under its name") {
-        set(MenuRow("Model", selection: .constant("gpt-6.1-terra"), options: askModels, default: "claude/opus"), \.forcedOpen, true)
+    Specimen("Open: Chat's models, a name held twice with its account under it") {
+        set(MenuRow("Model", selection: .constant("claude/opus"), options: askModels), \.forcedOpen, true)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.bottom, 250)
     }

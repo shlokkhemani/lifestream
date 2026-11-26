@@ -917,6 +917,13 @@ test('a page answer: each People page relayed as the door answers it, the same a
   summary.pages = { people: people.sections.length, person: person.head.name };
 });
 
+test('a settings write moves the pages that move with streams, and the count\'s end moves Storage', () => {
+  /** @param {string} kind */
+  const heard = kind => homeChange([{ event: 'message', data: { kind, key: kind === 'settings' ? 'model.cap' : '' } }]);
+  assert.deepEqual([heard('settings').streams, heard('settings').storage], [true, false]);
+  assert.deepEqual([heard('stored').streams, heard('stored').storage], [false, true]);
+});
+
 test('a day the feed says changed, shown stale: a new message reaches the feed, the day, the page\'s change and People', async () => {
   const feed = listen();
   const late = Date.parse(`${home.day}T18:00:00Z`);

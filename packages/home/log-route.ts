@@ -5,7 +5,7 @@ export const UNKNOWN_ROUTE = "<unknown>";
 const LITERAL = new Set([
   "/v1/pair", "/v1/exchange", "/v1/act", "/v1/refresh", "/v1/account", "/v1/settings", "/v1/seal", "/v1/process", "/v1/me",
   "/v1/feedback", "/v1/feedback/draft", "/v1/feedback/screenshot", "/v1/feedback/send", "/v1/restore", "/v1/stated", "/v1/home/verify", "/v1/outbound", "/v1/hide-details", "/v1/restore-details",
-  "/v1/privacy", "/v1/privacy/keep", "/v1/secrets/openrouter", "/v1/chat/completions", "/v1/subscriptions",
+  "/v1/privacy", "/v1/privacy/keep", "/v1/chat/completions", "/v1/subscriptions",
   "/v1/signin/key", "/v1/signin/device/start", "/v1/signin/device/poll", "/v1/signin/client/start", "/v1/signin/client/finish",
   "/v1/agents/request", "/v1/agents/grant", "/v1/agents/refresh", "/v1/agents/revoke", "/v1/agents/waiting", "/v1/agents/answer",
   "/v1/agents/guides", "/v1/agents/address", "/v1/agents/keys",
@@ -13,7 +13,7 @@ const LITERAL = new Set([
   "/v1/feed", "/v1/days", "/v1/sources", "/v1/records", "/v1/counts", "/v1/record", "/v1/extracts", "/v1/enrichments",
   "/v1/labels", "/v1/conversation", "/v1/owner/act", "/v1/people", "/v1/people/card", "/v1/people/photos", "/v1/places",
   "/v1/places/photos", "/v1/places/suggest", "/v1/devices", "/v1/where", "/v1/status", "/v1/connectors", "/v1/products",
-  "/v1/search", "/v1/count", "/v1/read", "/v1/describe", "/v1/clock", "/v1/time", "/v1/models", "/v1/processing/range", "/v1/storage", "/v1/start/cost", "/v1/photos/wanted", "/v1/blobs/held", "/v1/streams/leaving", "/v1/imports/held",
+  "/v1/search", "/v1/count", "/v1/read", "/v1/describe", "/v1/clock", "/v1/time", "/v1/models", "/v1/models/read", "/v1/processing/range", "/v1/storage", "/v1/start/cost", "/v1/photos/wanted", "/v1/blobs/held", "/v1/streams/leaving", "/v1/imports/held",
   "/v1/search/state", "/v1/search/kinds",
   "/v1/runners", "/v1/runners/exchange", "/v1/runners/calls",
   "/v1/stations", "/v1/stations/exchange", "/v1/errands", "/v1/sites",

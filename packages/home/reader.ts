@@ -18,6 +18,7 @@ import { openPhoneBundle } from "./phone.js";
 import { mergedPeople, scannedFaces } from "./engine-pictures.js";
 import { markingQueues } from "./index-job.js";
 import { markingProgress } from "./marking.js";
+import { storedModels } from "./models.js";
 import { peopleFileOf, readNameTable } from "./people.js";
 import { PLACES, preparedDirOf, preparedFileOf, readPrepared } from "./prepared.js";
 import type { Principal } from "./principals.js";
@@ -52,6 +53,7 @@ export type Short =
   | { voiced: { source: string; audio: readonly string[] } }
   | { marking: { machine: string; store: string; model: DetectorModel | null } }
   | { voice: { now_ms: number } }
+  | { leaves: string }
   | { offered: true }
   | { restore: { pass: Principal; delivers: readonly string[]; points: Readonly<Record<string, ReadPoint | null>> } };
 
@@ -188,6 +190,10 @@ const short = (current: State, asked: Short): unknown => {
     const now = settings();
     const at = { connectors, blocks: now.connectors, defaults: now.defaults, runners: now.runners, now_ms: asked.voice.now_ms, day: now.day };
     return home.view((view) => voiceLeaves(view.tables, at, `ask:local:${now.unit}`)) ?? null;
+  }
+  if ("leaves" in asked) {
+    const route = home.view((view) => storedModels(view.tables.meta).routes.find((each) => each.id === asked.leaves));
+    return route === undefined || !route.offered ? null : { leaves: route.leaves };
   }
   if ("offered" in asked) return home.view((view) => offeredOf(view.sources(), connectors, families)) ?? null;
   const { pass, delivers, points } = asked.restore;

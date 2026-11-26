@@ -46,11 +46,12 @@ A model writes **Voice note transcripts**: the words of each voice note, in the 
 - **Hidden first:** nothing, because sound can't be hidden. So a note goes to a model off your Mac
   only once you set the transcripts' **Personal details** to **Don't hide**, as
   [What leaves your Mac](../what-leaves-your-mac.md#what-is-hidden-before-sending) says.
-- **By default:** the **Default** model for audio, for your notes from 30 days before you added
-  Voice notes. Your ChatGPT or Claude plan does not transcribe.
+- **By default:** the model chosen for **Voice notes** in **Settings** › **AI models**, for your
+  notes from 30 days before you added Voice notes. It is **Off** until you pick one. Your ChatGPT or
+  Claude plan does not transcribe.
 - **To stop it:** set **Voice note transcripts** to **Off**.
 
-A model that takes audio is one of these:
+Only a model that hears audio is offered for it, such as:
 
 - **Gemini 3.8 Flash** or **Scribe v2**, through an OpenRouter key. Your notes then go to
   OpenRouter and on to Google or ElevenLabs, as they are.
@@ -78,8 +79,9 @@ iOS does not let Lifestream use the microphone. Tap **Open Settings**, and turn 
 **Microphone** for Lifestream.
 
 **Connect a model that takes audio**\
-No model that takes audio is set up, so notes wait for their transcript. Add one of the models in
-[What a model reads](#what-a-model-reads), or set **Voice note transcripts** to **Off**.
+No model that takes audio is ready for the transcripts, so notes wait. Pick one for **Voice notes**
+in **Settings** › **AI models**, from the models in [What a model reads](#what-a-model-reads), or
+set **Voice note transcripts** to **Off**.
 
 **The microphone did not start recording.**\
 Lifestream could not start the microphone, and kept nothing. Record the note again.

@@ -1,8 +1,5 @@
-import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
-import { createInterface } from "node:readline";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { request as tlsRequest } from "node:https";
 import { afterAll, describe, expect, it } from "vitest";
 import { serveDoor, type Door } from "./door.js";
 import { startHome, type Home } from "./home.js";
@@ -10,9 +7,8 @@ import { DEVICES } from "./devices.js";
 import { AGENT_UNIT, DRIVE_UNIT, mintPrincipal, passOf, readPrincipals, revokePrincipal } from "./principals.js";
 import { readRef } from "./refs.js";
 import { change } from "./settings.js";
-import { ask } from "./socket.js";
-import { artifact, makeRoot, makeVault, readHome, removeRoot, searchIndexed, until, TICK_MS } from "./test/harness-root.js";
-import { editSettings, testSocket } from "./test/folder.js";
+import { artifact, makeRoot, readHome, removeRoot, searchIndexed, until, TICK_MS } from "./test/harness-root.js";
+import { editSettings } from "./test/folder.js";
 import { acquisitionBundle } from "./test/support.js";
 import { openHomeFolder, type JsonObject } from "@lifestreamprotocol/core";
 
@@ -25,7 +21,6 @@ const OTHERS = {
   mac: "synthetic-token-mac".padEnd(43, "m"), phone: "synthetic-token-phone".padEnd(43, "p"), agent: "synthetic-token-agent".padEnd(43, "a"),
   drive: "synthetic-token-drive".padEnd(43, "d"), "another of unit ask": "synthetic-token-ask".padEnd(43, "k"),
 };
-const KEY = "sk-or-test-0000";
 const FLOORS = { mac: "1.0", phone: "1.0", extension: "1.0", runner: "1" };
 const DAY = "2026-10-01";
 const T0 = Date.parse(`${DAY}T14:00:00Z`);
@@ -58,7 +53,7 @@ describe("Ask's conversations through the door", () => {
     for (const root of roots) removeRoot(root);
   });
 
-  it("1-9: a turn the Ask server sends is lost, untimed, missed by Find, sealed though refused, or sent with a pass that does more, or a new one each start; the OpenRouter key reaches another pass than the Ask server's own, or a log line", async () => {
+  it("1-9: a turn the Ask server sends is lost, untimed, missed by Find, sealed though refused, or sent with a pass that does more, or a new one each start", async () => {
     const root = makeRoot("lifestream-ask-", { sources: {} });
     roots.push(root);
     editSettings(root, { unit: null });
@@ -70,7 +65,6 @@ describe("Ask's conversations through the door", () => {
     try {
       home = await startHome(root, { stopGraceMs: 50, tickMs: TICK_MS, registry: REGISTRY, log: (line) => logged.push(line) });
       door = await serveDoor(root, { port: 0, lan_port: 0, max_bundle_bytes: 1 << 30 }, { log: (line) => logged.push(line), registry: REGISTRY, floors: FLOORS });
-      const lan = (JSON.parse(logged.find((line) => line.includes('"door":"open"'))!) as { lan: number }).lan;
       let url = `http://127.0.0.1:${door.port}`;
       const report: Record<string, unknown> = {};
 
@@ -154,14 +148,6 @@ describe("Ask's conversations through the door", () => {
       const elsewhere = await send(asker, turn(PLACES, T0 + 120_000, [{ kind: "place", key: "pier-3f9a2c", content: { type: "places.place", name: "Synthetic Pier", centre: { latitude: 0, longitude: 0 }, radius_m: 100, ids: [] } }]));
       expect([elsewhere.status, elsewhere.body.code]).toEqual([403, "PRINCIPAL_SCOPE"]);
 
-      const keyRoute = "/v1/secrets/openrouter";
-      const none = await get(keyRoute, asker);
-      expect([none.status, none.body.code]).toEqual([404, "NOT_SET"]);
-      await makeVault(root);
-      await ask(testSocket(root), { verb: "seal", secret: "google-places", value: "synthetic-places-key" });
-      expect((await get(keyRoute, asker)).status).toBe(404);
-      await ask(testSocket(root), { verb: "seal", secret: "openrouter", value: KEY });
-      expect(await get(keyRoute, asker)).toEqual({ status: 200, body: { key: KEY } });
       const others = [
         mintPrincipal(principals, { unit: HOME_UNIT, kind: "mac", scopes: [...DEVICES.mac.scopes], sources: [`screen:local:${HOME_UNIT}`], token: OTHERS.mac, now_ms: 0 }),
         mintPrincipal(principals, { unit: "iphone-aa01", kind: "phone", scopes: [...DEVICES.phone.scopes], sources: ["location:local:iphone-aa01"], token: OTHERS.phone, now_ms: 0 }),
@@ -171,63 +157,6 @@ describe("Ask's conversations through the door", () => {
         mintPrincipal(principals, { unit: "ask", scopes: ["deliver"], sources: [ASK], token: OTHERS["another of unit ask"], now_ms: 0 }),
       ].map((minted) => minted.principal.id);
       const another = others.at(-1)!;
-      const named: Record<string, Record<string, string>> = { mac: { "lifestream-device": "mac/1.0.0" }, phone: { "lifestream-device": "phone/1.0.0" } };
-      const refused: Record<string, unknown> = {};
-      for (const [who, token] of Object.entries({ reader: READER, ...OTHERS })) {
-        const answered = await get(keyRoute, { authorization: `Bearer ${token}`, ...named[who] });
-        refused[who] = { status: answered.status, code: answered.body.code };
-      }
-      refused["Ask's own, from the Wi-Fi"] = await new Promise((resolve, reject) => {
-        const asking = tlsRequest({ host: "127.0.0.1", port: lan, method: "GET", path: keyRoute, headers: asker, rejectUnauthorized: false, agent: false }, (response) => {
-          const chunks: Buffer[] = [];
-          response.on("data", (chunk: Buffer) => chunks.push(chunk));
-          response.on("end", () => resolve({ status: response.statusCode, code: (JSON.parse(Buffer.concat(chunks).toString("utf8")) as { code?: string }).code }));
-        });
-        asking.on("error", reject);
-        asking.end();
-      });
-      const scope = { status: 403, code: "PRINCIPAL_SCOPE" };
-      expect(refused).toEqual({ reader: scope, mac: scope, phone: scope, agent: scope, drive: scope, "another of unit ask": scope, "Ask's own, from the Wi-Fi": scope });
-      const status = async (bearer: string, headers: Record<string, string> = {}) => (await get(keyRoute, { authorization: `Bearer ${bearer}`, ...headers })).status;
-      writeFileSync(file, `${OTHERS.mac}\n`);
-      const byMac = { own: await status(token), mac: await status(OTHERS.mac, named.mac) };
-      writeFileSync(file, `${OTHERS["another of unit ask"]}\n`);
-      const byAnother = { own: await status(token), another: await status(OTHERS["another of unit ask"]) };
-      expect({ byMac, byAnother }).toEqual({ byMac: { own: 403, mac: 403 }, byAnother: { own: 403, another: 200 } });
-      const sock = testSocket(root);
-      const held = { ...sock, path: `${sock.path}.held` };
-      renameSync(sock.path, held.path);
-      const relayed: unknown[] = [];
-      const relay = createServer((client) => {
-        createInterface({ input: client }).once("line", (line) => {
-          const sent = JSON.parse(line) as JsonObject;
-          void ask(held, sent).then((result) => ({ result }), (error: Error) => ({ error: error.message })).then((answer) => {
-            if (sent.verb === "ask-key") {
-              relayed.push(answer);
-              revokePrincipal(principals, another, T0);
-            }
-            client.end(`${JSON.stringify(answer)}\n`);
-          });
-        });
-      });
-      await new Promise<void>((done) => relay.listen(sock.path, done));
-      try {
-        const revoked = await get(keyRoute, { authorization: `Bearer ${OTHERS["another of unit ask"]}` });
-        expect({ status: revoked.status, code: revoked.body.code, relayed }).toEqual({ status: 403, code: "PRINCIPAL_SCOPE", relayed: [{ result: { key: KEY } }] });
-        refused["revoked while the home read the key"] = { status: revoked.status, code: revoked.body.code };
-      } finally {
-        await new Promise((done) => relay.close(done));
-        rmSync(sock.path, { force: true });
-        renameSync(held.path, sock.path);
-        writeFileSync(file, `${token}\n`);
-      }
-      expect(await status(token)).toBe(200);
-      refused["Ask's file replaced"] = { byMac, byAnother };
-      report.key = { none: { status: none.status, code: none.body.code }, refused };
-      const requests = ((await ask(testSocket(root), { verb: "vault" })) as { requests: { secret: string; lane: string; task: string; ok: boolean }[] }).requests
-        .filter((each) => each.task === "ask").map((each) => [each.secret, each.lane, each.ok]);
-      expect(requests).toEqual([["openrouter", "door", false], ["openrouter", "door", false], ...Array.from({ length: 4 }, () => ["openrouter", "door", true])]);
-      expect(logged.filter((line) => line.includes(KEY))).toEqual([]);
       for (const id of others.filter((id) => id !== another)) revokePrincipal(principals, id, T0);
 
       await door.close();

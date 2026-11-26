@@ -7,9 +7,8 @@ import { MODELS } from '../public/kit-gallery-llm.js';
 import { OUTBOUND_DAYS_READ, OUTBOUND_PAGE, PRIVACY, SENT, SENT_ERASED, SENT_MODEL, WAITING_REPORT } from '../public/kit-gallery-privacy.js';
 import { detailOf, OPENED } from '../public/ui/connectors/dialog.js';
 import { detailMarkup } from '../public/ui/connectors/detail.js';
-import {
-  GROUPS, NO_PRIVACY, pagesAt, SETTINGS_PRIVACY, settingsAt, settingsDetail,
-} from '../public/ui/connectors/settings.js';
+import { NO_PRIVACY, pagesAt, SETTINGS_MODELS, SETTINGS_PRIVACY, settingsAt, settingsDetail } from '../public/ui/connectors/settings.js';
+import { SETTINGS_INDEX } from '../public/settings-index.js';
 import { CHOICE_BUSY, CHOICES, CHOSEN_BY_DEFAULT, choiceAct, choiceOf, outboundAt, outboundPageOf } from '../public/ui/connectors/settings-privacy.js';
 import { keyOf, movesPrivacy, pendingOf } from '../public/ui/connectors/pending.js';
 import { LACKS } from '../public/ui/connectors/changes.js';
@@ -26,15 +25,18 @@ import { privacyRoutes } from '../lib/routes/privacy.mjs';
 
 const RUNNER = `runner-${HOST_STATE.unit}`;
 const FILE = /** @type {string} */ (PRIVACY.fresh.detector.file);
+const HIDING = `runner:${RUNNER}/${FILE}`;
+/** @param {import('../public/types.js').PrivacyRead} read @returns {import('../public/types.js').PrivacyRead} */
+const picked = read => ({ ...read, detector: { ...read.detector, model: read.detector.state === 'off' ? null : read.detector.model ?? HIDING } });
 const TYPES = PRIVACY.fresh.types;
 const READS = { ...NO_PRIVACY, read: PRIVACY.fresh, days: OUTBOUND_DAYS_READ, page: OUTBOUND_PAGE, row: SENT };
 
 /**
  * @param {string} id
- * @param {{ state?: HostState | null, privacy?: typeof NO_PRIVACY, opened?: Partial<typeof OPENED> }} [read]
+ * @param {{ state?: HostState | null, privacy?: typeof NO_PRIVACY, opened?: Partial<typeof OPENED>, models?: import('../public/pages.js').Models | null }} [read]
  */
-const at = (id, { state = HOST_STATE, privacy = READS, opened = {} } = {}) => /** @type {Detail} */ (settingsDetail({
-  report: REPORT, models: MODELS, failed: '', state, id, opened: { ...OPENED, ...opened }, subscriptions: null, privacy }));
+const at = (id, { state = HOST_STATE, privacy = READS, opened = {}, models = MODELS } = {}) => /** @type {Detail} */ (settingsDetail({
+  report: REPORT, models, failed: '', state, id, opened: { ...OPENED, ...opened }, subscriptions: null, privacy }));
 /** @param {Detail} detail */
 const rowsOf = detail => detail.parts.flatMap(part => part.panel?.rows ?? []);
 /**
@@ -56,53 +58,60 @@ const plain = words => String(words).replace(/\s/gu, ' ');
 /** @param {any} row */
 const menuOf = row => row?.end?.menu;
 
-test('V1: Privacy beside AI models, its route at its top; three choices, the second the default, each its acts', () => {
-  const models = GROUPS.find(group => group.pages.some(page => page.id === 'models'));
-  assert.deepEqual(models?.pages.map(page => page.id).slice(0, 2), ['models', 'privacy']);
+test('V1: Privacy beside AI models, its route at its top; two choices, the second the default, each the level it writes', () => {
+  const models = SETTINGS_INDEX.mac.find(group => group.entries.some(page => page.id === 'models'));
+  assert.deepEqual(models?.entries.map(page => page.id).slice(0, 2), ['models', 'privacy']);
   assert.equal(SETTINGS_PRIVACY, 'settings/privacy');
   assert.deepEqual(settingsAt(SETTINGS_PRIVACY), { page: 'privacy', row: '' });
-  assert.deepEqual(CHOICES.map(choice => choice.id), ['none', 'known', 'model']);
+  assert.deepEqual(CHOICES.map(choice => choice.id), ['none', 'known'], 'the hiding model is AI models\' Hiding details');
   assert.equal(CHOSEN_BY_DEFAULT, 'known');
   assert.equal(choiceOf(PRIVACY.fresh), 'known', 'a new home hides what it knows');
-  assert.equal(choiceOf(PRIVACY.downloading), 'model');
+  assert.equal(choiceOf(picked(PRIVACY.downloading)), 'known');
   assert.equal(choiceOf(PRIVACY.none), 'none');
   const menu = menuOf(rowOf(at(SETTINGS_PRIVACY), 'Hide personal details'));
   assert.deepEqual(menu.choices.map((/** @type {any} */ choice) => [choice.words, choice.chosen, choice.default]),
-    [['Don’t hide', false, false], ['Hide what Lifestream knows', true, true], ['Hide with a hiding model', false, false]]);
-  assert.deepEqual(menu.choices.map((/** @type {any} */ choice) => choice.do), CHOICES.map(choice => ({ host: choiceAct(choice.id, RUNNER) })));
-  assert.deepEqual(choiceAct('model', RUNNER), { act: 'home-setting', settings: { 'privacy.level': 'all', 'privacy.detector': RUNNER } });
-  assert.deepEqual(choiceAct('known', RUNNER), { act: 'home-setting', settings: { 'privacy.level': 'all', 'privacy.detector': 'off' } });
-  assert.deepEqual(choiceAct('none', null), { act: 'home-setting', settings: { 'privacy.level': 'none', 'privacy.detector': 'off' } });
-  assert.equal(choiceAct('model', null), null, 'the hiding model needs the home’s own runner');
+    [['Don’t hide', false, false], ['Hide what Lifestream knows', true, true]]);
+  assert.deepEqual(menu.choices.map((/** @type {any} */ choice) => choice.do), CHOICES.map(choice => ({ host: choiceAct(choice.id) })));
+  assert.deepEqual(choiceAct('known'), { act: 'home-setting', settings: { 'privacy.level': 'all' } });
+  assert.deepEqual(choiceAct('none'), { act: 'home-setting', settings: { 'privacy.level': 'none' } });
   assert.equal(menu.busy, CHOICE_BUSY);
   const ends = rowsOf(at(SETTINGS_PRIVACY, { privacy: { ...READS, read: PRIVACY.marking } })).map(row => /** @type {any} */ (row.end));
   const writes = ends.flatMap(end => [...end?.menu?.choices ?? [], ...end?.acts ?? []]).flatMap(each => each.do?.host ? [each.do.host] : [])
     .filter(act => act.act === 'home-setting');
-  assert.ok(writes.length >= 9, 'the choices, Chat’s levels and Links’ ways');
+  assert.ok(writes.length >= 8, 'the choices, Chat’s levels and Links’ ways');
   assert.ok(writes.every(act => 'settings' in act && !('key' in act)), 'privacy writes in one body');
-  assert.equal(new Set(CHOICES.map(choice => keyOf(/** @type {any} */ (choiceAct(choice.id, RUNNER))))).size, 1, 'every choice waits on one change');
-  assert.equal(movesPrivacy(/** @type {any} */ (choiceAct('known', RUNNER)), FILE), true, 'hiding’s state read after it');
+  assert.ok(writes.every(act => !('privacy.detector' in act.settings)), 'no detector key: it is model.defaults.hiding');
+  assert.equal(new Set(CHOICES.map(choice => keyOf(choiceAct(choice.id)))).size, 1, 'every choice waits on one change');
+  assert.equal(movesPrivacy(choiceAct('known'), FILE), true, 'hiding’s state read after it');
   assert.deepEqual(menu.choices.map((/** @type {any} */ choice) => choice.note), CHOICES.map(choice => choice.line));
 });
 
-test('V2: the hiding model’s row in each state', () => {
-  const row = (/** @type {import('../public/types.js').PrivacyRead} */ read) => /** @type {any} */ (rowOf(at(SETTINGS_PRIVACY,
-    { privacy: { ...READS, read } }), 'Hiding model'));
+test('V2: the hiding model’s row: the pick AI models names, its download as the privacy read says, Change opening AI models', () => {
+  const row = (/** @type {import('../public/types.js').PrivacyRead} */ read, models = /** @type {any} */ (null)) => /** @type {any} */ (rowOf(
+    at(SETTINGS_PRIVACY, { privacy: { ...READS, read }, models }), 'Hiding model'));
+  const hiding = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'hiding'));
+  const named = row(PRIVACY.fresh, MODELS);
+  assert.deepEqual([named.end.words, named.end.acts.map((/** @type {any} */ act) => [act.label, act.do])],
+    [hiding.words, [['Choose', { open: SETTINGS_MODELS }]]], 'the home\'s words of the pick, made on AI models');
   const fresh = row(PRIVACY.fresh);
-  assert.equal(fresh.tag, 'English first');
+  assert.equal(fresh.end.words, 'Off');
   assert.equal(fresh.progress, null);
-  assert.deepEqual(fresh.end.acts[0].do, { host: choiceAct('model', RUNNER) }, 'Download chooses it');
-  const downloading = row(PRIVACY.downloading);
-  assert.deepEqual(downloading.end, { words: 'Downloading' });
+  const downloading = row(picked(PRIVACY.downloading));
+  assert.deepEqual([downloading.end.words, downloading.end.done], ['Downloading', false]);
+  assert.deepEqual(downloading.end.acts.map((/** @type {any} */ act) => [act.label, act.do]), [['Change', { open: SETTINGS_MODELS }]]);
   assert.equal(downloading.progress.words, '340 of 900 MB');
   const marking = row(PRIVACY.marking);
-  assert.deepEqual(marking.end, { words: 'Downloaded', done: true });
+  assert.deepEqual([marking.end.words, marking.end.done], ['Downloaded', true]);
   assert.equal(marking.progress.words, 'Marked 41% of your record');
-  const absent = row(PRIVACY.absent);
+  const absent = row(picked(PRIVACY.absent));
   assert.equal(absent.signal, 'caution');
   assert.match(absent.line, /download stopped/u);
-  assert.deepEqual(absent.end.acts[0].do, { host: { act: 'models', do: 'file', runner: RUNNER, id: FILE, to: 'fetch' } });
   assert.equal(row(PRIVACY.none).end.words, 'Downloaded', 'there with nothing hidden');
+  assert.deepEqual(hostActs(at(SETTINGS_PRIVACY, { privacy: { ...READS, read: picked(PRIVACY.absent) } }))
+    .filter(act => act.act === 'models'), [], 'no file act: a picked hiding model downloads by itself');
+  const pick = /** @type {const} */ ({ act: 'models', do: 'default', use: 'hiding', model: HIDING });
+  assert.equal(movesPrivacy(pick, FILE), true, 'AI models\' pick reads hiding\'s state again');
+  assert.equal(movesPrivacy({ ...pick, use: 'search' }, FILE), false);
   const fetch = /** @type {const} */ ({ act: 'models', do: 'file', runner: RUNNER, id: FILE, to: 'fetch' });
   assert.equal(movesPrivacy(fetch, FILE), true);
   assert.equal(movesPrivacy({ ...fetch, id: 'another-file' }, FILE), false);

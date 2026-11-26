@@ -1,0 +1,72 @@
+{
+  "model": "openrouter:openai/gpt-6-luna",
+  "name": "GPT-6 Luna",
+  "thinking": "low",
+  "login": "missing",
+  "said": "Chat has no default model: choose one from the menu.",
+  "models": [
+    {
+      "id": "openrouter:openai/gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "state": "ready",
+      "default": "medium",
+      "photos": true,
+      "photos_off": null,
+      "hides": true
+    }
+  ],
+  "menu": {
+    "default": null,
+    "rows": [
+      {
+        "value": "openrouter:openai/gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "account": null,
+        "chosen": false
+      }
+    ],
+    "local": null,
+    "more": {
+      "words": "More",
+      "use": "chat",
+      "work": null
+    },
+    "off": null
+  },
+  "default": {
+    "model": null,
+    "thinking": "medium",
+    "shown": null,
+    "choose": "Choose a model"
+  },
+  "starters": [],
+  "voice": {
+    "ready": true,
+    "words": "Parakeet",
+    "line": null,
+    "caution": null,
+    "value": "default",
+    "choices": [
+      {
+        "value": "openrouter:elevenlabs/scribe-v2",
+        "words": "Scribe v2",
+        "sent": true
+      },
+      {
+        "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+        "words": "Parakeet",
+        "sent": false
+      }
+    ]
+  },
+  "limits": {
+    "photos": 10,
+    "photo_bytes": 26214400,
+    "voice_ms": 600000
+  }
+}

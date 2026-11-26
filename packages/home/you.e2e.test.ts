@@ -11,7 +11,7 @@ import { readSealed } from "./inbox.js";
 import { mintPrincipal } from "./principals.js";
 import { askHome } from "./socket.js";
 import { editSettings, testSocket } from "./test/folder.js";
-import { makeRoot, readHome, removeRoot, REPO, until, TICK_MS } from "./test/harness-root.js";
+import { FAKE_ROUTE, makeRoot, readHome, removeRoot, REPO, until, TICK_MS } from "./test/harness-root.js";
 import { ship, shipFiles } from "./test/harness-deliveries.js";
 
 
@@ -81,7 +81,7 @@ const statements = (lines: object[]) => ({ "statements.ndjson": Buffer.from(line
 
 
 async function openYouHome(prefix: string, roots: string[], options: { peopleHeld?: boolean } = {}) {
-  const root = makeRoot(prefix, { sources: { [BOOK]: "people-rows", [PEOPLE]: "people-home" }, settings: { unit: UNIT, "day.zone": ZONE } });
+  const root = makeRoot(prefix, { sources: { [BOOK]: "people-rows", [PEOPLE]: "people-home" }, settings: { unit: UNIT, "day.zone": ZONE }, fake: { leaves: "the test cloud" } });
   roots.push(root);
   if (options.peopleHeld === true) {
     const db = openHome(openHomeFolder(root), "migrate");
@@ -218,11 +218,11 @@ describe("You, the whole", () => {
       expect(second).toContain("the user");
       for (const leak of ["Sam", "15550000002"]) expect(second).not.toContain(leak);
 
-      editSettings(at.root, { "privacy.chat": "all", "privacy.detector": "off" });
+      editSettings(at.root, { "privacy.chat": "all", "model.defaults.hiding": null });
       const epoch = (await at.get("/v1/privacy")).body.epoch as number;
       const names = [me.call_name ?? me.name, me.full_name, ...(me.also_called as Body[]).map((each) => each.name)].filter((each): each is string => typeof each === "string");
       const hidden = await at.hide({
-        table: "chat:you-journey", to: "codex:gpt-6-luna", what: "text", epoch,
+        table: "chat:you-journey", to: FAKE_ROUTE, what: "text", epoch,
         texts: names.map((text) => [{ text, is: "person", who: me.id }]),
       });
       expect(hidden).toMatchObject({ status: 200, body: { level: "all" } });

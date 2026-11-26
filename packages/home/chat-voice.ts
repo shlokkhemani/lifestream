@@ -9,14 +9,13 @@ import type { CopyAnswer, CopyAsked } from "./copies.js";
 import { WRITING } from "./made.js";
 import { readRouting, routed, serving, workId, type ModelRoute, type Routing, type RoutingAt, type RoutingTables } from "./models.js";
 import type { Calls } from "./pick.js";
+import { NO_VOICE, VOICE_OFF } from "./processing.js";
 import { RESERVED_MS } from "./runners.js";
 
 
 export const WARM_AGAIN_MS = 30_000;
 export const WORDS_WITHIN_MS = 12_000;
 
-export const NO_VOICE = "Download Parakeet, or add your OpenRouter key";
-export const VOICE_OFF = "Voice notes are turned off";
 export const NOT_WRITTEN = "Couldn't write out this voice note";
 
 

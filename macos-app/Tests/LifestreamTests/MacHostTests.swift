@@ -435,14 +435,14 @@ import XCTest
         let home = try home()
         defer { home.stop() }
         let host = host(home)
-        for act in [HostAct.models(.default(kind: .pictures, route: "openrouter:fake-model")),
+        for act in [HostAct.models(.default(use: .pictures, model: "openrouter:fake-model")),
                     .models(.file(runner: "runner-macbook-pro-0001", id: "fake-file", fetch: true)),
                     .models(.file(runner: "runner-macbook-pro-0001", id: "fake-file", fetch: false)),
                     .models(.runner("runner-macbook-pro-0001", pause: true)),
                     .models(.runner("runner-macbook-pro-0001", pause: false)),
                     .models(.battery("runner-macbook-pro-0001", save: false)),
                     .models(.battery("runner-macbook-pro-0001", save: true)),
-                    .models(.address(url: "http://127.0.0.1:11434/v1", model: "fake-model", kinds: [.pictures, .text])),
+                    .models(.address(url: "http://127.0.0.1:11434/v1", input: [.text, .image])),
                     .models(.addressNone),
                     .process(family: "photos", item: "-ph-0001", prompt: "describe", route: "openrouter:fake-model")] {
             let reply = try await host.perform(act)
@@ -456,12 +456,12 @@ import XCTest
             "models | -- | runner | runner-macbook-pro-0001 | resume",
             "models | -- | battery | runner-macbook-pro-0001 | spend",
             "models | -- | battery | runner-macbook-pro-0001 | save",
-            "models | -- | address | http://127.0.0.1:11434/v1 | fake-model | pictures,text",
+            "models | -- | address | http://127.0.0.1:11434/v1 | text,image",
             "models | -- | address | none",
             "models | -- | process | photos | -ph-0001 | describe | openrouter:fake-model",
         ])
         XCTAssertEqual(home.requests.map { $0["by"] as? String }, Array(repeating: "you", count: 10))
-        let refused = await refusal { try await host.perform(.models(.default(kind: .text, route: "runner:gone"))) }
+        let refused = await refusal { try await host.perform(.models(.default(use: .text, model: "runner:gone"))) }
         XCTAssertEqual(refused, "no model runner:gone; the home reaches openrouter:fake-model")
 
         _ = try await host.perform(.openRouterKey("sk-or-v1-fake0000"))
@@ -487,8 +487,8 @@ import XCTest
         defer { home.stop() }
         let host = host(home, unit: { "macbook-pro-0001" })
         for act in [HostAct.pauseHome, .pauseHome, .resumePause(target: "home"), .resumePause(target: "-pause:gmail"),
-                    .homeSetting(.modelCap(16)), .homeSetting(.modelCap(nil)), .homeSetting(.historyStart("all")),
-                    .homeSetting(.privacy([.word(.detector, "off"), .word(.level, "none")])),
+                    .homeSetting(.modelCap(16)), .homeSetting(.historyStart("all")),
+                    .homeSetting(.privacy([.word(.chat, "names"), .word(.level, "none")])),
                     .homeSetting(.privacy([.words(.always, ["-Project Fake"]), .words(.never, nil)])),
                     .deviceName(unit: "macbook-pro-0001", name: "-Studio Mac"), .deviceName(unit: "macbook-air-bb07", name: "Desk Mac")] {
             let reply = try await host.perform(act)
@@ -500,9 +500,8 @@ import XCTest
             "resume | -- | home",
             "resume | -- | -pause:gmail",
             "settings | set | model.cap | 16",
-            "settings | reset | model.cap",
             #"settings | set | {"history.start":"all"}"#,
-            #"settings | set | {"privacy.detector":"off","privacy.level":"none"}"#,
+            #"settings | set | {"privacy.chat":"names","privacy.level":"none"}"#,
             #"settings | set | {"privacy.always":["-Project Fake"],"privacy.never":null}"#,
             "connectors",
             "device | -- | name | macbook-pro-0001 | -Studio Mac",
@@ -510,7 +509,7 @@ import XCTest
             "device | -- | name | macbook-air-bb07 | Desk Mac",
         ])
         let changes = home.requests.filter { $0["verb"] as? String != "connectors" }
-        XCTAssertEqual(changes.map { $0["by"] as? String }, Array(repeating: "you", count: 11))
+        XCTAssertEqual(changes.map { $0["by"] as? String }, Array(repeating: "you", count: 10))
         let refused = await refusal { try await host.perform(.homeSetting(.modelCap(0))) }
         XCTAssertEqual(refused, "model.cap is at least 1, not 0")
         let renames = { home.requests.filter { $0["verb"] as? String == "device" }.count }

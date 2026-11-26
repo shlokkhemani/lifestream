@@ -2,14 +2,15 @@ import type { Connector } from "@lifestreamprotocol/connect";
 import { addDays, civilDay, dayBounds, type Ask, type AskRow, type DaySettings, type JsonObject, type ReadTables, type SourceRow, type Tx } from "@lifestreamprotocol/core";
 import type { Family } from "@lifestreamprotocol/families";
 import {
-  CLOUD_VOICE, MODEL_USES, OPENROUTER_SECRET, readRouteId, restsOf, routeId, transportsOf, unfit, WORK_KINDS, workNeed, type Abilities, type CallRoute, type ChatEffort, type Found, type Ledger, type ListedModel, type ModelSettings,
-  type Rest, type RoutedAsk, type FileFailure, type RunnerFile, type RunnerListing, type RunnersListed, type Sampling, type Transport, type Unavailable, type WorkKind,
+  MODEL_USES, OPENROUTER_SECRET, readRouteId, restsOf, routeId, transportsOf, unfit, USE_IDS, WORK_KINDS, workNeed, type Abilities, type CallRoute, type ChatEffort, type Found, type Ledger, type ListedModel, type ModelSettings,
+  type Rest, type RoutedAsk, type FileFailure, type RunnerFile, type RunnerListing, type RunnersListed, type Sampling, type Transport, type Unavailable, type UseId, type WorkKind,
 } from "@lifestreamprotocol/model";
 import { catalogOf } from "./catalog.js";
 import type { PrivacySettings } from "@lifestreamprotocol/privacy";
 import { sentLevel } from "./copies.js";
 import { askingFamilies, planAgain } from "./prompts.js";
 import { wantedOn } from "./runners.js";
+import { chosenFor, type UseDefaults } from "./settings.js";
 import { when } from "./stream-words.js";
 
 export const ROUTE_ID = /^[a-z][a-z0-9-]*:.+$/u;
@@ -17,8 +18,10 @@ export const WORK_MEMBER = "llm.";
 export const RANGE_MEMBER = "llm.range";
 const READ_EVERY_MS = 30_000;
 const FETCHING_EVERY_MS = 2_000;
+export const LIST_EVERY_MS = 60 * 60_000;
 export const SINCE = "llm:since";
 export const MODELS_META = "llm:models";
+export const ADDRESS = "address";
 const HIDING_UNDER = "llm:hiding";
 type HidingUnder = Record<string, [route: string | null, leaves: string | null, level: string]>;
 const BACK_DAYS = 30;
@@ -36,6 +39,7 @@ export type ModelRoute = Abilities & {
   model: string;
   name: string;
   chat: Transport["chat"];
+  suggested: readonly UseId[];
   offered: boolean;
   runner: { unit: string; name: string; battery: boolean } | null;
   leaves: string | null;
@@ -48,8 +52,6 @@ export type ModelRoute = Abilities & {
 );
 
 export type Defaults = Readonly<Record<WorkKind, string | null>>;
-
-export const FILLED: readonly WorkKind[] = ["text"];
 
 export interface WorkRouting {
   kind: WorkKind;
@@ -88,7 +90,6 @@ export interface RoutingInput extends RoutingAt {
   chosen: readonly string[];
   sources: readonly Pick<SourceRow, "id" | "connector" | "options" | "added_ms">[];
   since: string;
-  listed?: readonly Pick<StoredRunner, "unit" | "present" | "files">[];
 }
 
 export function workId(connector: string, work: string): string {
@@ -110,7 +111,7 @@ export function routingOf(input: RoutingInput): Routing {
     if (id !== null && routes[id] === undefined && ROUTE_ID.test(id)) routes[id] = unoffered(id, input.names?.get(id));
     return id;
   };
-  for (const kind of Object.keys(input.defaults) as WorkKind[]) named(input.defaults[kind]);
+  for (const kind of WORK_KINDS) named(chosenFor(input, kind));
   for (const id of input.chosen) named(id);
   const setUp = setUpOf(input.connectors, input.sources);
   const today = civilDay(input.now_ms, input.day);
@@ -125,9 +126,9 @@ export function routingOf(input: RoutingInput): Routing {
     const start_ms = rangeStart(block, setUp.get(connector.id) ?? null, input.since, today, input.day);
     for (const [name, work] of Object.entries(connector.processing ?? {})) {
       const value = workValue(block, name);
-      const id = named(value === "off" ? null : value === "default" ? (work.prefers === undefined ? input.defaults[work.kind] : preferred(work.prefers, input.listed ?? [], routes)) : value);
+      const fallback = chosenFor(input, work.kind);
+      const id = named(value === "off" ? null : value === "default" ? fallback : value);
       const route = serves(id, work) ? id : null;
-      const fallback = input.defaults[work.kind];
       works[workId(connector.id, name)] = {
         kind: work.kind, text_chars: work.text_chars ?? null, value, route,
         suggests: route ?? (serves(fallback, work) ? fallback : null), start_ms,
@@ -137,14 +138,6 @@ export function routingOf(input: RoutingInput): Routing {
     }
   }
   return { routes, works };
-}
-
-function preferred(file: string, listed: readonly Pick<StoredRunner, "unit" | "present" | "files">[], routes: Readonly<Record<string, ModelRoute>>): string | null {
-  const installed = listed.filter((runner) => runner.files.some((each) => each.id === file && each.state === "ready"))
-    .sort((a, b) => Number(b.present) - Number(a.present) || (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
-  if (installed.length > 0) return routeId({ transport: "runner", runner: installed[0]!.unit, model: file });
-  const cloud = routes[routeId(CLOUD_VOICE)];
-  return cloud !== undefined && cloud.offered && !(cloud.state === "unavailable") ? cloud.id : null;
 }
 
 function heldByBattery(runner: ModelRoute["runner"], runners: RoutingAt["runners"]): boolean {
@@ -191,21 +184,26 @@ export type StoredRunner = Pick<HeldRunner, "unit" | "name" | "present" | "power
 
 export const UNNAMED_RUNNER = "A runner";
 
+export interface HeldList {
+  listed_ms: number;
+  models: ListedModel[];
+}
+
 export interface StoredModels {
   routes: ModelRoute[];
   runners: StoredRunner[];
-  openrouter: { connected: boolean };
+  connections: Record<string, HeldList>;
 }
 
 export function storedModels(meta: ReadTables["meta"]): StoredModels {
   const value = meta.get(MODELS_META);
-  return value === undefined ? { routes: [], runners: [], openrouter: { connected: false } } : JSON.parse(value) as StoredModels;
+  const stored = value === undefined ? {} : JSON.parse(value) as Partial<StoredModels>;
+  return { routes: stored.routes ?? [], runners: stored.runners ?? [], connections: stored.connections ?? {} };
 }
 
-export function readRouting(tables: RoutingTables, at: RoutingAt, live?: { routes: readonly ModelRoute[]; names: ReadonlyMap<string, string>; listed: readonly StoredRunner[] }): Routing {
-  const stored = live === undefined ? storedModels(tables.meta) : undefined;
+export function readRouting(tables: RoutingTables, at: RoutingAt, live?: { routes: readonly ModelRoute[]; names: ReadonlyMap<string, string> }): Routing {
   return routingOf({
-    ...at, routes: live?.routes ?? stored!.routes, ...(live === undefined ? {} : { names: live.names }), listed: live?.listed ?? stored!.runners,
+    ...at, routes: live?.routes ?? storedModels(tables.meta).routes, ...(live === undefined ? {} : { names: live.names }),
     chosen: tables.itemRoutes.list().map((choice) => choice.route), sources: tables.sources.list(), since: tables.meta.get(SINCE) ?? civilDay(at.now_ms, at.day),
   });
 }
@@ -241,7 +239,7 @@ function unoffered(id: string, last: string | undefined): ModelRoute {
   const read = readRouteId(id) ?? { transport: id.slice(0, id.indexOf(":")), model: id.slice(id.indexOf(":") + 1) };
   const name = last ?? read.model.slice(read.model.lastIndexOf("/") + 1);
   return {
-    id, transport: read.transport, model: read.model, name, input: [], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, offered: false, runner: null, leaves: null, where: null,
+    id, transport: read.transport, model: read.model, name, input: [], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, suggested: [], offered: false, runner: null, leaves: null, where: null,
     cost: null, request: null, state: "unavailable", line: `${name} isn't offered now`,
   };
 }
@@ -250,10 +248,6 @@ function unoffered(id: string, last: string | undefined): ModelRoute {
 export const opening = (words: string): string => words.charAt(0).toUpperCase() + words.slice(1);
 
 export const NO_MODEL = "No model yet";
-
-export function routeWords(route: Pick<ModelRoute, "name" | "leaves" | "runner" | "offered">): string {
-  return route.offered ? `${route.name} · ${route.leaves ?? route.runner?.name ?? "This computer"}` : route.name;
-}
 
 function unavailableWords(provider: string, reason: Unavailable): string {
   switch (reason) {
@@ -330,6 +324,7 @@ interface TransportRead {
 }
 
 function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly RunnerListing[], resting: ReadonlyMap<string, Rest>, paused: ReadonlySet<string>, now_ms: number, day: DaySettings): ModelRoute {
+  const asked = offer.request ?? read.defaults;
   const runner = offer.runner ?? null;
   const on = restsOf({ transport: read.name, model: offer.model, runner: runner?.unit });
   let rest: Rest | null = null;
@@ -339,9 +334,9 @@ function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly
   }
   const route = {
     id: on.route, transport: read.name, model: offer.model, name: offer.name, input: offer.input, output: offer.output, tools: offer.tools,
-    context_tokens: offer.context_tokens, thinking: offer.thinking, chat: read.chat, offered: true, runner,
+    context_tokens: offer.context_tokens, thinking: offer.thinking, chat: read.chat, suggested: offer.suggested ?? [], offered: true, runner,
     leaves: read.leaves, where: whereWords(read.leaves, runner), cost: read.cost,
-    request: { effort: read.defaults.effort, sampling: read.defaults.sampling ?? null, timeout_ms: read.defaults.timeout_ms },
+    request: { effort: asked.effort, sampling: asked.sampling ?? null, timeout_ms: read.defaults.timeout_ms },
   };
   if (!read.available.ok) return { ...route, state: read.available.until_ms === undefined ? "unavailable" : "waiting", line: unavailableWords(read.provider, read.available.reason) };
   if (!offer.ready) {
@@ -363,11 +358,17 @@ export type ModelReach =
 
 export const RUNNER_CHAT_LATER = "Chat can't use a runner's models yet";
 
+export function unfilled(held: JsonObject): UseId[] {
+  return USE_IDS.filter((use) => {
+    const key = `model.defaults.${use}`;
+    return !Object.hasOwn(held, key) || (use === "chat" && held[key] === null);
+  });
+}
+
 export interface ModelsOptions {
   settings(): {
-    model: ModelSettings; defaults: Defaults; connectors: Readonly<Record<string, JsonObject>>; runners: Readonly<Record<string, { files?: readonly string[]; save_battery?: boolean }>>;
+    model: ModelSettings; defaults: UseDefaults; connectors: Readonly<Record<string, JsonObject>>; runners: Readonly<Record<string, { files?: readonly string[]; save_battery?: boolean }>>;
     privacy: PrivacySettings;
-    search: { meaning: string; model: string };
   };
   registry(): { connectors: readonly Connector[]; families: readonly Family[] };
   ledger: Pick<Ledger, "resting">;
@@ -376,14 +377,18 @@ export interface ModelsOptions {
   paired(): ReadonlySet<string>;
   clock(): number;
   day(): DaySettings;
-  unset(): readonly WorkKind[];
-  fill(taken: Partial<Record<WorkKind, string>>): void;
+  unset(): readonly UseId[];
+  fill(taken: Partial<Record<UseId, string>>): void;
 }
 
 export class Models {
   #reads: TransportRead[] = [];
+  #transports: Transport[] = [];
+  #lists: Record<string, HeldList> = {};
+  readonly #listing = new Set<string>();
+  readonly #ok = new Map<string, boolean>();
+  #address: string | null = null;
   #runners: readonly HeldRunner[] = [];
-  #held = false;
   #read_ms = -Infinity;
   #reading: Promise<void> | null = null;
   readonly #names = new Map<string, string>();
@@ -395,6 +400,16 @@ export class Models {
   constructor(private readonly options: ModelsOptions) {}
 
   list(paused: ReadonlySet<string>): ModelRoute[] {
+    return this.#offered(paused);
+  }
+
+  default(use: UseId, paused: ReadonlySet<string>): ReadyRoute | null {
+    const id = chosenFor(this.options.settings(), use);
+    const route = id === null ? undefined : this.list(paused).find((each) => each.id === id);
+    return route !== undefined && isReady(route) && unfit(route, MODEL_USES[use].need) === null ? route : null;
+  }
+
+  #offered(paused: ReadonlySet<string>): ModelRoute[] {
     const now = this.options.clock();
     const resting = this.options.ledger.resting(now);
     return this.#reads.flatMap((read) => read.models.map((offer) => offeredRoute(read, offer, this.#runners, resting, paused, now, this.options.day())));
@@ -406,9 +421,10 @@ export class Models {
     if (route.state !== "ready") return { refused: "NOT_READY", line: route.line };
     if (route.runner !== null) return { refused: "NOT_READY", line: RUNNER_CHAT_LATER };
     const found: Found = { ...this.options.found(), runners: this.#runners, secret };
-    const reach = transportsOf(this.options.settings().model.transports, found).find((each) => each.name === route.transport)?.reach?.(route.model);
-    if (reach === undefined || !("url" in reach)) return { refused: "NO_MODEL" };
-    return { url: reach.url, headers: reach.headers, effort: reach.effort, model: route.model, leaves: route.leaves };
+    const transport = transportsOf(this.options.settings().model.transports, found).find((each) => each.name === route.transport);
+    const reach = transport?.reach?.(route.model);
+    if (transport === undefined || reach === undefined || !("url" in reach)) return { refused: "NO_MODEL" };
+    return { url: reach.url, headers: reach.headers, effort: reach.effort, model: route.model, leaves: transport.leaves };
   }
 
   concurrency(transport: string): number {
@@ -435,6 +451,30 @@ export class Models {
     return this.#reading;
   }
 
+  async readAgain(): Promise<void> {
+    await this.#reading?.catch(() => undefined);
+    await this.read();
+  }
+
+  listStale(): string[] {
+    const now = this.options.clock();
+    const stale = this.#transports.filter((transport) => this.#ok.get(transport.name) === true && now - (this.#lists[transport.name]?.listed_ms ?? -Infinity) >= LIST_EVERY_MS);
+    return stale.filter((transport) => this.#list(transport)).map((transport) => transport.name);
+  }
+
+  #list(transport: Transport): boolean {
+    const { name } = transport;
+    if (transport.list === undefined || this.#listing.has(name)) return false;
+    this.#listing.add(name);
+    const address = this.#address;
+    void transport.list().then((models) => {
+      if (name === ADDRESS && this.#address !== address) this.#ok.delete(name);
+      else this.#lists = { ...this.#lists, [name]: { listed_ms: this.options.clock(), models } };
+      this.poke();
+    }, () => undefined).finally(() => this.#listing.delete(name));
+    return true;
+  }
+
   async #read(): Promise<void> {
     const { model } = this.options.settings();
     const { runners: listed, below } = await this.options.runners().catch((): RunnersListed => ({ runners: [], below: [] }));
@@ -449,8 +489,16 @@ export class Models {
       ...below.filter((each) => !reported.has(each.unit) && !held.has(each.unit))
         .map((each) => notRunning({ unit: each.unit, name: UNNAMED_RUNNER, present: false, power: null, memory_gb: 0, files: [], below: each.version })),
     ];
-    const found: Found = { ...this.options.found(), runners };
-    this.#reads = await Promise.all(transportsOf(model.transports, found).map(async (transport): Promise<TransportRead> => {
+    const address = JSON.stringify(model.transports?.address ?? null);
+    if (this.#address !== null && address !== this.#address) {
+      const { [ADDRESS]: _, ...kept } = this.#lists;
+      this.#lists = kept;
+      this.#ok.delete(ADDRESS);
+    }
+    this.#address = address;
+    const found: Found = { ...this.options.found(), runners, listed: Object.fromEntries(Object.entries(this.#lists).map(([name, held]) => [name, held.models])) };
+    const transports = transportsOf(model.transports, found);
+    this.#reads = await Promise.all(transports.map(async (transport): Promise<TransportRead> => {
       const [available, models] = await Promise.all([
         transport.available().catch((error: unknown) => ({ ok: false as const, reason: "away" as const, detail: error instanceof Error ? error.message : String(error) })),
         transport.models().catch((): ListedModel[] => []),
@@ -461,20 +509,33 @@ export class Models {
       return { name, provider: transport.provider, cost: transport.cost, leaves: transport.leaves, chat: transport.chat, defaults, available, models };
     }));
     this.#runners = runners;
-    this.#held = found.held?.(OPENROUTER_SECRET) === true;
+    this.#transports = transports;
     this.#read_ms = this.options.clock();
-    const ready = this.list(new Set()).filter((route) => route.state === "ready");
-    const taken: Partial<Record<WorkKind, string>> = {};
-    for (const kind of this.options.unset().filter((each) => FILLED.includes(each))) {
-      const route = ready.find((each) => unfit(each, workNeed({ kind })) === null);
-      if (route !== undefined) taken[kind] = route.id;
+    for (const [transport, read] of transports.map((each, index) => [each, this.#reads[index]!] as const)) {
+      const was = this.#ok.get(transport.name);
+      this.#ok.set(transport.name, read.available.ok);
+      if (read.available.ok && was !== true) this.#list(transport);
+    }
+    const ready = this.#offered(new Set()).filter((route) => route.state === "ready");
+    const taken: Partial<Record<UseId, string>> = {};
+    for (const use of this.options.unset()) {
+      const fill = MODEL_USES[use].fill;
+      if (fill === null) continue;
+      const fits = ready.filter((route) => route.transport !== ADDRESS && unfit(route, MODEL_USES[use].need) === null);
+      const first = fill.order === undefined
+        ? fits.find((route) => route.suggested.includes(use)) ?? fits[0]
+        : fill.order.map((name) => fits.find((route) => route.transport === name && route.suggested.includes(use))).find((each) => each !== undefined);
+      if (first !== undefined) taken[use] = first.id;
     }
     if (Object.keys(taken).length > 0) this.options.fill(taken);
   }
 
   start(tx: Tx): void {
     const stored = storedModels(tx.tables.meta);
-    if (this.#reads.length === 0) this.#runners = stored.runners.map(notRunning);
+    if (this.#reads.length === 0) {
+      this.#runners = stored.runners.map(notRunning);
+      this.#lists = stored.connections;
+    }
     for (const route of stored.routes) if (!this.#names.has(route.id)) this.#names.set(route.id, route.name);
     if (tx.tables.meta.get(SINCE) !== undefined) return;
     tx.tables.meta.set(SINCE, civilDay(this.options.clock(), this.options.day()));
@@ -485,7 +546,7 @@ export class Models {
     const settings = this.options.settings();
     return readRouting(tx.tables, {
       connectors: this.options.registry().connectors, blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, now_ms: this.options.clock(), day: this.options.day(),
-    }, { routes: this.list(pausedRunners(tx.tables.controls.list())), names: this.#names, listed: this.#runners });
+    }, { routes: this.list(pausedRunners(tx.tables.controls.list())), names: this.#names });
   }
 
   tick(tx: Tx): Routing {
@@ -493,7 +554,7 @@ export class Models {
     if (this.#reads.length === 0) return routing;
     for (const route of Object.values(routing.routes)) if (route.offered) this.#names.set(route.id, route.name);
     const runners = this.#runners.map(({ unit, name, present, power, memory_gb, files, below }): StoredRunner => ({ unit, name, present, power, memory_gb, files, below }));
-    const stored = JSON.stringify({ routes: Object.values(routing.routes), runners, openrouter: { connected: this.#held } } satisfies StoredModels);
+    const stored = JSON.stringify({ routes: Object.values(routing.routes), runners, connections: this.#lists } satisfies StoredModels);
     if (stored !== this.#stored) {
       if (tx.tables.meta.get(MODELS_META) !== stored) tx.tables.meta.set(MODELS_META, stored);
       this.#stored = stored;

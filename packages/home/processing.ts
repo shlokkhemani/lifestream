@@ -5,10 +5,11 @@ import { MODEL_USES, unfit, workNeed, type Rates } from "@lifestreamprotocol/mod
 import { PRIVACY_MEMBER, type NamedLevel, type PrivacySettings } from "@lifestreamprotocol/privacy";
 import { AUDIO_LINE, HIDING_META, sentLevel, type HidingWaits } from "./copies.js";
 import { extractCursor } from "./derive.js";
-import { runnerUnit } from "./lifecycle.js";
-import { FILLED, heldBy, NO_MODEL, opening, placeOf, RANGE_MEMBER, readRouting, routeWords, WORK_MEMBER, workId, type Defaults, type ModelRoute, type Routing, type RoutingAt, type WorkNeeds, type WorkRouting } from "./models.js";
+import { inUseOf, MENU, menuOf, modelMenu } from "./models-read.js";
+import { heldBy, NO_MODEL, opening, RANGE_MEMBER, readRouting, storedModels, WORK_MEMBER, workId, type Defaults, type ModelRoute, type Routing, type RoutingAt, type StoredRunner, type WorkNeeds, type WorkRouting } from "./models.js";
 import { aboutLeft, amount, leftWords, NB, number } from "./stream-words.js";
-import type { History, MemberStep, PrivacyRow, Processing, ProcessingShape, Step } from "./streams-report.js";
+import type { ModelMenu } from "./pages.js";
+import type { History, PrivacyRow, Processing, ProcessingShape, Step } from "./streams-report.js";
 
 const MONTH_DAYS = 30;
 const YEAR_DAYS = 365;
@@ -30,7 +31,6 @@ export interface ProcessingInput extends RoutingAt {
   histories: ReadonlyMap<string, Pick<History, "state" | "back_to_ms">>;
   typed?: string;
   privacy: PrivacySettings;
-  home: string;
 }
 
 const LEVEL_WORDS: Record<NamedLevel, { step: string; words: string; note: string }> = {
@@ -39,12 +39,17 @@ const LEVEL_WORDS: Record<NamedLevel, { step: string; words: string; note: strin
   none: { step: "Don't hide", words: "Sent as it is", note: "Everything is sent as it is." },
 };
 
+export const NO_VOICE = "Choose a model for Voice notes";
+export const VOICE_OFF = "Voice notes are turned off";
+
 export interface ProcessingMember {
   label: string;
   about: string | null;
   words: string;
-  steps: MemberStep[];
+  steps: Step[] | null;
+  menu?: ModelMenu;
   route?: string | null;
+  line?: string | null;
 }
 
 export interface WorkState {
@@ -93,6 +98,8 @@ export function readProcessing(tables: ProcessingTables, rates: Rates | null, in
   const growingOf = growing(tables, input, held);
   const settings = { privacy: input.privacy, connectors: input.blocks };
   const waits = JSON.parse(tables.meta.get(HIDING_META) ?? "{}") as HidingWaits;
+  const inUse = inUseOf({ defaults: input.defaults, blocks: input.blocks });
+  const { runners } = storedModels(tables.meta);
   const counted = new Map(declaring.map((connector) => [connector.id, Object.entries(connector.processing!).map(([name, work]): Counted => {
     const id = workId(connector.id, name);
     const at = routing.works[id]!;
@@ -116,7 +123,9 @@ export function readProcessing(tables: ProcessingTables, rates: Rates | null, in
     const note = (day: string | null) => noteOf(works, day, startOf(day), rates);
     const sent = (id: string) => sentLevel(settings, input.connectors, id);
     const members = new Map<string, ProcessingMember>(works.flatMap(({ id, name, work, route }): [string, ProcessingMember][] => [
-      [`${WORK_MEMBER}${name}`, { label: work.label, about: work.about, ...memberWords(work, routing.works[id]!, route, routes, input.defaults, input.home) }],
+      [`${WORK_MEMBER}${name}`, {
+        label: work.label, about: work.about, ...memberWords({ ...work, id }, routing.works[id]!, route, routes, input.defaults, runners, inUse),
+      }],
       [`${PRIVACY_MEMBER}${name}`, { label: `${work.label}: personal details`, about: null, ...levelWords(sent(id), input.privacy.level) }],
     ]));
     members.set(RANGE_MEMBER, {
@@ -262,22 +271,24 @@ function growing(tables: ProcessingTables, input: Pick<ProcessingInput, "familie
   };
 }
 
-export function memberWords(work: WorkNeeds & { prefers?: string | undefined }, at: Pick<WorkRouting, "value" | "as_is">, route: ModelRoute | null, routes: readonly ModelRoute[], defaults: Defaults, home: string):
-  { words: string; steps: MemberStep[]; route: string | null } {
+export function memberWords(work: WorkNeeds & { id: string }, at: Pick<WorkRouting, "value" | "as_is">, route: ModelRoute | null, routes: readonly ModelRoute[], defaults: Defaults,
+  runners: readonly StoredRunner[], held: ReadonlySet<string>): { words: string; steps: null; menu: ModelMenu; route: string | null; line?: string | null } {
   const { value } = at;
   const named = routes.find((each) => each.id === defaults[work.kind]);
-  const unset = work.prefers === undefined && defaults[work.kind] === null && !FILLED.includes(work.kind) ? STEP_WORDS.off : NO_MODEL;
-  const own = runnerUnit(home);
-  const steps: MemberStep[] = [
-    { value: "off", words: STEP_WORDS.off, note: null },
-    { value: "default", words: STEP_WORDS.default, note: named !== undefined && unfit(named, workNeed(work)) === null ? named.name : unset },
-    ...routes.flatMap((each): MemberStep[] => unfit(each, workNeed(work)) === null ? [{
-      value: each.id, words: each.name, note: each.state === "ready" ? placeOf(each, at) : each.line,
-      ...(each.runner === null ? {} : { runner: { unit: each.runner.unit, name: each.runner.name, home: each.runner.unit === own } }),
-    }] : []),
-  ];
-  if (value === "off") return { words: STEP_WORDS.off, steps, route: null };
-  return { words: route === null ? value === "default" ? unset : NO_MODEL : routeWords(route), steps, route: route?.id ?? null };
+  const unset = defaults[work.kind] === null && MODEL_USES[work.kind].fill === null ? STEP_WORDS.off : NO_MODEL;
+  const byId = new Map(routes.map((each) => [each.id, each]));
+  const listed = menuOf(routes, work.kind, new Set([...held, value])).map((id) => byId.get(id)!).filter((each) => unfit(each, workNeed(work)) === null);
+  const menu = modelMenu(listed, runners, {
+    use: work.kind, work: work.id, chosen: value, off: "off",
+    defaulted: { value: "default", name: named !== undefined && unfit(named, workNeed(work)) === null ? named.name : null },
+  });
+  if (value === "off") return { words: STEP_WORDS.off, steps: null, menu, route: null, ...asIsLine(at, null) };
+  return { words: route === null ? value === "default" ? unset : NO_MODEL : value === "default" ? MENU.default(route.name) : route.name, steps: null, menu, route: route?.id ?? null, ...asIsLine(at, route) };
+}
+
+function asIsLine(at: Pick<WorkRouting, "value" | "as_is">, route: ModelRoute | null): { line?: string | null } {
+  if (at.as_is !== true) return {};
+  return { line: at.value === "off" ? VOICE_OFF : route === null ? NO_VOICE : null };
 }
 
 export function needsWords(work: WorkNeeds, routes: readonly ModelRoute[]): string {

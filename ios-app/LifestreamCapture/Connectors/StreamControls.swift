@@ -77,7 +77,7 @@ struct StreamMemberRow: View {
 
     static func drawn(_ member: HomeLink.Connector.Member) -> Drawn {
         switch member.control {
-        case .menu where member.steps != nil: .menu
+        case .menu where member.steps != nil || member.menu != nil: .menu
         case .toggle: .toggle
         case .stepper where member.min != nil && member.max != nil: .stepper
         case .list: .list

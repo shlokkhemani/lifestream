@@ -112,6 +112,7 @@
 		586C3459BCD472D35A39156A /* StatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146D5C3276AF10DB7E27D511 /* StatusView.swift */; };
 		59ADA19F0B17C075717BFDCE /* PhoneSourceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A059AA15CCFD563AA6BF276A /* PhoneSourceSheet.swift */; };
 		5A7D6C021EB28542D20E2C8E /* HardwareIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CBBCAF115DFCF2F64C72F2B /* HardwareIdentity.swift */; };
+		5DD467467E51CCEE5AE84DA5 /* ModelFind.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CE245660E3AFBA84BB25EB /* ModelFind.swift */; };
 		5ED96284BE8E70E4388BF526 /* KindChips.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C8B8A4B86D7C72E9556806 /* KindChips.swift */; };
 		5FBCD940B50CD4FC28535F4F /* LocationRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883DA704F100D1B5E6EC4C6C /* LocationRecorderTests.swift */; };
 		613269469B5EA0DC34668AB9 /* NotesFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF81DCD23781487F7EFABF8 /* NotesFlowUITests.swift */; };
@@ -553,6 +554,7 @@
 		D09D36065230C4F9C5EB02D8 /* PhotoViewerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoViewerUITests.swift; sourceTree = "<group>"; };
 		D2C7056FC91C62BE28E9797D /* StreamsWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamsWords.swift; sourceTree = "<group>"; };
 		D4617B3C4DB54385C9514802 /* NotesRichTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesRichTextTests.swift; sourceTree = "<group>"; };
+		D4CE245660E3AFBA84BB25EB /* ModelFind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelFind.swift; sourceTree = "<group>"; };
 		D51010EC9CDADCB4FE27FFC9 /* AppShellUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShellUITests.swift; sourceTree = "<group>"; };
 		D643E1EBD93138B4AB6AAA47 /* TrackPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPage.swift; sourceTree = "<group>"; };
 		D77F91428A278C57BE0EE425 /* AskThread.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskThread.swift; sourceTree = "<group>"; };
@@ -895,6 +897,7 @@
 				33A5AD4F26430D652D08534A /* Declared.swift */,
 				A3C8C711117C25F5AA0A3254 /* HomeConnectors.swift */,
 				523D91CF21596275B2A56D56 /* LoopbackListener.swift */,
+				D4CE245660E3AFBA84BB25EB /* ModelFind.swift */,
 				6DD07CC34868A82F982FDC5D /* PhoneNeeds.swift */,
 				128E26917ECB6688A71AC09E /* PhoneSource.swift */,
 				A059AA15CCFD563AA6BF276A /* PhoneSourceSheet.swift */,
@@ -1571,6 +1574,7 @@
 				DDFDE2DA8DDE277D4E2040B5 /* LifestreamCaptureApp.swift in Sources */,
 				ABBE7BA1D4F126BA42750837 /* LocationRecorderCoordinator.swift in Sources */,
 				FBC2BEEE9767A52972D64E2F /* LoopbackListener.swift in Sources */,
+				5DD467467E51CCEE5AE84DA5 /* ModelFind.swift in Sources */,
 				A35DA42893EB7DCA124B162F /* MomentInspector.swift in Sources */,
 				0673E6154F622294FDE5D479 /* MomentSheet.swift in Sources */,
 				09B9682314557DA4813F3BCD /* MomentViews.swift in Sources */,

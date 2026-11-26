@@ -174,7 +174,7 @@ describe("GET /v1/outbound", () => {
     const privacy = await get("/v1/privacy");
     expect(privacy.status).toBe(200);
     expect(privacy.body.types).toEqual(DETAIL_WORDS);
-    expect(privacy.body.detector).toEqual({ runner: "off", state: "off", line: null, file: null });
+    expect(privacy.body.detector).toEqual({ model: null, runner: "off", state: "off", line: null, file: null });
     expect((await get("/v1/outbound?from=2026-9-8")).status).toBe(422);
     expect((await get("/v1/outbound?before=x")).status).toBe(422);
     expect((await get("/v1/outbound?before=1234567890123456")).status).toBe(422);

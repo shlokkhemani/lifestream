@@ -29,8 +29,9 @@ import { testSocket } from "./test/folder.js";
 
 const RUNNER = "runner-macbook-pro-0001";
 const MODEL = "embeddinggemma-2-q8-512";
-const ON = { meaning: RUNNER, model: MODEL, power: "plugged-idle" } as const;
-const OFF = { ...ON, meaning: "off" } as const;
+const ON = { unit: RUNNER, file: MODEL, power: "plugged-idle" } as const;
+const OFF = null;
+const STATED = { power: "plugged-idle" } as const;
 const DAYS: DaySettings = { zone: "UTC", day_start_hour: 4 };
 const T0 = Date.parse("2026-11-02T06:00:00Z");
 const DAY = 86_400_000;
@@ -209,7 +210,7 @@ describe("meaning's standing", () => {
     await opened(waiting.file, (db) => {
       const words = db.prepare("SELECT max(end_ms) FROM screen_row").pluck().get() as number;
       expect(meaningStanding(db, OFF)).toEqual({ available: false, words_indexed_through: words, waits: null });
-      expect(meaningStanding(db, { ...ON, model: "other-model" })).toEqual({ available: false, words_indexed_through: words, waits: null });
+      expect(meaningStanding(db, { ...ON, file: "other-model" })).toEqual({ available: false, words_indexed_through: words, waits: null });
       expect(meaningStanding(db, ON)).toEqual({ available: true, words_indexed_through: words, waits: { waits: "battery", line: "Waiting for Example Mac to be plugged in" } });
     });
     const landed = built(held, true);
@@ -254,7 +255,7 @@ describe("a screen file a publication holds", () => {
   const stateOf = (file: string) => {
     const routes = screenReads({
       folder: openHomeFolder(dirname(file)),
-      settings: () => ({ search: { meaning: "off", model: MODEL, power: "plugged-idle" } }) as unknown as Settings, blobs: undefined as never,
+      settings: () => ({ defaults: { search: null }, search: { power: "plugged-idle" } }) as unknown as Settings, blobs: undefined as never,
       families: [screenFamily({ index: true })], viewed: (work) => work({ position: () => ({ seq: 1 }), through: 1 } as unknown as OpenView), file: () => file, record: () => join(dirname(file), "index.db"), waitMs: 50,
     });
     return () => routes.get(SEARCH_STATE_ROUTE)!({
@@ -364,7 +365,7 @@ describe("the screen routes end to end", () => {
     const SOURCE = "screen:local:mac-0001";
     const TOKEN = "synthetic-token-screen-reader".padEnd(43, "r");
     const DRIVE = "synthetic-token-screen-drive".padEnd(43, "x");
-    const root = makeRoot("lifestream-screen-reads-", { sources: { [SOURCE]: "fake-rows" }, settings: { "families.screen": { index: true }, "search.meaning": RUNNER } });
+    const root = makeRoot("lifestream-screen-reads-", { sources: { [SOURCE]: "fake-rows" }, settings: { "families.screen": { index: true }, "model.defaults.search": `runner:${RUNNER}/${MODEL}` } });
     homes.push(root);
     mintPrincipal(openHomeFolder(root), { unit: "reader", scopes: ["read"], sources: [], token: TOKEN, now_ms: 0 });
     mintPrincipal(openHomeFolder(root), { unit: "test-drive", scopes: ["drive"], token: DRIVE, now_ms: 0 });
@@ -405,7 +406,7 @@ describe("the screen routes end to end", () => {
       }).catch((error: Error) => { throw new Error(`${error.message}; the runner said ${said.join("")}`); });
       const first = await get("/v1/search/state");
       expect(first.status).toBe(200);
-      expect(first.body.screen).toMatchObject({ ...ON, words_indexed_through: null, vectors_bytes: 0, queued: 0, waits: null, embedded: 0, named: 0 });
+      expect(first.body.screen).toMatchObject({ ...STATED, words_indexed_through: null, vectors_bytes: 0, queued: 0, waits: null, embedded: 0, named: 0 });
       const POST = "A long post about the zircon lighthouse and its keeper, who reads every evening by the sea.";
       const NOTE = "Notes on the harbor walk: bring the brass compass, and leave before the tide turns.";
       const frame = (key: string, at: number, ...lines: string[]) => ({
@@ -435,7 +436,7 @@ describe("the screen routes end to end", () => {
       const minute = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
       const units = count("SELECT count(DISTINCT text_hash) FROM screen_unit")!;
       expect(reached.body.screen).toEqual({
-        ...ON, as_of: expect.any(String), building: null, words_indexed_through: minute(count("SELECT max(end_ms) FROM screen_row")!),
+        ...STATED, as_of: expect.any(String), building: null, words_indexed_through: minute(count("SELECT max(end_ms) FROM screen_row")!),
         bytes: expect.any(Number), vectors_bytes: expect.any(Number), queued: 0, waits: null, waits_line: null, embedded: units, named: units, skipped: 0,
       });
       expect(reached.body.screen.bytes).toBeGreaterThan(0);
@@ -454,7 +455,7 @@ describe("the screen routes end to end", () => {
       expect(meaning.hits.length).toBeGreaterThan(0);
       for (const hit of meaning.hits) expect(hit).toMatchObject({ app: "Example Editor" });
 
-      await askHome(testSocket(root), "settings", ["set", "search.meaning", "off"]);
+      await askHome(testSocket(root), "models", ["default", "search", "none"]);
       await until("the meaning dropped from the file", () => count("SELECT count(*) FROM meta WHERE name = 'meaning' AND value = 'false'") === 1);
       const off = await listed("a lighthouse keeper");
       answers.off = off;
@@ -463,7 +464,7 @@ describe("the screen routes end to end", () => {
       await until("the meaning vectors deleted", async () => (await get("/v1/search/state")).body.screen.vectors_bytes === 0);
       const gone = await get("/v1/search/state");
       answers.state_off = gone.body;
-      expect(gone.body.screen).toMatchObject({ ...OFF, words_indexed_through: reached.body.screen.words_indexed_through, queued: 0, embedded: 0, named: 0, skipped: 0 });
+      expect(gone.body.screen).toMatchObject({ ...STATED, words_indexed_through: reached.body.screen.words_indexed_through, queued: 0, embedded: 0, named: 0, skipped: 0 });
       artifact(root, "screen-reads", answers);
       const drawn = { state: reached.body.screen, state_off: gone.body.screen };
       if (process.env.LIFESTREAM_FIXTURES === "write") writeFileSync(PAGES_FIXTURE, `${JSON.stringify(drawn, null, 2)}\n`);

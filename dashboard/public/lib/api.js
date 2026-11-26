@@ -60,12 +60,6 @@ export async function fetchStreams(unit, etag) {
   return { report: /** @type {StreamsReport} */ (await valueOf(response)), etag: response.headers.get('etag') ?? '' };
 }
 
-/** @returns {Promise<import('../types.js').ModelsRead>} */
-export const fetchModels = () => /** @type {Promise<any>} */ (call('models'));
-
-/** @returns {Promise<import('../types.js').StorageRead>} */
-export const fetchStorage = () => /** @type {Promise<any>} */ (call('storage'));
-
 /** @returns {Promise<import('../types.js').StartCost>} */
 export const fetchStartCost = () => /** @type {Promise<any>} */ (call('start/cost'));
 
@@ -190,12 +184,16 @@ export const fetchPlays = params => /** @type {Promise<PlaysCount>} */ (call(`co
 /**
  * @param {{ model?: string, thinking?: string }} pick
  * @param {AbortSignal} [signal]
- * @returns {Promise<{ model: string, name?: string, thinking?: string, group?: string | null, login: 'missing' | 'ready' | 'refused', said?: string, gone?: true, models?: { id: string, name: string, thinking: string[], default: string, group?: string, photos: boolean }[], default?: { model: string, thinking: string }, starters?: { kind: string, question: string }[], unsaved_in_ms?: number, voice: AskVoiceReady, limits: AskLimits }>}
+ * @returns {Promise<AskReady>}
  */
 export const fetchAskReady = (pick, signal) => {
   const query = new URLSearchParams(pick).toString();
-  return /** @type {Promise<any>} */ (call(query ? `ask?${query}` : 'ask', undefined, 'GET', signal));
+  return /** @type {Promise<AskReady>} */ (call(query ? `ask?${query}` : 'ask', undefined, 'GET', signal));
 };
+
+/** @typedef {{ id: string, name: string, thinking: string[], default: string, state: string, photos_off: string | null, hides: boolean }} AskModel */
+
+/** @typedef {{ models: AskModel[], menu?: import('../pages.js').ModelMenu, default: { model: string | null, thinking: string, shown: string | null, choose: string | null }, said?: string, act?: string, gone?: true, starters: { kind: string, question: string }[], unsaved_in_ms?: number, voice: AskVoiceReady, limits: AskLimits }} AskReady */
 
 /** @typedef {{ photos: number, photo_bytes: number, voice_ms: number }} AskLimits */
 

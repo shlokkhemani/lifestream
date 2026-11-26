@@ -7,7 +7,7 @@ const NOW = 1_800_000_000_000;
 describe("the privacy settings", () => {
   it("hold one row for each setting of the spec, each with a rule", () => {
     expect(PRIVACY_SETTINGS.map((row) => `${row.where} ${row.key}`)).toEqual([
-      "home privacy.level", "home privacy.chat", "home privacy.detector", "home privacy.links", "home privacy.always", "home privacy.never",
+      "home privacy.level", "home privacy.chat", "home privacy.links", "home privacy.always", "home privacy.never",
       "connector privacy.*",
     ]);
     expect(privacySetting("connector", "privacy.photos")?.key).toBe("privacy.*");
@@ -17,9 +17,9 @@ describe("the privacy settings", () => {
 
   it("run at the spec's defaults, Chat and every work following the onboarding's level", () => {
     const settings = readPrivacySettings({});
-    expect(settings).toEqual({ level: "all", chat: "all", detector: "off", links: "tokens", always: [], never: [] });
-    const off = readPrivacySettings({ "privacy.level": "none", "privacy.detector": "runner-macbook-pro-0001", "privacy.links": "none", "privacy.always": ["Project Falcon"], "day.zone": "UTC" });
-    expect(off).toMatchObject({ level: "none", chat: "none", detector: "runner-macbook-pro-0001", links: "none", always: ["Project Falcon"] });
+    expect(settings).toEqual({ level: "all", chat: "all", links: "tokens", always: [], never: [] });
+    const off = readPrivacySettings({ "privacy.level": "none", "privacy.links": "none", "privacy.always": ["Project Falcon"], "day.zone": "UTC" });
+    expect(off).toMatchObject({ level: "none", chat: "none", links: "none", always: ["Project Falcon"] });
     expect(readPrivacySettings({ "privacy.chat": "names" }).chat).toBe("names");
     expect(workLevel(off, "photos", undefined)).toBe("none");
     expect(workLevel(off, "photos", "default")).toBe("none");
@@ -55,7 +55,6 @@ describe("the privacy settings", () => {
     };
     expect(refused(() => readPrivacySettings({ "privacy.level": "names" }))).toBe("privacy.level is all or none");
     expect(refused(() => readPrivacySettings({ "privacy.links": "all" }))).toBe("privacy.links is tokens, path or none");
-    expect(refused(() => readPrivacySettings({ "privacy.detector": "runner-Mac Book" }))).toBe("privacy.detector is off or a runner, runner-<unit>");
     expect(refused(() => readPrivacySettings({ "privacy.never": ["Lifestream", "lifestream"] }))).toBe("privacy.never is a list of distinct words, none empty");
     expect(refused(() => readPrivacySettings({ "privacy.always": [""] }))).toBe("privacy.always is a list of distinct words, none empty");
     expect(refused(() => workLevel(readPrivacySettings({}), "photos", "some"))).toBe("privacy.photos is all, names, none or default (privacy.level)");

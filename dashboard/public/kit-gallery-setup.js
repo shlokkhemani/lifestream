@@ -3,6 +3,7 @@
 /** @import { StartCost, StreamsReport } from './types.js' */
 /** @import { Screen, Seen } from './ui/onboarding/model.js' */
 /** @import { Session } from './ui/onboarding/view.js' */
+/** @import { ModelPlace, Models, ModelUse } from './pages.js' */
 import { subscriptionOf } from './lib/host.js';
 import { esc } from './lib/html.js';
 import { sectionLabel, setupBand, setupFoot, setupFrame } from './ui/kit/index.js';
@@ -78,29 +79,67 @@ const shot = (label, screen, seen, more = {}) => `<div class="gallery__specimen"
 /** @param {Record<string, unknown>} changed @returns {Session['changes']} */
 const changesOf = changed => /** @type {Session['changes']} */ ({ ...NO_CHANGES, ...changed });
 
-const SCREEN_STATE = /** @type {import('./ui/connectors/settings-search.js').ScreenState} */ ({ meaning: 'runner-macbook-pro-0001',
-  model: 'embeddinggemma-2-q8-512', power: 'plugged-idle', words_indexed_through: null, bytes: 0, vectors_bytes: 0, queued: 0,
+const SCREEN_STATE = /** @type {import('./ui/connectors/settings-search.js').ScreenState} */ ({
+  power: 'plugged-idle', words_indexed_through: null, bytes: 0, vectors_bytes: 0, queued: 0,
   waits: null, waits_line: null, embedded: 0, named: 0, skipped: 0 });
+
+const RUNNER = 'runner-macbook-pro-0001';
+const QWEN = `runner:${RUNNER}/qwen3.5-4b`;
+const PARAKEET = `runner:${RUNNER}/parakeet-unified-en-0.6b`;
+const PLAN_ONE = 'claude:plan-model-1';
+const PLAN_TWO = 'codex:plan-model-2';
+const THIS_MAC = 'On this Mac';
+
+const NAMES = /** @type {Record<string, string>} */ ({ [QWEN]: 'Qwen 3.5 4B', [PARAKEET]: 'Parakeet', [PLAN_ONE]: 'Plan Model One',
+  [PLAN_TWO]: 'Plan Model Two' });
 
 const SIGNED = subscriptionOf({ state: 'signed_in', account: 'person-a@example.com', plan: 'max' });
 
-/** @param {string} id @param {Partial<import('./types.js').ModelFile>} said */
-const withFile = (id, said) => ({ ...MODELS, runners: MODELS.runners.map(runner => ({ ...runner,
-  files: runner.files.map(file => file.id === id ? { ...file, ...said } : file) })) });
+/**
+ * @param {string} place
+ * @param {string} value
+ * @param {Partial<ModelPlace>} [said]
+ * @returns {ModelPlace}
+ */
+const placeOf = (place, value, said = {}) => ({ place, value, line: null, ready: true, leaves: place !== THIS_MAC, ...said });
 
-const PLANS_TOO = { ...MODELS, defaults: { ...MODELS.defaults, pictures: { ...MODELS.defaults.pictures,
-  steps: [...MODELS.defaults.pictures.steps, { value: 'codex:plan-model-2', words: 'Plan model 2', note: null }] } } };
-const PARAKEET = 'runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b';
-const PICKED = { ...PLANS_TOO, runners: withFile('parakeet-unified-en-0.6b', { state: 'fetching', line: 'Downloading, 0.3 of 0.7 GB' }).runners,
-  defaults: { ...PLANS_TOO.defaults, pictures: { ...PLANS_TOO.defaults.pictures, value: 'claude:plan-model-1' },
-    audio: { ...MODELS.defaults.audio, value: PARAKEET } } };
-const READY = { ...PICKED, runners: withFile('parakeet-unified-en-0.6b', { state: 'ready', line: null }).runners,
-  defaults: { ...PICKED.defaults, pictures: { ...PICKED.defaults.pictures, value: 'codex:plan-model-2' } } };
-const NOTHING = { ...PLANS_TOO, defaults: { ...PLANS_TOO.defaults, pictures: { ...PLANS_TOO.defaults.pictures, value: MODELS.defaults.audio.value,
-  words: MODELS.defaults.audio.words }, audio: MODELS.defaults.audio } };
-const SMALL = { ...NOTHING, runners: NOTHING.runners.map(runner => ({ ...runner,
-  files: runner.files.map(file => file.id.startsWith('qwen') ? { ...file, fits: false, about: `${file.about} · Needs 16 GB of memory` }
-    : file.id.startsWith('parakeet') ? { ...file, about: `${file.about} · Recommended for this Mac` } : file) })) };
+/**
+ * @param {ModelUse['use']} use
+ * @param {ModelPlace[]} places
+ * @param {string | null} value
+ * @param {string | null} [line]
+ * @returns {ModelUse}
+ */
+const mediaUse = (use, places, value, line = null) => {
+  const base = /** @type {ModelUse} */ (MODELS.uses.find(each => each.use === use));
+  /** @param {ModelPlace} place */
+  const rowOf = place => ({ value: place.value ?? '', name: NAMES[place.value ?? ''], account: null, chosen: place.value === value });
+  const local = places.filter(place => place.ready && !place.leaves).map(rowOf);
+  return { ...base, line, words: value === null ? 'Off' : NAMES[value], value, places,
+    menu: { ...base.menu, rows: places.filter(place => place.ready && place.leaves).map(rowOf), local: local.length ? { label: 'Local', rows: local } : null,
+      off: base.menu.off && { ...base.menu.off, chosen: value === null } } };
+};
+
+/**
+ * @param {ModelUse} pictures
+ * @param {ModelUse} audio
+ * @returns {Models}
+ */
+const mediaModels = (pictures, audio) => ({ ...MODELS, uses: MODELS.uses.map(each => each.use === 'pictures' ? pictures
+  : each.use === 'audio' ? audio : each) });
+
+const ON_MAC_QWEN = placeOf(THIS_MAC, QWEN, { line: 'Download Qwen 3.5 4B · 4.0 GB' });
+const ON_MAC_PARAKEET = placeOf(THIS_MAC, PARAKEET, { line: 'Download Parakeet · 0.7 GB' });
+const CLAUDE = placeOf('Claude', PLAN_ONE);
+const CHATGPT = placeOf('ChatGPT', PLAN_TWO, { line: 'Connect ChatGPT first', ready: false });
+
+const NOTHING = mediaModels(mediaUse('pictures', [ON_MAC_QWEN, CLAUDE, CHATGPT], null), mediaUse('audio', [ON_MAC_PARAKEET], null));
+const PICKED = mediaModels(mediaUse('pictures', [ON_MAC_QWEN, CLAUDE, CHATGPT], PLAN_ONE),
+  mediaUse('audio', [{ ...ON_MAC_PARAKEET, line: null }], PARAKEET, 'Downloading, 0.3 of 0.7 GB'));
+const READY = mediaModels(mediaUse('pictures', [{ ...ON_MAC_QWEN, line: null }, { ...CLAUDE, line: 'Connect Claude first', ready: false },
+  { ...CHATGPT, line: null, ready: true }], PLAN_TWO), mediaUse('audio', [{ ...ON_MAC_PARAKEET, line: null }], PARAKEET));
+const SMALL = mediaModels(mediaUse('pictures', [{ ...CLAUDE, line: 'Connect Claude first', ready: false }, CHATGPT], null),
+  mediaUse('audio', [ON_MAC_PARAKEET], null));
 
 const UNIT = 'macbook-pro-0001';
 

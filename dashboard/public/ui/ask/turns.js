@@ -126,20 +126,6 @@ export function turnsOf({ messages, running }) {
   });
 }
 
-/**
- * @param {{ id: string, name: string, group?: string }[]} models
- * @returns {{ group: string, choices: { id: string, name: string }[] }[]}
- */
-export function modelSections(models) {
-  /** @type {{ group: string, choices: { id: string, name: string }[] }[]} */
-  const sections = [];
-  for (const { id, name, group = '' } of models) {
-    const section = sections.find(each => each.group === group) ?? sections[sections.push({ group, choices: [] }) - 1];
-    section.choices.push({ id, name });
-  }
-  return sections;
-}
-
 /** @param {Turn} turn */
 export function failedSentence(turn) {
   if (turn.failed === 'model' || turn.failed === 'login') return turn.error || 'The model didn’t answer.';

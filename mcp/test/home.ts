@@ -12,7 +12,7 @@ import { AGENT_UNIT, hashToken, mintPrincipal, readPrincipals, revokePrincipal }
 import { findPassages, openLedger } from "../../packages/model/index.js";
 import { ASK_READER } from "../../packages/home/access.js";
 import type { Access } from "../../packages/privacy/access.js";
-import { openHomeFolder, type Json, type Level } from "../../packages/core/index.js";
+import { openHomeFolder, type Json, type JsonObject, type Level } from "../../packages/core/index.js";
 import Database from "better-sqlite3";
 import { peopleFileOf } from "../../packages/home/people.js";
 import { FILES } from "../../packages/runner/files.js";
@@ -20,8 +20,9 @@ import type { Library } from "../../packages/runner/library.js";
 import { serve as serveRunner } from "../../packages/runner/serve.js";
 import { fakeLibrary } from "../../packages/runner/test/fake-library.js";
 import { editSettings, testSocket } from "../../packages/home/test/folder.js";
+import { settingsPath } from "../../packages/home/settings.js";
 import { ask, askHome } from "../../packages/home/socket.js";
-import { LOOK_MS, makeRoot, makeVault, readHome, removeRoot, TICK_MS, until } from "../../packages/home/test/harness-root.js";
+import { FAKE_OFFER, LOOK_MS, makeRoot, makeVault, readHome, removeRoot, TICK_MS, until } from "../../packages/home/test/harness-root.js";
 import { ship, shipFiles, type Planned } from "../../packages/home/test/harness-deliveries.js";
 import { programServer } from "./programs.mjs";
 
@@ -68,6 +69,13 @@ const TOKENS = {
 const RUNNER = "runner-mac-mini-aa43";
 const RUNNER_TOKEN = "synthetic-mcp-runner".padEnd(43, "n");
 const PHONE_DEVICE = "phone/1.0.0";
+const CLOUD_CHAT = "openrouter:openai/gpt-6-luna";
+const LOCAL_CHAT = "fake:fake-chat";
+const SMALL_CHAT = "fake:fake-small";
+const CHAT_OFFER = { model: "fake-chat", name: "Fake chat", input: ["text"], output: "text", tools: true, context_tokens: 32_000, thinking: ["low", "medium", "high"], ready: true, suggested: ["chat"] };
+const SMALL_OFFER = { model: "fake-small", name: "Fake small", input: ["text", "image"], output: "text", tools: true, context_tokens: 32_000, thinking: [], ready: true, suggested: ["chat"] };
+const HEARS_NOTHING = { ...FAKE_OFFER, input: ["text", "image"] };
+const fakeTransport = (reach: string) => ({ delay_ms: 0, models: [HEARS_NOTHING, CHAT_OFFER, SMALL_OFFER], reach: { url: reach, effort: "reasoning_effort" } });
 const MAC_DEVICE = "mac/1.0.0";
 
 function wa(stanza: string, chat: string, when: number, text: string, from: { me?: true; member?: string } = {}) {
@@ -227,7 +235,9 @@ function createRoot(): string {
   const dir = makeRoot("mcp-home-", {
     sources: Object.fromEntries([MAC, PHONE, CONTACTS, PEOPLE, MAIL, LOCATION, CHROME, ...(VOICE ? [RECORDINGS] : [])].map((id) => [id, "dashboard-rows"])),
     settings: { "day.zone": "America/New_York", unit: UNIT, "privacy.chat": "none", "privacy.detector": RUNNER,
-      [`model.runners.${RUNNER}.files`]: MEDIA ? ["privacy-filter", "parakeet-unified-en-0.6b"] : ["privacy-filter"] },
+      "model.transports.fake": fakeTransport("http://127.0.0.1:9/v1/chat/completions"), "model.defaults.chat": CLOUD_CHAT, "model.thinking.chat": "medium",
+      [`model.runners.${RUNNER}.files`]: MEDIA ? ["privacy-filter", "parakeet-unified-en-0.6b"] : ["privacy-filter"],
+      ...(MEDIA ? { "model.defaults.audio": `runner:${RUNNER}/parakeet-unified-en-0.6b` } : {}) },
   });
   mintPrincipal(openHomeFolder(dir), { unit: "reader", scopes: ["read"], sources: [], token: TOKENS.reader, now_ms: 0 });
   mintPrincipal(openHomeFolder(dir), {
@@ -403,11 +413,12 @@ const runner = serveRunner({ door: `http://127.0.0.1:${door.port}`, pass: join(r
 await waitMarked(door.port);
 const say = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 say({ ready: true, root, url: `http://127.0.0.1:${door.port}`, tokens: TOKENS, phone: PHONE_DEVICE, mac: MAC_DEVICE, day: DAY, now_ms: NOW_MS, ask: { source: ASK, machine: process.env.LIFESTREAM_MACHINE_DIR },
+  chat: { cloud: CLOUD_CHAT, local: LOCAL_CHAT, small: SMALL_CHAT },
   ...(VOICE ? { voice: { from: `${VOICE_DAY}T18:30`, to: `${VOICE_DAY}T19:30` } } : {}) });
 
 let vaulted = false;
 let heldNames: unknown[] | undefined;
-type Command = { access?: Access; lines?: unknown[]; id?: string; key?: string; add_ms?: number; serve?: "up" | "held" | "down"; value?: string | null; chat?: string | string[] | null; agent?: Level | null; detector?: string; names?: boolean; found?: Record<string, Json> };
+type Command = { access?: Access; lines?: unknown[]; id?: string; key?: string; add_ms?: number; serve?: "up" | "held" | "down"; value?: string | null; reach?: string; chat?: string | string[] | null; agent?: Level | null; detector?: string; names?: boolean; found?: Record<string, Json> };
 const commands: Record<string, (command: Command) => Promise<unknown>> = {
   async revoke({ id }) {
     const path = openHomeFolder(root);
@@ -440,6 +451,22 @@ const commands: Record<string, (command: Command) => Promise<unknown>> = {
     vaulted = true;
     await ask(testSocket(root), { verb: "seal", secret: "openrouter", value });
     return { sealed: true };
+  },
+  async model({ value, reach }) {
+    if (reach !== undefined) {
+      await askHome(testSocket(root), "settings", ["set", "model.transports.fake", JSON.stringify(fakeTransport(reach))]);
+      await until("the home reaching the local chat model at its new address", async () =>
+        ((await ask(testSocket(root), { verb: "model-reach", model: LOCAL_CHAT }).catch(() => null)) as { url?: string } | null)?.url === reach);
+    }
+    if (value !== undefined) {
+      const path = settingsPath(root);
+      writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, "utf8")) as JsonObject, "model.defaults.chat": value }, null, 2));
+      await until("the models read naming the chat default written", async () => {
+        const read = await (await fetch(`http://127.0.0.1:${door.port}/v1/models`, { headers: { authorization: `Bearer ${TOKENS.reader}` } })).json() as { uses?: { chat?: { value?: string | null } } };
+        return read.uses?.chat?.value === value;
+      });
+    }
+    return { value, reach };
   },
   async privacy({ chat, agent, detector, names }) {
     if (names !== undefined) {
@@ -495,6 +522,9 @@ const commands: Record<string, (command: Command) => Promise<unknown>> = {
     await home.stop();
     home = await start();
     return { restarted: true };
+  },
+  async "models-read"() {
+    return await ask(testSocket(root), { verb: "models-read" });
   },
   async clock({ add_ms }) {
     moved += add_ms ?? 0;

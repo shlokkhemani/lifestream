@@ -95,14 +95,16 @@ function fetchedIn(answer, name) {
   return { name, state: String(found.state ?? ''), bytes: count(found.bytes), total: count(found.total), why: typeof found.why === 'string' ? found.why : null };
 }
 
-/** @param {{ codex: Codex, claude: Claude, machine: string, codeMs?: number, followMs?: number, now?: () => number, log: (line: Record<string, unknown>) => void }} options */
-export function openSignIn({ codex, claude, machine, codeMs = SIGN_IN_MS, followMs = FOLLOW_MS, now = Date.now, log }) {
+/** @param {{ codex: Codex, claude: Claude, machine: string, reread: () => Promise<unknown>, codeMs?: number, followMs?: number, now?: () => number, log: (line: Record<string, unknown>) => void }} options */
+export function openSignIn({ codex, claude, machine, reread, codeMs = SIGN_IN_MS, followMs = FOLLOW_MS, now = Date.now, log }) {
   /** @type {Map<Of, Operation>} */
   const operations = new Map();
   /** @type {Map<Of, string>} */
   const failures = new Map();
   /** @type {Map<Of, Promise<void>>} */
   const tails = new Map();
+  /** @type {Promise<unknown>} */
+  let read = Promise.resolve();
 
   /** @param {Operation} operation */
   const live = operation => operations.get(operation.of) === operation;
@@ -118,6 +120,7 @@ export function openSignIn({ codex, claude, machine, codeMs = SIGN_IN_MS, follow
     clearTimeout(operation.timer);
     operation.stopping.abort();
     if (why !== null) failures.set(operation.of, why);
+    else read = reread();
     operation.show();
     log({ login: why === null ? 'ended' : 'failed', of: operation.of, ...(detail === undefined ? {} : { why: detail }) });
   };
@@ -310,6 +313,7 @@ export function openSignIn({ codex, claude, machine, codeMs = SIGN_IN_MS, follow
    * @returns {Promise<LoginState>}
    */
   const state = async door => {
+    await read;
     /** @type {Promise<unknown> | null} */
     let asked = null;
     const programs = () => (asked ??= door.json('/v1/subscriptions').catch(() => null));

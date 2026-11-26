@@ -10,7 +10,9 @@ const HOME = /** @type {Record<'fresh' | 'downloading' | 'ready', PrivacyRead>} 
 
 const NO_NAMES = 'Waiting for People to list the names of your people';
 
-const RUNNER = HOME.downloading.detector.runner;
+const RUNNER = 'runner-macbook-pro-0001';
+
+const HIDING = `runner:${RUNNER}/privacy-filter`;
 
 /** @type {Record<'fresh' | 'people' | 'downloading' | 'marking' | 'absent' | 'none', PrivacyRead>} */
 export const PRIVACY = {
@@ -19,7 +21,7 @@ export const PRIVACY = {
   downloading: HOME.downloading,
   marking: { ...HOME.ready, level: 'all', chat: 'all', links: 'tokens', always: ['synthetic-word', 'example-code', 'Project Synthetic'] },
   absent: { ...HOME.downloading,
-    detector: { runner: RUNNER, file: HOME.downloading.detector.file, state: 'absent', line: 'Hiding model on MacBook Pro: the download stopped: this Mac has 2 GB free.' } },
+    detector: { model: HIDING, file: HOME.downloading.detector.file, state: 'absent', line: 'Hiding model on MacBook Pro: the download stopped: this Mac has 2 GB free.' } },
   none: HOME.ready,
 };
 

@@ -69,19 +69,42 @@ final class AskBook: ObservableObject {
 
 
     var asks: Asks? {
-        chosen ?? ready.map { Asks(model: $0.model, name: $0.name, thinking: $0.thinking) }
+        if let chosen { return chosen }
+        guard let ready, let runs = runsOn ?? ready.models.first(where: { $0.id == ready.default.shown }).map({ (model: $0, thinking: ready.default.thinking) })
+        else { return nil }
+        return Asks(model: runs.model.id, name: runs.model.name, thinking: Self.level(of: runs.model, runs.thinking))
+    }
+
+    private var runsOn: (model: HomeLink.Ask.Ready.Model, thinking: String?)? {
+        guard let ready else { return nil }
+        if let pick, let model = ready.models.first(where: { $0.id == pick.model }) { return (model, pick.thinking) }
+        guard let id = ready.default.model, let model = ready.models.first(where: { $0.id == id }) else { return nil }
+        return (model, ready.default.thinking)
+    }
+
+    private static func level(of model: HomeLink.Ask.Ready.Model, _ wanted: String?) -> String {
+        wanted.flatMap { model.thinking.contains($0) ? $0 : nil } ?? model.default
     }
 
     var models: [HomeLink.Ask.Ready.Model] { ready?.models ?? [] }
 
-    var waits: Bool { down != nil || (ready.map { $0.login != .ready } ?? false) }
+    var stays: Bool {
+        guard let asks, let model = models.first(where: { $0.id == asks.model }) else { return true }
+        return !model.hides
+    }
+
+    var chooseWords: String? { asks == nil ? ready?.default.choose : nil }
+
+    var menu: HomeLink.Pages.ModelMenu? { ready?.menu }
+
+    var waits: Bool { down != nil || (ready != nil && runsOn?.model.ready != true) }
 
     var askable: Bool { !waits }
 
     var limits: HomeLink.Ask.Ready.Limits? { ready?.limits }
 
     func unattachable(holding picked: Int) -> String? {
-        if let asks, let model = models.first(where: { $0.id == asks.model }), !model.photos { return "\(model.name) can't see photos." }
+        if let asks, let off = models.first(where: { $0.id == asks.model })?.photosOff { return off }
         if let limits, picked >= limits.photos { return "At most \(limits.photos) photos a question." }
         return nil
     }
@@ -127,6 +150,11 @@ final class AskBook: ObservableObject {
         guard let model = models.first(where: { $0.id == id }) else { return }
         let level = pick?.thinking.flatMap { model.thinking.contains($0) ? $0 : nil }
         keep(HomeLink.Ask.Pick(model: id, thinking: level), drawn: Asks(model: id, name: model.name, thinking: level ?? model.default))
+    }
+
+    func choose(found row: HomeLink.Pages.ModelRow) {
+        if models.contains(where: { $0.id == row.value }) { return choose(model: row.value) }
+        keep(HomeLink.Ask.Pick(model: row.value, thinking: nil), drawn: Asks(model: row.value, name: row.name, thinking: ""))
     }
 
     func choose(thinking level: String) {
@@ -183,7 +211,7 @@ final class AskBook: ObservableObject {
     }
 
     var starters: [HomeLink.Ask.Ready.Starter] {
-        guard listed != nil, conversations.isEmpty, ready?.login == .ready, askable, !lacking() else { return [] }
+        guard listed != nil, conversations.isEmpty, askable, !lacking() else { return [] }
         return ready?.starters ?? []
     }
 

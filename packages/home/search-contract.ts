@@ -587,8 +587,6 @@ export const searchState = object({
   record: object(indexState),
   screen: object({
     ...indexState,
-    meaning: text(/^(?:off|runner-\S+)$/u, "off or runner-<unit>", "label"),
-    model: label,
     power: oneOf("plugged-idle"),
     words_indexed_through: nullable(text(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/u, "the home's minute, YYYY-MM-DD HH:MM", "label")),
     bytes: int(),

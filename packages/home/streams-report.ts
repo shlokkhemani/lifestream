@@ -4,7 +4,7 @@ import type { Json, Type } from "@lifestreamprotocol/core";
 import type { Health, Requirement } from "./health.js";
 import type { Pause } from "./jobs.js";
 import type { Grants } from "./stated.js";
-import type { When } from "./pages.js";
+import type { ModelMenu, When } from "./pages.js";
 import type { RefreshBlocked } from "./wire.js";
 
 export interface StreamsReport {
@@ -274,8 +274,10 @@ export interface MemberState {
   default: Json | null;
   min?: number;
   max?: number;
-  steps: MemberStep[] | null;
+  steps: Step[] | null;
+  menu?: ModelMenu;
   route?: string | null;
+  line?: string | null;
   panel: Panel | null;
   control: Control | null;
   where: { unit: string; name: string } | null;
@@ -318,10 +320,6 @@ export interface Step {
   value: string;
   words: string;
   note: string | null;
-}
-
-export interface MemberStep extends Step {
-  runner?: { unit: string; name: string; home: boolean };
 }
 
 export interface Waiting {

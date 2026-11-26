@@ -9,10 +9,10 @@
  * screen's texts embedded, waiting for this Mac to be idle; off.
  */
 export const STATE_ON = {
-  meaning: 'runner-0001', model: 'embeddinggemma-2-q8-512', power: 'plugged-idle',
+  power: 'plugged-idle',
   words_indexed_through: '2026-11-13 13:55', bytes: 734_003_200, vectors_bytes: 46_137_344, queued: 38_000,
   waits: /** @type {string | null} */ ('in_use'), waits_line: /** @type {string | null} */ ('Waiting for macbook-pro-0001 to be idle'),
   embedded: 62_000, named: 100_000, skipped: 0,
 };
-export const STATE_OFF = { ...STATE_ON, meaning: 'off', vectors_bytes: 0, queued: 0,
+export const STATE_OFF = { ...STATE_ON, vectors_bytes: 0, queued: 0,
   waits: null, waits_line: null, embedded: 0, named: 0, skipped: 0 };

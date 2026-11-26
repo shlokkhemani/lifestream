@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { unfit, type Unfit } from "./fit.js";
 import type { Abilities, ListedModel, Transport } from "./transport.js";
-import { addressTransport } from "./transports/address.js";
 import { claudeTransport } from "./transports/claude.js";
 import { codexTransport } from "./transports/codex.js";
 import { openRouterTransport } from "./transports/openrouter.js";
-import { transcriptionsTransport } from "./transports/transcriptions.js";
 import { MODEL_USES, USE_IDS, workNeed, type UseId } from "./uses.js";
 
 type Row = Abilities & { leaves: string | null };
@@ -26,8 +24,6 @@ const TRANSPORTS: readonly Transport[] = [
   claudeTransport({ claude: undefined }),
   codexTransport({ codex: undefined }),
   openRouterTransport(OPENROUTER),
-  transcriptionsTransport(OPENROUTER),
-  addressTransport({ url: "http://127.0.0.1:11434/v1", model: "synthetic-local", kinds: ["text"], held: () => true, key: () => undefined }),
 ];
 
 async function declaredRows(): Promise<Record<string, Row>> {
@@ -60,11 +56,12 @@ describe("the fit of a model to a use", () => {
     const plan = fits({ audio: { input: "audio" }, search: "output", hiding: "output" });
     expect(table(await declaredRows())).toEqual({
       "claude:claude-haiku-5-5": plan,
+      "claude:claude-opus-5-5": plan,
       "codex:gpt-6-luna": plan,
+      "codex:gpt-6.2-sol": plan,
+      "openrouter:elevenlabs/scribe-v2": fits({ pictures: { input: "text" }, text: { input: "text" }, chat: { input: "text" }, search: "output", hiding: "output" }),
       "openrouter:google/gemini-3.8-flash": fits({ search: "output", hiding: "output" }),
       "openrouter:openai/gpt-6-luna": plan,
-      "openrouter-voice:elevenlabs/scribe-v2": fits({ pictures: { input: "text" }, text: { input: "text" }, chat: { input: "text" }, search: "output", hiding: "output" }),
-      "address:synthetic-local": fits({ pictures: { input: "image" }, audio: { input: "audio" }, search: "output", hiding: "output" }),
     });
   });
 

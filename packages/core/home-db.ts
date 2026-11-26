@@ -13,6 +13,11 @@ import { civilDay } from "./time.js";
 import type { DaySettings } from "./types.js";
 import { ReadView, type OpenView } from "./view.js";
 
+const VOICE_ID = "openrouter-voice:";
+const KIND_INPUTS: Readonly<Record<string, readonly string[]>> = { pictures: ["text", "image"], audio: ["audio"], text: ["text"] };
+
+const voiceMoved = (id: unknown): unknown => typeof id === "string" && id.startsWith(VOICE_ID) ? `openrouter:${id.slice(VOICE_ID.length)}` : id;
+
 const MIGRATIONS: readonly Migration[] = [
   (db) => db.exec(`DROP TABLE claims;
     DROP TABLE landed;
@@ -115,11 +120,57 @@ const MIGRATIONS: readonly Migration[] = [
     ALTER TABLE backfills DROP COLUMN reach;
     ALTER TABLE poll_cursors ADD COLUMN start_ms INTEGER`),
   (db) => db.exec("DELETE FROM meta WHERE key >= 'people:request:' AND key < 'people:request;'"),
+  modelsMove,
 ];
+
+function modelsMove(db: Database.Database): void {
+  db.exec(`UPDATE item_routes SET route = 'openrouter:' || substr(route, ${VOICE_ID.length + 1}) WHERE substr(route, 1, ${VOICE_ID.length}) = '${VOICE_ID}';
+    UPDATE asks SET given_up = 'openrouter:' || substr(given_up, ${VOICE_ID.length + 1}) WHERE substr(given_up, 1, ${VOICE_ID.length}) = '${VOICE_ID}'`);
+  const read = db.prepare("SELECT value FROM meta WHERE key = ?").pluck();
+  const write = db.prepare("UPDATE meta SET value = ? WHERE key = ?");
+  for (const [key, moved] of [["llm:models", modelsMoved], ["llm:hiding", hidingMoved]] as const) {
+    const value = read.get(key);
+    if (typeof value === "string") write.run(JSON.stringify(moved(JSON.parse(value))), key);
+  }
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, '{}') ON CONFLICT (key) DO NOTHING").run(SETTINGS_MOVE.key);
+}
+
+function modelsMoved(stored: { routes?: Record<string, unknown>[]; runners?: Record<string, unknown>[] }): object {
+  return { routes: (stored.routes ?? []).map(routeMoved), runners: (stored.runners ?? []).map((runner) => ({ ...runner, below: runner.below ?? null })), connections: {} };
+}
+
+function routeMoved({ kinds, text_chars, ...route }: Record<string, unknown>): Record<string, unknown> {
+  const moved = { ...route, id: voiceMoved(route.id), transport: route.transport === "openrouter-voice" ? "openrouter" : route.transport, suggested: route.suggested ?? [] };
+  if (!Array.isArray(kinds)) return moved;
+  const input = ["text", "image", "audio"].filter((each) => kinds.some((kind) => KIND_INPUTS[String(kind)]?.includes(each) === true));
+  return { ...moved, input, output: "text", tools: false, context_tokens: typeof text_chars === "number" ? Math.floor(text_chars / 4) : null, thinking: [], chat: route.chat ?? null };
+}
+
+function hidingMoved(stored: Record<string, unknown[]>): object {
+  return Object.fromEntries(Object.entries(stored).map(([work, [route, ...rest]]) => [work, [voiceMoved(route), ...rest]]));
+}
+
+export function metaAsItLies(folder: HomeFolder, keys: readonly string[]): { version: number; values: ReadonlyMap<string, string> } | null {
+  const path = join(folder.root, HOME_DB);
+  if (!existsSync(path)) return null;
+  let db: Database.Database | undefined;
+  try {
+    db = folder.store(HOME_STORE, path, { mode: "read", mustExist: true, timeout: BUSY_TIMEOUT_MS });
+    const version = homeSchema.version(db);
+    const read = version === 0 ? undefined : db.prepare("SELECT value FROM meta WHERE key = ?").pluck();
+    return { version, values: new Map(keys.flatMap((key) => { const value = read?.get(key); return typeof value === "string" ? [[key, value] as const] : []; })) };
+  } catch (error) {
+    throw homeError(error);
+  } finally {
+    db?.close();
+  }
+}
+
 const SMALL = ["sources", "devices", "polls", "poll_cursors", "cursors", "jobs", "controls", "grants", "meta", "spans", "backfills", "custody", "attempts", "lost_files"];
 export const homeSchema = new Schema({
   name: "home.db", file: "home.db", base: 22, baseline: readFileSync(new URL("./schema.sql", import.meta.url), "utf8"), migrations: MIGRATIONS, small: SMALL, indexed: [30, 35],
 });
+export const SETTINGS_MOVE = { key: "move:settings", version: homeSchema.base + MIGRATIONS.indexOf(modelsMove) + 1 } as const;
 export const MIN_SQLITE = "3.51.3";
 const BUSY_TIMEOUT_MS = 5_000;
 const UTC_DAYS: DaySettings = { zone: "UTC", day_start_hour: 0 };

@@ -343,7 +343,7 @@ export function readStatus(db: Database.Database | null, options: StatusOptions)
     const waiting = waits.all ?? waits.names ?? null;
     report.privacy = { ready: waiting === null, line: waiting };
     report.works = worksOn(readProcessing(readTables(db), options.ledger?.rates(now_ms) ?? null,
-      { connectors: options.connectors, families: options.families, histories: streams.histories, blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, day: settings.day, now_ms, privacy: settings.privacy, home: settings.unit }));
+      { connectors: options.connectors, families: options.families, histories: streams.histories, blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, day: settings.day, now_ms, privacy: settings.privacy }));
     running(db, report);
     report.inbox = inboxGrowth(db, now_ms);
     report.disk = forecast(db, read.disk, read.photos.bytes);

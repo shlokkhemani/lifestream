@@ -1,14 +1,16 @@
 // @ts-check
 /** @import { Host, HostAct, HostReply } from '../../lib/host.js' */
 /** @import { ReportReader } from '../../lib/report.js' */
-/** @import { ModelsRead, PrivacyRead } from '../../types.js' */
+/** @import { PrivacyRead } from '../../types.js' */
+/** @import { Models } from '../../pages.js' */
 /** @import { ScreenState } from './settings-search.js' */
 /** @import { Pending, Reads } from './pending.js' */
 /** @import { Drawn } from '../../lib/reach.js' */
-import { fetchModels, fetchPrivacy, fetchSearchState } from '../../lib/api.js';
+import { fetchPage, fetchPrivacy, fetchSearchState } from '../../lib/api.js';
+import { pageMoved, readMoves } from '../../lib/pages.js';
 import { pageReach } from '../../lib/reach.js';
 import { onHomeChange } from '../live.js';
-import { actKey, landedOf, movesMeaning, movesPrivacy, pendingOf, settled } from './pending.js';
+import { actKey, landedOf, movesMeaning, movesPrivacy, OFF, pendingOf, settled } from './pending.js';
 
 /** @typedef {{ on: boolean, privacy: boolean, screen: boolean, draw: () => void }} Watcher */
 
@@ -31,8 +33,7 @@ export const SCREEN_EVERY = 10_000;
  * @param {ScreenState} state
  * @param {boolean} off
  */
-export const workShown = (state, off) => off ? state.meaning === 'off' && state.vectors_bytes === 0
-  : state.meaning !== 'off' && (state.embedded > 0 || state.waits !== null);
+export const workShown = (state, off) => off ? state.vectors_bytes === 0 : state.embedded > 0 || state.waits !== null;
 
 /** @typedef {{ reply: HostReply } | { refused: Error } | null} Sent */
 
@@ -44,7 +45,7 @@ export function pageChanges(host, reports) {
   const busy = /** @type {Set<string>} */ (new Set());
   /** @type {Map<string, Pending>} */
   const pending = new Map();
-  const models = { read: /** @type {ModelsRead | null} */ (null), drawn: /** @type {Drawn | null} */ (null), failed: '' };
+  const models = { read: /** @type {Models | null} */ (null), drawn: /** @type {Drawn | null} */ (null), failed: '' };
   let asked = 0;
   let landed = 0;
   const privacy = { read: /** @type {PrivacyRead | null} */ (null), drawn: /** @type {Drawn | null} */ (null), failed: '' };
@@ -177,12 +178,12 @@ export function pageChanges(host, reports) {
   async function readModels(retry = null) {
     const mine = ++asked;
     const begun = reach.begin(retry);
-    /** @type {ModelsRead | null} */
+    /** @type {Models | null} */
     let answer = null;
     /** @type {Drawn | null} */
     let drawn = null;
     try {
-      answer = await fetchModels();
+      answer = await fetchPage('models');
     } catch (error) {
       drawn = failedOf(error, begun, modelsAgain);
     }
@@ -202,9 +203,7 @@ export function pageChanges(host, reports) {
     const key = actKey(act, holds);
     if (!host || busy.has(key)) return null;
     const change = pendingOf(act, reads(), holds);
-    if (movesMeaning(act) && 'settings' in act) {
-      screenAwaits = { off: /** @type {import('../../lib/host.js').MeaningWrite} */ (act.settings)['search.meaning'] === 'off' };
-    }
+    if (act.act === 'models' && act.do === 'default' && act.use === 'search') screenAwaits = { off: act.model === OFF };
     busy.add(key);
     tell();
     /** @type {Sent} */
@@ -248,7 +247,9 @@ export function pageChanges(host, reports) {
   });
   host?.follow(tell);
   onHomeChange(change => {
-    if ((change.models || change.reset) && anyShown()) void readModels();
+    void readMoves().then(() => {
+      if ((change.models || pageMoved('models', change, models.read?.position)) && anyShown()) void readModels();
+    });
     if ((change.models || change.reset) && privacyShown()) void readPrivacy();
   });
   document.addEventListener('visibilitychange', () => {

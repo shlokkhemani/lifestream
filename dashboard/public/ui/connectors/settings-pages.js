@@ -1,21 +1,19 @@
 // @ts-check
-/** @import { DeviceRow, HomeSettings, StreamsReport, State } from '../../types.js' */
+/** @import { DeviceRow, StreamsReport, State } from '../../types.js' */
+/** @import { Storage } from './settings-storage.js' */
 /** @import { HostAct, HostCommand, HostState } from '../../lib/host.js' */
 /** @import { DetailPart, End, Opened, Panel, PanelRow } from './dialog.js' */
 /** @import { Act, Do } from './words.js' */
 /** @import { SignalKind } from '../kit/signal.js' */
 import { today } from '../../lib/home-clock.js';
 import { reachWord } from '../../lib/reach.js';
-import { dateWords, sizeWords } from '../../lib/words.js';
+import { dateWords } from '../../lib/words.js';
 import { STATE_LOOKS } from '../kit/connector-row.js';
 import { panelOf, rowOf } from './dialog.js';
-import { homeSettingKey } from './pending.js';
 import { actsOf } from './page.js';
 import { allow, needAct } from './words.js';
 
 /** @typedef {{ report: StreamsReport | null, state: HostState | null, answering: boolean, home: boolean, opened: Opened, theme: 'system' | 'light' | 'dark' }} Reach */
-
-const CAPS = [1, 2, 4, 8, 16, 32];
 
 /**
  * @param {{ label?: string, line?: string, rows: PanelRow[], add?: Panel['add'], acts?: Act[], note?: string, id?: string }} part
@@ -98,7 +96,7 @@ export function homeParts(reach) {
 
 /**
  * @param {Reach} reach
- * @param {number | null} keep
+ * @param {Storage['keep'] | null} keep
  * @returns {DetailPart[]}
  */
 export function storageParts({ state }, keep) {
@@ -108,37 +106,9 @@ export function storageParts({ state }, keep) {
     rows.push(rowOf('Folder', { line: state.folder, end: { acts: [{ label: 'Show in Finder', variant: 'secondary',
       do: asking({ act: 'open', what: 'home-folder' }) }] } }));
   }
-  if (keep !== null) {
-    rows.push(rowOf('Space kept free', { line: 'Under this, Lifestream keeps taking what is new; history and imports wait.',
-      end: { words: sizeWords(keep) } }));
-  }
+  if (keep !== null) rows.push(rowOf(keep.label, { line: keep.line, end: { words: keep.size } }));
   return [part({ label: 'Location', rows })];
 }
-
-/** @param {string} zone */
-function offsetOf(zone) {
-  try {
-    return new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'shortOffset' }).formatToParts(new Date())
-      .find(each => each.type === 'timeZoneName')?.value ?? '';
-  } catch {
-    return '';
-  }
-}
-
-/** @param {number} hour */
-const hourWords = hour => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })
-  .format(Date.UTC(2000, 0, 1, hour));
-
-/**
- * @param {HomeSettings} settings
- * @returns {DetailPart[]}
- */
-export const timeParts = ({ zone, day_start_hour: start }) => [part({ rows: [
-  rowOf('Time zone', { line: 'Days, times and the Timeline follow this zone.',
-    end: { words: [zone, offsetOf(zone)].filter(Boolean).join(' · ') } }),
-  rowOf('A day starts at', { line: 'Anything before this counts as the night before, so a late night stays one day.',
-    end: { words: hourWords(start) } }),
-] })];
 
 /**
  * @param {HostState} state
@@ -320,33 +290,4 @@ export function updatesParts(state) {
     rowOf('Install updates automatically', { line: 'Lifestream restarts into an update while your screen is locked.',
       end: switchOf(general.auto_update, 'Install updates automatically', { act: 'general-auto-update', on: !general.auto_update }) }),
   ] })];
-}
-
-/**
- * @param {StreamsReport} report
- * @param {HomeSettings} settings
- * @param {boolean} home
- * @returns {DetailPart[]}
- */
-export function advancedParts(report, settings, home) {
-  const cap = settings.model_cap;
-  const offered = [...new Set([...CAPS, cap, settings.model_cap_default])].sort((a, b) => a - b);
-  /** @type {End} */
-  const calls = home ? { menu: { id: 'settings.model-cap', busy: homeSettingKey('model.cap'), label: 'Model calls at once', words: String(cap),
-    find: '', date: null,
-    choices: offered.map(value => ({ words: String(value), note: '', chosen: value === cap, default: value === settings.model_cap_default,
-      do: asking({ act: 'home-setting', key: 'model.cap', value: value === settings.model_cap_default ? null : value }) })) } }
-    : { words: String(cap) };
-  const helpers = settings.helpers === 'auto' ? `Automatic · ${settings.helpers_resolved}` : String(settings.helpers_resolved);
-  return [
-    part({ rows: [
-      rowOf('Model calls at once', { line: 'The most model calls Lifestream makes at the same time.', end: calls }),
-      rowOf('Background work', { line: 'How many jobs Lifestream runs side by side, each on a thread of its own.', end: { words: helpers } }),
-      rowOf('Largest upload', { line: 'A device’s single upload above this is refused.', end: { words: sizeWords(report.disk.max_bundle_bytes) } }),
-    ] }),
-    part({ label: 'Network', rows: [
-      rowOf('Port', { line: 'Where apps and agents on this Mac and on Tailscale reach Lifestream.', end: { words: String(settings.port) } }),
-      rowOf('Local network port', { line: 'Where your iPhone reaches Lifestream on the same Wi-Fi.', end: { words: String(settings.lan_port) } }),
-    ] }),
-  ];
 }

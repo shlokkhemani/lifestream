@@ -1,17 +1,17 @@
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
-import { SendFailed, type Input, type Transport } from "../transport.js";
-import type { WorkKind } from "../uses.js";
-import { complete, keyHeaders } from "./completions.js";
+import { SendFailed, type Input, type ListedModel, type Transport } from "../transport.js";
+import { complete, getList, keyHeaders, record } from "./completions.js";
 
 export interface AddressSettings {
   url: string;
-  model: string;
-  kinds: readonly WorkKind[];
   secret?: string;
+  input?: readonly Input[];
+  model?: string;
 }
 
 export interface AddressOptions extends AddressSettings {
+  listed?: readonly ListedModel[];
   held: () => boolean;
   key: () => string | undefined;
   fetch?: typeof fetch;
@@ -19,7 +19,9 @@ export interface AddressOptions extends AddressSettings {
 
 export function addressTransport(options: AddressOptions): Transport {
   const fetcher = options.fetch ?? fetch;
-  const endpoint = `${options.url.replace(/\/+$/u, "")}/chat/completions`;
+  const base = options.url.replace(/\/+$/u, "");
+  const endpoint = `${base}/chat/completions`;
+  const input = options.input ?? ["text"];
   const host = new URL(options.url).hostname;
   return {
     name: "address",
@@ -28,7 +30,8 @@ export function addressTransport(options: AddressOptions): Transport {
     leaves: loopback(host) ? null : host,
     chat: "door",
     defaults: { effort: "none", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 1 },
-    models: async () => [{ model: options.model, name: options.model, input: inputOf(options.kinds), output: "text", tools: true, context_tokens: null, thinking: [], ready: true }],
+    models: async () => declaredFirst(options.model, options.listed ?? []).map((row) => ({ ...row, input })),
+    list: async () => namesOf(await getList("address", `${base}/models`, fetcher, keyHeaders(options.key())), input),
     reach: () => ({ url: endpoint, headers: keyHeaders(options.key()), effort: "reasoning_effort" }),
     async available() {
       return options.held() ? { ok: true } : { ok: false, reason: "no_key", detail: `the address's key ${options.secret} is not set` };
@@ -60,8 +63,18 @@ export function addressTransport(options: AddressOptions): Transport {
   };
 }
 
-function inputOf(kinds: readonly WorkKind[]): Input[] {
-  return kinds.includes("pictures") ? ["text", "image"] : ["text"];
+function namesOf(root: Record<string, unknown>, input: readonly Input[]): ListedModel[] {
+  if (!Array.isArray(root.data)) throw new Error("the address's list states no data");
+  const ids = root.data.map((each) => record(each)?.id).filter((id): id is string => typeof id === "string" && id !== "");
+  return [...new Set(ids)].map((id) => rowOf(id, input));
+}
+
+function rowOf(id: string, input: readonly Input[]): ListedModel {
+  return { model: id, name: id, input, output: "text", tools: true, context_tokens: null, thinking: [], ready: true };
+}
+
+function declaredFirst(model: string | undefined, listed: readonly ListedModel[]): readonly ListedModel[] {
+  return model === undefined ? listed : [rowOf(model, ["text"]), ...listed.filter((row) => row.model !== model)];
 }
 
 function loopback(host: string): boolean {

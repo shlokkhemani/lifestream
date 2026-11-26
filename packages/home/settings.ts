@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { formOf, ROUTE, routeId, type Connector, type Field } from "@lifestreamprotocol/connect";
 import { canonical, duration, instant, isObject, KeyError, makeUnder, plainFolder, TimeError, writeDurably, type DaySettings, type FileKind, type HomeFolder, type Json, type JsonObject, type KeptFile } from "@lifestreamprotocol/core";
 import { SCREEN_CUTOVER_MS } from "@lifestreamprotocol/families";
-import { OWN_BLOCKS, readModelSettings, unfit, WORK_KINDS, workNeed, type ModelSettings, type WorkKind } from "@lifestreamprotocol/model";
+import { OWN_BLOCKS, readModelSettings, unfit, USE_IDS, workNeed, type ModelSettings, type UseId } from "@lifestreamprotocol/model";
 import { PRIVACY_MEMBER, PRIVACY_SETTINGS, privacySetting, readPrivacySettings, type PrivacySettings } from "@lifestreamprotocol/privacy";
 import { catalogOf } from "./catalog.js";
-import { RANGE_MEMBER, ROUTE_ID, WORK_MEMBER, type Defaults, type ModelRoute } from "./models.js";
+import { RANGE_MEMBER, ROUTE_ID, WORK_MEMBER, type ModelRoute } from "./models.js";
 import { refuse } from "./refusal.js";
 import type { HomeSettings } from "./streams-report.js";
 import { CLI } from "./cli-name.js";
@@ -23,7 +23,8 @@ export interface Settings {
   families: Record<string, JsonObject>;
   unit: string;
   model: ModelSettings;
-  defaults: Defaults;
+  defaults: UseDefaults;
+  thinking: { chat: string | null };
   door: DoorAddress;
   sources: { off: string[] };
   sites: { chosen: string[] };
@@ -32,9 +33,13 @@ export interface Settings {
   search: SearchSettings;
 }
 
+export type UseDefaults = Readonly<Record<UseId, string | null>>;
+
+export function chosenFor<Use extends UseId>(settings: { readonly defaults: Readonly<Record<Use, string | null>> }, use: Use): string | null {
+  return settings.defaults[use];
+}
+
 export interface SearchSettings {
-  meaning: "off" | `runner-${string}`;
-  model: string;
   power: "plugged-idle";
 }
 
@@ -90,6 +95,7 @@ const GIB = 1024 ** 3;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 const FILE_ID = /^[a-z0-9][a-z0-9.-]*$/u;
 export const UNIT = /^[a-z0-9][a-z0-9-]*$/u;
+const THINKING = /^[a-z][a-z0-9-]*$/u;
 const SECRET = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 const SOURCE = /^[^:/\\]+:[^:/\\]+:[^:/\\]+$/u;
 
@@ -117,7 +123,8 @@ const SETTINGS: readonly Setting[] = [
   } },
   { key: "families.*", rule: anObject },
   { key: "unit", beforeKey: true, rule: is((value) => typeof value === "string" && UNIT.test(value), "is a unit id") },
-  ...WORK_KINDS.map((kind): Setting => ({ key: `model.defaults.${kind}`, rule: is((value) => value === null || (typeof value === "string" && ROUTE_ID.test(value)), "is a model route (<transport>:<model>) or null") })),
+  ...USE_IDS.map((use): Setting => ({ key: `model.defaults.${use}`, rule: is((value) => value === null || (typeof value === "string" && ROUTE_ID.test(value)), "is a model id (<connection>:<model>) or null") })),
+  { key: "model.thinking.chat", rule: is((value) => value === null || (typeof value === "string" && THINKING.test(value)), "is a thinking level or null") },
   { key: "model.cap", device: true, default: 8, rule: is((value) => Number.isInteger(value), "is a whole number of calls"), limit: { min: 1, max: 256 } },
   { key: "model.transports.*.concurrency", rule: is((value) => Number.isSafeInteger(value) && (value as number) > 0, "is a positive whole number of calls") },
   ...OWN_BLOCKS.map((name): Setting => ({ key: `model.transports.${name}`, rule: anObject })),
@@ -132,19 +139,17 @@ const SETTINGS: readonly Setting[] = [
   { key: "sites.chosen", default: [], rule: is((value) => Array.isArray(value) && value.every((id) => typeof id === "string" && NAME.test(id)) && new Set(value).size === value.length,
     "is a list of distinct site ids") },
   ...PRIVACY_ROWS.map((row): Setting => ({ key: row.key, ...(row.default === undefined ? {} : { default: row.default }), rule: row.rule })),
-  { key: "search.meaning", default: "off", rule: is((value) => value === "off" || (typeof value === "string" && value.startsWith("runner-") && UNIT.test(value)), 'is "off" or a runner\'s unit (runner-<name>)') },
-  { key: "search.meaning.model", default: "embeddinggemma-2-q8-512", rule: is((value) => typeof value === "string" && FILE_ID.test(value), "is a model file id") },
   { key: "search.meaning.power", default: "plugged-idle", rule: is((value) => value === "plugged-idle", 'is "plugged-idle"') },
 ];
 
 export type SettingsFolder = HomeFolder | string;
 
-export function lastGood(folder: SettingsFolder): () => Settings {
-  let good = effective(folder).settings;
+export function lastGood(folder: SettingsFolder, first: Settings = effective(folder).settings): () => Settings {
+  let good = first;
   return () => {
     try {
       const now = effective(folder).settings;
-      good = { ...good, sources: now.sources, sites: now.sites, connectors: now.connectors, clients: now.clients, defaults: now.defaults, model: now.model, runners: now.runners, privacy: now.privacy, search: now.search, history: now.history };
+      good = { ...good, sources: now.sources, sites: now.sites, connectors: now.connectors, clients: now.clients, defaults: now.defaults, thinking: now.thinking, model: now.model, runners: now.runners, privacy: now.privacy, search: now.search, history: now.history };
     } catch (error) {
       if (!(error instanceof SettingsError)) throw error;
     }
@@ -231,6 +236,12 @@ function written(kept: Kept, next: JsonObject, keys: readonly string[]): Shown[]
   const resolved = effectiveOf(next, kept.where);
   kept.write(next);
   return keys.map((key) => resolved.shown.find((shown) => shown.key === key) ?? { key, value: null, from: "unset" });
+}
+
+export function replaced(folder: SettingsFolder, members: JsonObject): void {
+  const kept = keptOf(folder, null);
+  effectiveOf(members, kept.where);
+  kept.write(members);
 }
 
 export function personal(folder: SettingsFolder): JsonObject {
@@ -418,7 +429,8 @@ function assemble(values: ReadonlyMap<string, Shown>, where: string): Settings {
     families: Object.fromEntries(named("families")) as Settings["families"],
     unit: unit as string,
     model,
-    defaults: Object.fromEntries(WORK_KINDS.map((kind) => [kind, (get(`model.defaults.${kind}`) ?? null) as string | null])) as Record<WorkKind, string | null>,
+    defaults: Object.fromEntries(USE_IDS.map((use) => [use, (get(`model.defaults.${use}`) ?? null) as string | null])) as Record<UseId, string | null>,
+    thinking: { chat: (get("model.thinking.chat") ?? null) as string | null },
     door: {
       port: get("door.port") as number, lan_port: get("door.lan_port") as number,
       max_bundle_bytes: get("door.max_bundle_bytes") as number,
@@ -431,7 +443,7 @@ function assemble(values: ReadonlyMap<string, Shown>, where: string): Settings {
       return runners;
     }, {}),
     privacy: readPrivacySettings(Object.fromEntries(PRIVACY_ROWS.map((row) => [row.key, get(row.key)]))),
-    search: { meaning: get("search.meaning") as SearchSettings["meaning"], model: get("search.meaning.model") as string, power: get("search.meaning.power") as SearchSettings["power"] },
+    search: { power: get("search.meaning.power") as SearchSettings["power"] },
   };
 }
 

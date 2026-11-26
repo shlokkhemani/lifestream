@@ -86,9 +86,11 @@ sections. Each connector's page gives its own defaults, and any setting only it 
 - **Comes from** lists the Macs, iPhones and accounts the connector reads.
 - **Settings** holds **Check every**: how often Lifestream checks for new data.
 - **AI** lists each thing an AI model does with the connector, such as **Email summaries**.
-  - Click one to choose its **Model**: **Off**, **Default**, or a model you name. **Default** is
-    the model set under **Settings** › **AI models** › **Defaults**. Below **Model**, **Personal
-    details** says what Lifestream hides before a model off your Mac reads an item.
+  - Click one to choose its **Model**: **Default**, a model that fits it, or **Off**; **More**
+    finds one the menu does not list by its name or id. **Default**, which names its model,
+    is the model set for its use under **Settings** › **AI models** › **Uses**, such as **Text**
+    for **Email summaries**. Below **Model**, **Personal details** says what Lifestream hides
+    before a model off your Mac reads an item.
   - **Read back to** sets which data a model reads: **New only**, **Last 30 days**, **Last year**,
     **All time**, or a date you pick. Each choice says how much it would read and, for a paid
     model, about what it would cost. While your data is still arriving, or Lifestream is still

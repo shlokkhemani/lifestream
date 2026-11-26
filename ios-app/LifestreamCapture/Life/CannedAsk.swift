@@ -208,10 +208,14 @@ actor CannedAsk {
                 let refusal = (try? JSONSerialization.data(withJSONObject: ["type": "error", "error": "login", "message": Self.signInSentence])) ?? Data()
                 return Self.lines(HomeResponse(status: 200, headers: ["Content-Type": "application/x-ndjson"], body: refusal))
             }
+            let runs = asks(asked["model"] as? String, asked["thinking"] as? String)
+            if let line = runs.line {
+                let refusal = (try? JSONSerialization.data(withJSONObject: ["type": "error", "error": "login", "message": line])) ?? Data()
+                return Self.lines(HomeResponse(status: 200, headers: ["Content-Type": "application/x-ndjson"], body: refusal))
+            }
             let id = wanted ?? "\(Self.ms(AppClock.now))-" + String(format: "%06x", Int.random(in: 0..<0xFFFFFF))
             if let level { levels[id] = level }
-            chat = begin(question, photos: photos, voice: voice.flatMap(claim), in: id, fresh: wanted == nil,
-                         asks: Self.asks(asked["model"] as? String, asked["thinking"] as? String))
+            chat = begin(question, photos: photos, voice: voice.flatMap(claim), in: id, fresh: wanted == nil, asks: runs)
             submitted[submission] = (chat, running[chat]?.n ?? 0)
         } else {
             chat = String(request.url.path.dropFirst("/v1/ask/chats/".count).dropLast("/events".count))
@@ -350,13 +354,43 @@ actor CannedAsk {
     }
 
 
-    private static var offered: [[String: Any]] { [
-        ["id": "gpt-6.1-terra", "name": "GPT-6.1 Terra", "thinking": ["low", "medium", "high", "xhigh", "max"], "default": "high", "group": "ChatGPT", "photos": true],
-        ["id": "gpt-6-luna", "name": "GPT-6 Luna", "thinking": ["low", "medium", "high", "xhigh", "max"], "default": "high", "group": "ChatGPT", "photos": true],
-        ["id": "gpt-6-sol", "name": "GPT-6 Sol", "thinking": ["low", "medium"], "default": "medium", "group": "ChatGPT", "photos": false],
-        ["id": "claude/opus", "name": "Claude Opus 5.5", "thinking": ["low", "medium", "high", "max"], "default": "high", "group": "Claude", "photos": true],
-        ["id": "claude/sonnet", "name": "Claude Sonnet 5.5", "thinking": ["low", "medium", "high"], "default": "medium", "group": "Claude", "photos": true],
-    ] }
+    private var offered: [[String: Any]] {
+        let claude = Self.claudeRefused || Self.signedOut || signInRefused
+        let claudes = [Self.model("claude/opus", "Claude Opus 5.5", ["low", "medium", "high", "max"], "high", ready: !claude),
+                       Self.model("claude/sonnet", "Claude Sonnet 5.5", ["low", "medium", "high"], "medium", ready: !claude)]
+        if Self.signedOut || signInRefused { return claudes }
+        return [
+            Self.model("gpt-6.1-terra", "GPT-6.1 Terra", ["low", "medium", "high", "xhigh", "max"], "high"),
+            Self.model("gpt-6-luna", "GPT-6 Luna", ["low", "medium", "high", "xhigh", "max"], "high"),
+            Self.model("gpt-6-sol", "GPT-6 Sol", ["low", "medium"], "medium", photos: false),
+        ] + claudes + [
+            ["id": Self.qwen, "name": "Qwen 3.5 9B", "thinking": [String](), "default": "", "state": "ready",
+             "photos_off": "Qwen 3.5 9B can't see photos.", "hides": false],
+        ]
+    }
+
+    private static let qwen = "runner:macbook-pro-0001/qwen-3.5-9b"
+
+    private func menu(chosen: String) -> [String: Any] {
+        let usable = offered.filter { $0["state"] as? String == "ready" }
+        let row = { (model: [String: Any]) -> [String: Any] in
+            ["value": model["id"] ?? "", "name": model["name"] ?? "", "account": NSNull(), "chosen": model["id"] as? String == chosen]
+        }
+        let local = usable.filter { $0["id"] as? String == Self.qwen }.map(row)
+        return ["default": NSNull(), "rows": usable.filter { $0["id"] as? String != Self.qwen }.map(row),
+                "local": local.isEmpty ? NSNull() as Any : ["label": "Local", "rows": local] as Any,
+                "more": ["words": "More", "use": "chat", "work": NSNull()], "off": NSNull()]
+    }
+
+    private static func model(_ id: String, _ name: String, _ thinking: [String], _ level: String, photos: Bool = true,
+                              ready: Bool = true) -> [String: Any] {
+        ["id": id, "name": name, "thinking": thinking, "default": level, "state": ready ? "ready" : "unavailable",
+         "photos_off": photos ? NSNull() as Any : "\(name) can't see photos." as Any, "hides": true]
+    }
+
+    private var chatDefault: (model: String, thinking: String) {
+        Self.signedOut || signInRefused ? ("claude/opus", "high") : ("gpt-6.1-terra", "high")
+    }
 
     private static var limits: [String: Any] { ["photos": 10, "photo_bytes": 26_214_400, "voice_ms": 600_000] }
 
@@ -367,35 +401,30 @@ actor CannedAsk {
         let name: String
         let thinking: String
         let gone: Bool
-        var said: String?
+        let line: String?
     }
 
-    private static func asks(_ model: String?, _ thinking: String?) -> Asks {
-        let listed = model.flatMap { id in offered.first { $0["id"] as? String == id } }
-        let stopped = claudeRefused && (listed?["group"] as? String) == "Claude"
-        let picked = stopped ? nil : listed
-        let chosen = picked ?? offered[0]
+    private func asks(_ model: String?, _ thinking: String?) -> Asks {
+        let rows = offered
+        let listed = model.flatMap { id in rows.first { $0["id"] as? String == id } }
+        let chosen = listed ?? rows.first { $0["id"] as? String == chatDefault.model } ?? rows[0]
         let levels = chosen["thinking"] as? [String] ?? []
-        let level = picked != nil || model == nil ? thinking.flatMap { levels.contains($0) ? $0 : nil } : nil
-        let name = chosen["name"] as? String ?? ""
-        let said = stopped ? "Your pick needs your Claude sign-in on your Mac. Asking \(name)."
-            : claudeRefused && model == nil ? "Claude needs your sign-in on your Mac. Asking \(name)." : nil
-        return Asks(id: chosen["id"] as? String ?? "", name: name, thinking: level ?? chosen["default"] as? String ?? "",
-                    gone: model != nil && listed == nil, said: said)
+        let wanted = listed == nil ? chatDefault.thinking : thinking
+        return Asks(id: chosen["id"] as? String ?? "", name: chosen["name"] as? String ?? "",
+                    thinking: wanted.flatMap { levels.contains($0) ? $0 : nil } ?? chosen["default"] as? String ?? "",
+                    gone: model != nil && listed == nil, line: chosen["state"] as? String == "ready" ? nil : Self.signInSentence)
     }
 
     private func ready(model: String?, thinking: String?) -> [String: Any] {
-        if Self.signedOut || signInRefused {
-            return ["model": "claude/opus", "name": "Claude Opus 5.5", "thinking": "high", "group": "Claude", "login": "missing",
-                    "said": Self.signInSentence, "models": [] as [Any], "starters": Self.starters, "limits": Self.limits, "voice": voiceReady]
+        let runs = asks(model, thinking)
+        var answer: [String: Any] = ["models": offered, "menu": menu(chosen: runs.id),
+                                     "default": ["model": chatDefault.model, "thinking": chatDefault.thinking, "shown": chatDefault.model, "choose": NSNull()],
+                                     "starters": Self.starters, "limits": Self.limits, "voice": voiceReady]
+        if runs.gone { answer["gone"] = true }
+        if let line = runs.line {
+            answer["said"] = line
+            answer["act"] = "Sign in with Claude…"
         }
-        let asks = Self.asks(model, thinking)
-        var answer: [String: Any] = ["model": asks.id, "name": asks.name, "thinking": asks.thinking,
-                                     "group": asks.id.hasPrefix("claude/") ? "Claude" : "ChatGPT", "login": "ready", "models": Self.offered,
-                                     "default": ["model": "gpt-6.1-terra"], "starters": Self.starters,
-                                     "limits": Self.limits, "voice": voiceReady]
-        if asks.gone { answer["gone"] = true }
-        if let said = asks.said { answer["said"] = said }
         return answer
     }
 
@@ -529,7 +558,7 @@ actor CannedAsk {
                                         ["value": cloud, "words": "Scribe v2 · Sent as it is", "sent": true]]
         if Self.voiceNone {
             return ["ready": false, "words": "No voice model",
-                    "line": "Voice notes need Parakeet on your Mac: download it in Lifestream's Settings › AI models.", "caution": NSNull(),
+                    "line": "Choose a model for Voice notes", "caution": NSNull(),
                     "value": "default", "choices": [[String: Any]]()]
         }
         let route = voiceValue == "default" ? (Self.voiceCloud ? cloud : parakeet) : voiceValue

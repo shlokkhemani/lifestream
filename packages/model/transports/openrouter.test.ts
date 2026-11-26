@@ -26,6 +26,7 @@ describe("the OpenRouter transport", () => {
     const transport = openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher });
     expect([transport.name, transport.cost, transport.leaves, transport.chat, OPENROUTER_SECRET]).toEqual(["openrouter", "priced", "OpenRouter", "door", "openrouter"]);
     expect((await transport.models()).map(({ model, input, output, tools, context_tokens, ready }) => ({ model, input, output, tools, context_tokens, ready }))).toEqual([
+      { model: "elevenlabs/scribe-v2", input: ["audio"], output: "text", tools: false, context_tokens: null, ready: true },
       { model: "google/gemini-3.8-flash", input: ["text", "image", "audio"], output: "text", tools: true, context_tokens: null, ready: true },
       { model: "openai/gpt-6-luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null, ready: true },
     ]);
@@ -58,6 +59,33 @@ describe("the OpenRouter transport", () => {
     }]);
   });
 
+  it("sends Scribe v2, named by its model alone, a voice note on the transcriptions endpoint, asked at no effort, and every other model on the chat endpoint", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "lifestream-openrouter-"));
+    folders.push(folder);
+    writeFileSync(join(folder, "note.m4a"), "synthetic m4a bytes");
+    const posts: { url: string; body: Record<string, unknown> }[] = [];
+    const fetcher = (async (url: string, init: RequestInit) => {
+      posts.push({ url, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+      return url.endsWith("/audio/transcriptions")
+        ? Response.json({ text: "a synthetic note's words", usage: { cost: 0.0015 } })
+        : Response.json({ choices: [{ message: { content: "a synthetic answer" } }] });
+    }) as typeof fetch;
+    const transport = openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher });
+    expect((await transport.models()).find((model) => model.model === "elevenlabs/scribe-v2")?.request).toEqual({ effort: "none" });
+    const note = [{ path: join(folder, "note.m4a"), media_type: "audio/mp4" }];
+    const signal = new AbortController().signal;
+    expect(await transport.send({ model: "elevenlabs/scribe-v2", effort: "none", input: "", signal }, note))
+      .toEqual({ text: "a synthetic note's words", model: "elevenlabs/scribe-v2", cost: 0.0015 });
+    await transport.send({ model: "google/gemini-3.8-flash", effort: "low", sampling: { temperature: 0 }, input: "Write this out.", signal }, note);
+    await transport.send({ model: "synthetic/listed-model", effort: "low", sampling: { temperature: 0 }, input: "Sum this up.", signal }, []);
+    expect(posts.map((post) => [post.url, post.body.model])).toEqual([
+      ["https://openrouter.ai/api/v1/audio/transcriptions", "elevenlabs/scribe-v2"],
+      [ENDPOINT, "google/gemini-3.8-flash"],
+      [ENDPOINT, "synthetic/listed-model"],
+    ]);
+    expect(posts[0]!.body).toEqual({ model: "elevenlabs/scribe-v2", input_audio: { data: Buffer.from("synthetic m4a bytes").toString("base64"), format: "m4a" } });
+  });
+
   it("tells Chat where a model is reached with the key, that its thinking level is OpenRouter's reasoning member, and sends nothing without one", async () => {
     const { posts, fetcher } = played();
     const keyed = openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher });
@@ -67,5 +95,36 @@ describe("the OpenRouter transport", () => {
     await expect(keyless.send({ model: "openai/gpt-6-luna", effort: "low", sampling: { temperature: 0 }, input: "Sum this up.", signal: new AbortController().signal }, []))
       .rejects.toBeInstanceOf(SendFailed);
     expect(posts).toEqual([]);
+  });
+
+  it("lists OpenRouter's catalog: abilities from its fields, text only where a field is unknown, no model that takes no text, and a declared row over a listed one", async () => {
+    const asked: string[] = [];
+    const catalog = {
+      data: [
+        { id: "vendor-a/seeing-1", name: "Vendor A: Seeing One", context_length: 128_000, architecture: { input_modalities: ["text", "image", "file"], output_modalities: ["text"] }, supported_parameters: ["tools", "reasoning", "temperature"] },
+        { id: "vendor-b/plain-1", name: "Vendor B: Plain One", shape: "a field no reader knows" },
+        { id: "vendor-c/drawing-1", name: "Vendor C: Drawing One", architecture: { input_modalities: ["image"], output_modalities: ["image"] } },
+        { id: "openai/gpt-6-luna", name: "OpenAI: GPT-6 Luna", context_length: 400_000, architecture: { input_modalities: ["text"], output_modalities: ["text"] }, supported_parameters: [] },
+      ],
+    };
+    const fetcher = (async (url: string) => { asked.push(url); return Response.json(catalog); }) as typeof fetch;
+    const listed = await openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher }).list!();
+    expect(asked).toEqual(["https://openrouter.ai/api/v1/models"]);
+    expect(listed.map(({ model, input, tools, context_tokens, thinking }) => ({ model, input, tools, context_tokens, thinking }))).toEqual([
+      { model: "vendor-a/seeing-1", input: ["text", "image"], tools: true, context_tokens: 128_000, thinking: ["low", "medium", "high"] },
+      { model: "vendor-b/plain-1", input: ["text"], tools: false, context_tokens: null, thinking: [] },
+      { model: "openai/gpt-6-luna", input: ["text"], tools: false, context_tokens: 400_000, thinking: [] },
+    ]);
+    const models = await openRouterTransport({ held: () => true, key: () => KEY, fetch: fetcher, listed }).models();
+    expect(models.map((model) => model.model)).toEqual(["elevenlabs/scribe-v2", "google/gemini-3.8-flash", "openai/gpt-6-luna", "vendor-a/seeing-1", "vendor-b/plain-1"]);
+    expect(models.find((model) => model.model === "openai/gpt-6-luna")).toMatchObject({ input: ["text", "image"], tools: true, suggested: ["pictures", "text", "chat"] });
+  });
+
+  it("a list that fails says so, and its rows stay the declared three", async () => {
+    const down = (async () => new Response("a synthetic outage", { status: 503 })) as unknown as typeof fetch;
+    await expect(openRouterTransport({ held: () => true, key: () => KEY, fetch: down }).list!()).rejects.toThrow("HTTP 503");
+    const shapeless = (async () => Response.json({ models: [] })) as unknown as typeof fetch;
+    await expect(openRouterTransport({ held: () => true, key: () => KEY, fetch: shapeless }).list!()).rejects.toThrow("states no data");
+    expect((await openRouterTransport({ held: () => true, key: () => KEY, fetch: down }).models()).map((model) => model.model)).toEqual(["elevenlabs/scribe-v2", "google/gemini-3.8-flash", "openai/gpt-6-luna"]);
   });
 });

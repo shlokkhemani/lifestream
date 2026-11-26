@@ -256,16 +256,6 @@ export interface Step {
   note: string | null;
 }
 
-export interface MemberStep extends Step {
-  runner?: { unit: string; name: string; home: boolean };
-}
-
-export interface Choice {
-  value: string | null;
-  words: string;
-  steps: Step[];
-}
-
 export interface Processing {
   rows: ProcessingRow[];
 }
@@ -350,13 +340,12 @@ export interface PrivacyRead {
   ready: boolean;
   line: string | null;
   detector: {
-    runner: string;
+    model: string | null;
     file: string | null;
     state: 'off' | 'ready' | 'downloading' | 'absent';
     line: string | null;
     bytes?: number;
     total?: number;
-    model?: string;
   };
   marking: { marked: number; total: number; line: string } | null;
   level: 'all' | 'none';
@@ -368,37 +357,6 @@ export interface PrivacyRead {
   never: string[];
   today: OutboundTotal[];
   voice?: { leaves: string | null };
-}
-
-export interface ModelFile {
-  id: string;
-  name: string;
-  about: string;
-  state: 'absent' | 'fetching' | 'ready' | 'failed';
-  line: string | null;
-  suggested: boolean;
-  fits: boolean;
-}
-
-export interface ModelRunner {
-  unit: string;
-  name: string;
-  line: string | null;
-  paused: string | null;
-  battery: { on: boolean; held: string | null } | null;
-  files: ModelFile[];
-}
-
-export interface StorageRead {
-  disk: { name: string | null; total_bytes: number; free_bytes: number; keep_bytes: number; coming_bytes: number };
-  counting: { map: boolean; left_ms: number | null } | null;
-  home: {
-    bytes: number;
-    streams: { connector: string; bytes: number; week_bytes: number | null }[];
-    own: { bytes: number; week_bytes: number | null };
-  };
-  series: { first_day: string; parts: { part: string; bytes: number[] }[] } | null;
-  growth: { readings: number; bytes_a_day: number | null; days_left: number | null };
 }
 
 export interface StartStop {
@@ -416,13 +374,6 @@ export interface StartCost {
   held_bytes: number;
   settled: boolean;
   stops: StartStop[];
-}
-
-export interface ModelsRead {
-  defaults: Record<ModelKind, Choice>;
-  runners: ModelRunner[];
-  openrouter: { connected: boolean };
-  address: { url: string; model: string; words: string; takes: string } | null;
 }
 
 export interface Made {
@@ -464,8 +415,10 @@ export interface MemberState {
   default: unknown;
   min?: number;
   max?: number;
-  steps: MemberStep[] | null;
+  steps: Step[] | null;
+  menu?: import('./pages.js').ModelMenu;
   route?: string | null;
+  line?: string | null;
   panel: Panel | null;
   control: Control | null;
   where: { unit: string; name: string } | null;

@@ -38,7 +38,7 @@ import { runCli } from "./cli.js";
 import type { ConnectorReport, StreamsReport } from "./streams-report.js";
 import { fakeDeclarations } from "./test/fakes.js";
 import {
-  acquisitionBundle, basic, custodyKept, custodyRun, DEVICE, healthLine, inboxTree, INSTALL_TWO, makeHome, makeHomeDb, NOW_MS, PHONE_SOURCE, PHONE_UNIT, phoneBundle, reach, REPO,
+  acquisitionBundle, basic, custodyKept, custodyRun, DEVICE, healthLine, holdModels, inboxTree, INSTALL_TWO, LUNA_ROUTE, makeHome, makeHomeDb, NOW_MS, PHONE_SOURCE, PHONE_UNIT, phoneBundle, reach, REPO,
   sha256, startDoor, type Home,
 } from "./test/support.js";
 import { editSettings, writeFolder, testSocket } from "./test/folder.js";
@@ -56,6 +56,7 @@ import { stated, value } from "./test/through.js";
 
 const MAC = "macbook-pro-0001";
 const MACHINE = `machine:local:${MAC}`;
+const UNIT_OF_MAC = `runner-${MAC}`;
 const CALLS = `apple-calls:person-a@example.com:${MAC}`;
 const LOCATION = `location:local:${PHONE_UNIT}`;
 const MOTION = `motion:local:${PHONE_UNIT}`;
@@ -709,8 +710,7 @@ describe("a runner below the release's floor", () => {
 
     const models = new Models({
       settings: () => ({
-        model: { cap: 4 }, defaults: { pictures: null, audio: null, text: null }, connectors: {}, runners: {}, privacy: readPrivacySettings({}),
-        search: { meaning: "off", model: "embeddinggemma-2-q8-512" },
+        model: { cap: 4 }, defaults: { pictures: null, audio: null, text: null, chat: null, search: null, hiding: null }, connectors: {}, runners: {}, privacy: readPrivacySettings({}),
       }),
       registry: () => ({ connectors: [], families: [] }), ledger: { resting: () => new Map() },
       found: () => ({ programs: {}, door: url, held: () => false }),
@@ -724,15 +724,48 @@ describe("a runner below the release's floor", () => {
     } finally {
       db.close();
     }
-    const read = await get(url, "/v1/models", { authorization: `Bearer ${at.tokens.reader}` });
-    const runners = read.body.runners as { unit: string; line: string | null; files: { id: string }[] }[];
-    expect(runners.map((each) => [each.unit, each.line, each.files.map((held) => held.id)])).toEqual([[UNIT, "Update this runner", ["qwen3.5-4b"]]]);
+    const page = await get(url, "/v1/page/models", { authorization: `Bearer ${at.tokens.reader}` });
+    const runners = (page.body.connections as { kind: string; id: string; line: string | null; files?: { id: string }[] }[]).filter((each) => each.kind === "runner");
+    expect(runners.map((each) => [each.id, each.line, each.files!.map((held) => held.id)])).toEqual([[`runner:${UNIT}`, "Update this runner", ["qwen3.5-4b"]]]);
 
     const waiting = new AbortController();
     void exchange(floors.runner, waiting.signal).catch(() => undefined);
     await until("the runner exchanged at its floor again, and is below no more", async () => (await listRunners(url, at.tokens.driver!)).below.length === 0);
     waiting.abort();
     report.runner_floor = { floor: floors.runner, refused: older };
+  });
+});
+
+describe("the Search by meaning default", () => {
+  it("is read at each ask: changed in settings, the door's embedder asks the new runner file's vectors with no restart", async () => {
+    const UNIT = "runner-macbook-pro-0001";
+    const at = homeWith({ runner: { scopes: ["run"], kind: "runner", unit: UNIT }, reader: { scopes: ["read"] } });
+    makeHomeDb(join(at.root, "home.db")).close();
+    const floors = releaseFloors();
+    const { url } = await serve(at, {}, undefined, { floors });
+    const embedder = (id: string) => ({
+      id, name: id, input: ["text"], output: "vectors", tools: false, context_tokens: 2_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 2, state: "ready", fetched_bytes: 1_000, failure: null,
+    });
+    const exchange = async (): Promise<{ model: string }[]> => {
+      const response = await fetch(`${url}${RUNNER_EXCHANGE}`, {
+        method: "POST", headers: { authorization: `Bearer ${at.tokens.runner}`, "lifestream-device": `runner/${floors.runner}`, "content-type": "application/json" },
+        body: JSON.stringify({ runner: { name: "Synthetic Mac", version: floors.runner, boot: "boot-a", slots: 1, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files: [embedder("embed-a"), embedder("embed-b")] }, results: [] }),
+      });
+      return ((await response.json()) as { calls: { model: string }[] }).calls;
+    };
+    expect(await exchange()).toEqual([]);
+    const asked = async (file: string): Promise<string[]> => {
+      editSettings(at.root, { "model.defaults.search": `runner:${UNIT}/${file}` });
+      const stop = new AbortController();
+      const search = fetch(`${url}/v1/search?lists=screen&query=osprey`, { headers: { authorization: `Bearer ${at.tokens.reader}` }, signal: stop.signal }).catch(() => undefined);
+      let calls: { model: string }[] = [];
+      await until(`the door places the ask's embedding on ${file}`, async () => (calls = await exchange()).length > 0);
+      stop.abort();
+      await search;
+      return calls.map((call) => call.model);
+    };
+    expect(await asked("embed-a")).toEqual(["embed-a"]);
+    expect(await asked("embed-b")).toEqual(["embed-b"]);
   });
 });
 
@@ -852,6 +885,47 @@ describe("a sealed delivery lost when the home is down", () => {
       ]);
     } finally { await fake.close(); }
     report.nudges = fake.asked;
+  });
+});
+
+describe("the models read", () => {
+  it("answers from what the home holds while the home's models-list answer is held back, and the home receives the notice", async () => {
+    const at = home();
+    makeHomeDb(join(at.root, "home.db")).close();
+    const { url } = await serve(at);
+    const fake = await fakeHome(testSocket(at.root).path, (request) => (request.verb === "models-list" ? "hold" : "result"));
+    try {
+      const read = await get(url, "/v1/models", auth(at, "reader"));
+      expect([read.status, Object.keys(read.body).sort()]).toEqual([200, ["connections", "models", "position", "uses"]]);
+      await until("the home received the notice", () => fake.asked.some((request) => request.verb === "models-list"));
+      expect(fake.asked.filter((request) => request.verb === "models-list")).toEqual([{ verb: "models-list", folder: at.root }]);
+    } finally { await fake.close(); }
+  });
+
+  it("the page answer of Settings › AI models answers from what is held while the notice is held back, and the home receives the notice", async () => {
+    const at = home();
+    makeHomeDb(join(at.root, "home.db")).close();
+    const { url } = await serve(at);
+    const fake = await fakeHome(testSocket(at.root).path, (request) => (request.verb === "models-list" ? "hold" : "result"));
+    try {
+      const page = await get(url, "/v1/page/models", auth(at, "reader"));
+      expect([page.status, (page.body.uses as { use: string }[]).map((each) => each.use)]).toEqual([200, ["pictures", "audio", "text", "chat", "search", "hiding"]]);
+      await until("the home received the notice", () => fake.asked.some((request) => request.verb === "models-list"));
+      expect(fake.asked.filter((request) => request.verb === "models-list")).toEqual([{ verb: "models-list", folder: at.root }]);
+    } finally { await fake.close(); }
+  });
+});
+
+describe("the privacy read's detector", () => {
+  it("names the chosen Hiding details model by its model id, the file apart; with none chosen the model is null and the detector off", async () => {
+    const off = home();
+    const read = async (at: Home) => (await get((await serve(at)).url, "/v1/privacy", auth(at, "reader"))).body.detector as Record<string, unknown>;
+    expect(await read(off)).toMatchObject({ model: null, state: "off" });
+    const chosen = home();
+    const model = `runner:${UNIT_OF_MAC}/privacy-filter`;
+    editSettings(chosen.root, { "model.defaults.hiding": model });
+    const detector = await read(chosen);
+    expect(detector).toMatchObject({ model, state: "absent" });
   });
 });
 
@@ -1824,7 +1898,7 @@ describe("a computed read run for a client gone, or held to the door's close", (
     const photo = Buffer.from("synthetic chat photo bytes"), hash = `sha256:${hex(photo)}`;
     const sent = Math.floor(Date.now() / 86_400_000) * 86_400_000 - 10 * 86_400_000 + 9 * 3_600_000, date = sent / 1000 - 978_307_200;
     const day = new Date(sent).toISOString().slice(0, 10);
-    const root = makeRoot("lifestream-door-picture-", { sources: { [source]: "fake-rows" }, settings: { "privacy.detector": "off" } });
+    const root = makeRoot("lifestream-door-picture-", { sources: { [source]: "fake-rows" }, settings: { "model.defaults.hiding": null } });
     const file = openHomeFolder(root);
     const agentToken = "synthetic-token-agent".padEnd(43, "x");
     mintPrincipal(file, {
@@ -3131,10 +3205,12 @@ describe("a model reader's pass at the door", () => {
 
   it("walks every read route: an agent's pass at each level and a turn's at each level are served those the table names and 403 PRINCIPAL_SCOPE the rest; each POSTs the four and is answered by the path at its level, the person's own pass too when it names the conversation it reads for; an agent's without the MCP server's pass is 403 THROUGH_SERVER", async () => {
     const at = homeWith({ reader: { scopes: ["read"] }, admit: { scopes: ["admit"] } });
-    makeHomeDb(join(at.root, "home.db")).close();
+    const db = makeHomeDb(join(at.root, "home.db"));
+    holdModels(db, [LUNA_ROUTE]);
+    db.close();
     mkdirSync(join(at.root, "replies"), { recursive: true });
     openLedger(openHomeFolder(at.root), { mode: "migrate" }).close();
-    editSettings(at.root, { "privacy.detector": "off" });
+    editSettings(at.root, { "model.defaults.hiding": null });
     writePrepared(openHomeFolder(at.root), peopleFileOf(at.root, machine().dir), PEOPLE, { rows: new Map([["names", new Map([["table", {
       owner: { who: "p-owner", shown: "Owner Example" },
       people: [{ who: "p-owner", is: "human", shown: "Owner Example", names: ["Owner Example"], accounts: [] }],
@@ -3626,6 +3702,10 @@ describe("Chat's own loop reaching a model through the door", () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => { open = resolve; });
     const server: Server = createHttpServer((request: IncomingMessage, response: ServerResponse) => {
+      if (request.method === "GET" && request.url === "/address/v1/models") {
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ object: "list", data: [{ id: ADDRESS_MODEL, object: "model" }] }));
+        return;
+      }
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
       request.on("end", () => {
@@ -3657,7 +3737,7 @@ describe("Chat's own loop reaching a model through the door", () => {
     const root = makeRoot("lifestream-door-chat-", {
       sources: {},
       settings: {
-        "model.transports.address": { url: `${upstream.url}/address/v1`, model: ADDRESS_MODEL, kinds: ["text"] },
+        "model.transports.address": { url: `${upstream.url}/address/v1`, input: ["text"] },
         "model.transports.fake": { delay_ms: 0, models: [FAKE_OFFER, RESTING], reach: { url: `${upstream.url}/fake/chat/completions`, effort: "reasoning", key: KEY } },
       },
     });
@@ -3682,7 +3762,8 @@ describe("Chat's own loop reaching a model through the door", () => {
     const chat = (body: Record<string, unknown>, token = ask, signal?: AbortSignal) => fetch(`${url}/v1/chat/completions`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body), ...(signal === undefined ? {} : { signal }),
     });
-    return { upstream, logs, chat, reader };
+    const keyRead = () => fetch(`${url}/v1/secrets/openrouter`, { headers: { authorization: `Bearer ${ask}` } });
+    return { upstream, logs, chat, reader, keyRead };
   }
 
   const asked = (model: string, words: string, more: Record<string, unknown> = {}) => ({ model, stream: true, messages: [{ role: "user", content: words }], ...more });
@@ -3720,8 +3801,9 @@ describe("Chat's own loop reaching a model through the door", () => {
     expect(upstream.heard).toEqual([]);
   });
 
-  it("hides the key in a provider's error that echoes it, passed on with the provider's status, and logs no key", async () => {
-    const { chat, logs } = await chatHome();
+  it("hides the key in a provider's error that echoes it, passed on with the provider's status, and logs no key; no route hands Chat a key", async () => {
+    const { chat, logs, keyRead } = await chatHome();
+    expect((await keyRead()).status).toBe(404);
     const failed = await chat(asked(FAKE_ROUTE, "echo the headers"));
     const text = await failed.text();
     expect(failed.status).toBe(500);

@@ -111,43 +111,37 @@ while both are connected through Tailscale.
 The next two screens add the Chrome extension, and the accounts that need a password, such as
 Gmail. Click **Skip**, then **Skip for now**. You can add both later from **Connectors**.
 
-## Connect Chat to your plan
+## Connect your AI
 
-1. On **Do you use ChatGPT or Claude?**, click **Connect** beside the plan you pay for.
+This step is optional. Skip it, and nothing is sent to an AI.
+
+1. On **Connect your AI**, click **Connect** beside the plan you pay for, Claude or ChatGPT.
    Lifestream downloads the program it uses for that plan, then asks you to sign in.
    [Connect a ChatGPT or Claude plan](./ai-models.md#connect-a-chatgpt-or-claude-plan) says each
    step of the sign-in.
-2. Once the plan's line shows your account, click **Continue**.
+2. Choose whether **Hide personal details** is on. It is on unless you turn it off.
+   **How it works** shows what it replaces.
+3. Once the plan's line shows your account, click **Continue**. To skip the step, click
+   **Not now**.
 
-The plan you connect first becomes the default model for every kind of work it can do, not only
-Chat. When you ask Chat a question, your question and the parts of your life it needs go to that
-plan's company: OpenAI for ChatGPT, Anthropic for Claude. The connectors a model reads, such as
-Photos and Gmail, start to send to it too. The steps below let you choose what is hidden and
-what a model reads.
+Connecting a plan gives Chat its model: Claude Opus 5.5 on your Claude plan, else GPT-6.2 Sol on
+your ChatGPT plan. It also gives **Text** its model, which sums up your emails, long AI-chat
+messages and screen. So those items, and what Chat reads to answer you, go to that plan's company:
+Anthropic for Claude, OpenAI for ChatGPT. [What leaves your Mac](./what-leaves-your-mac.md#what-is-hidden-before-sending)
+says what hiding replaces.
 
-## Choose what is hidden
+## Make your pictures and audio searchable
 
-1. On **Hide your personal details**, choose how much Lifestream hides before anything leaves your
-   Mac for a model or an agent. **Hide what Lifestream knows** is marked **Recommended**. **Hide with
-   a hiding model** also downloads a model of about 1.6 GB, which finds names Lifestream has never
-   seen.
-2. Click **Continue**.
+Photos and voice notes go to no model until you pick one.
 
-[What leaves your Mac](./what-leaves-your-mac.md#what-is-hidden-before-sending) says what hiding
-replaces.
+1. Beside **Describe photos and screenshots**, pick where a model reads your photos: **Off**, a plan
+   you connected, or **On this Mac**. Each choice names its model, or what it needs first, such as
+   **Connect Claude first**.
+2. Beside **Turn voice into text**, pick **Off** or **On this Mac**.
+3. Click **Continue**. A model on this Mac downloads in the background.
 
-## Check what a model reads
-
-If Lifestream asks **What should a model read?**, check the list, then click **Continue**. It lists
-each connector you connected that a model reads, such as Photos or Gmail, and what the model does
-with it. To keep a connector from the model, click its line and set **Model** to **Off**.
-[What leaves your Mac](./what-leaves-your-mac.md) says what each sends.
-
-## Choose search by meaning
-
-If you allowed **Screen**, Lifestream asks **Search your screen by meaning?**. Click **Yes** to
-download a model of 303 MB that finds moments on your screen by what they were about, or **Not
-now**. It runs only while your Mac is plugged in and idle, and nothing leaves your Mac.
+You can change both later under **Uses** in **Settings** › **AI models**, as
+[Choose which AI models read your data](./ai-models.md#pick-a-model-for-each-use) says.
 
 ## See your day
 
@@ -166,9 +160,9 @@ Lifestream records from now on, and brings in your past at the same time. You ca
   **Connectors** to see how far it has come.
 - **Places need your iPhone.** Where you were comes from your iPhone's location. Today's stays fill
   in as your iPhone records where you go.
-- **Some parts wait for a model.** Photo descriptions and summaries of your screen time come as the
-  model you connected reads them. Voice notes wait for a speech model, such as Parakeet on your
-  Mac: a ChatGPT or Claude plan does not write them out.
+- **Some parts wait for a model.** Summaries of your screen time come as the model you connected
+  reads them. Photo descriptions and voice note transcripts come once you pick a model for
+  **Photos** and **Voice notes**: a ChatGPT or Claude plan does not write out voice notes.
 - **Names come later.** Places asks you to name a place once you have stayed there on 3 days, or for
   an hour in one day. People asks when it is not sure two names are one person.
 

@@ -12,6 +12,7 @@ import { machineSources, screenRoles, type MachineSources } from "./screen-sourc
 import { recordBuilding } from "./search.js";
 import { DIM } from "./screen-scan-wasm.js";
 import { nearest, ScanError, scopeOf, VectorScan } from "./screen-vectors.js";
+import { meaningModel, type MeaningModel } from "./search-route.js";
 import type { Settings } from "./settings.js";
 
 export const SEARCH_STATE_ROUTE = "/v1/search/state";
@@ -56,9 +57,9 @@ export function statedStanding(standing: MeaningStanding, days: DaySettings): { 
   };
 }
 
-export function meaningStanding(db: Database.Database, search: Settings["search"]): MeaningStanding {
+export function meaningStanding(db: Database.Database, chosen: Pick<MeaningModel, "file"> | null): MeaningStanding {
   const words = wordsThrough(db);
-  if (search.meaning === "off" || metaOf(db, "meaning") !== "true" || metaOf(db, "vector_model") !== search.model) return { available: false, words_indexed_through: words, waits: null };
+  if (chosen === null || metaOf(db, "meaning") !== "true" || metaOf(db, "vector_model") !== chosen.file) return { available: false, words_indexed_through: words, waits: null };
   const waiting = metaOf(db, "meaning_walk") !== undefined || db.prepare("SELECT 1 FROM screen_embed_queue LIMIT 1").get() !== undefined;
   return { available: true, words_indexed_through: words, waits: waiting ? waitsOf(db) : null };
 }
@@ -461,15 +462,16 @@ export function screenReads(input: ScreenReadsInput): Map<string, ScreenRoute> {
   };
 
   const screenMembers = (read: ScreenRead | undefined, file: string): Record<string, unknown> => {
-    const search = input.settings().search;
-    const settings = { meaning: search.meaning, model: search.model, power: search.power };
+    const settings = input.settings();
+    const chosen = meaningModel(settings);
+    const stated = { power: settings.search.power };
     const none = { embedded: 0, queued: 0, named: 0, skipped: 0 };
-    if (read === undefined) return { ...settings, words_indexed_through: null, bytes: 0, vectors_bytes: 0, waits: null, waits_line: null, ...none };
+    if (read === undefined) return { ...stated, words_indexed_through: null, bytes: 0, vectors_bytes: 0, waits: null, waits_line: null, ...none };
     const { db, clock: days } = read;
-    const standing = meaningStanding(db, search);
+    const standing = meaningStanding(db, chosen);
     const counts = standing.available ? meaningCounts(db) : none;
     const { words_indexed_through, waits, waits_line } = statedStanding(standing, days);
-    return { ...settings, words_indexed_through, ...screenBytes(file), waits, waits_line, ...counts };
+    return { ...stated, words_indexed_through, ...screenBytes(file), waits, waits_line, ...counts };
   };
 
   const asOf = (seq: number | undefined, days: DaySettings | undefined): string | null =>

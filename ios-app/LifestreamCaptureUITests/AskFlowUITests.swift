@@ -84,14 +84,27 @@ final class AskFlowUITests: XCTestCase {
         app.terminate()
 
         let refused = launch("--ui-test-ask-claude-refused")
-        let line = refused.descendants(matching: .any)["ask.said"].firstMatch
-        line.appears("the line over the composer")
-        XCTAssertTrue(text(refused, "Claude needs your sign-in on your Mac. Asking GPT-6.1 Terra.").exists, "the server's words, as given")
-        refused.buttons["ask.pick"].firstMatch.tap()
-        pickModel(refused, "Claude Opus 5.5")
-        text(refused, "Your pick needs your Claude sign-in on your Mac. Asking GPT-6.1 Terra.").appears("the pick's own line")
-        XCTAssertTrue(composer(refused).isEnabled, "Chat still answers: the composer is ready")
-        shot(refused, 11, "ask-refused")
+        let picker = refused.buttons["ask.pick"].firstMatch
+        until("the chip names the default: \(picker.value ?? "")") { picker.value as? String == "GPT-6.1 Terra, High" }
+        XCTAssertTrue(composer(refused).isEnabled, "the default answers: the composer is ready")
+        picker.tap()
+        let models = item(refused, "Model")
+        models.appears("the menu's Model row")
+        models.tap()
+        let sol = refused.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "GPT-6 Sol")).firstMatch
+        sol.appears("a model row: its name alone")
+        XCTAssertTrue(refused.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Qwen 3.5 9B")).firstMatch.exists,
+                      "a local model by its name")
+        XCTAssertFalse(item(refused, "Claude Opus 5.5").exists, "a model that can't answer now is left out")
+        let more = item(refused, "More")
+        more.comesToRest("More where the opened Model menu leaves it")
+        more.tap()
+        let find = refused.descendants(matching: .any)["ask.models.find"].firstMatch
+        find.appears("More opens the search")
+        refused.descendants(matching: .any)["models.find.claude:claude-haiku-5-5"].firstMatch.appears("the home's found models")
+        shot(refused, 11, "ask-more")
+        refused.swipeAway(find)
+        until("the chip still names the default: \(picker.value ?? "")") { picker.value as? String == "GPT-6.1 Terra, High" }
         send(refused, "When did I last have dinner with Person A?")
         thought(refused).firstMatch.appears("the default answered")
         refused.terminate()
@@ -100,7 +113,8 @@ final class AskFlowUITests: XCTestCase {
         signedOut.descendants(matching: .any)["ask.said"].firstMatch.appears("the line says the sign-in is missing")
         XCTAssertTrue(text(signedOut, "Chat needs your Claude sign-in on your Mac.").exists)
         XCTAssertFalse(composer(signedOut).isEnabled, "the composer waits")
-        XCTAssertFalse(signedOut.buttons["ask.pick"].exists, "no model listed: no chip")
+        let chosen = signedOut.buttons["ask.pick"].firstMatch
+        until("the chip names the home's default, not ready: \(chosen.value ?? "")") { chosen.value as? String == "Claude Opus 5.5, High" }
         shot(signedOut, 12, "ask-signin")
     }
 
@@ -365,7 +379,7 @@ final class AskFlowUITests: XCTestCase {
         let app = launch("--ui-test-voice-none")
         app.buttons["ask.pick"].firstMatch.appears("readiness read")
         app.buttons["Record a voice note"].firstMatch.tap()
-        text(app, "Voice notes need Parakeet on your Mac").appears("the one fix, over the composer")
+        text(app, "Choose a model for Voice notes").appears("the home's line, over the composer")
         XCTAssertFalse(app.buttons["Stop recording"].exists, "nothing recorded")
     }
 

@@ -11,13 +11,13 @@ import { basicInstant, openSealing, readDelivery } from "./inbox.js";
 import { ask, askHome } from "./socket.js";
 import type { Pause } from "./jobs.js";
 import { KINDS } from "./kinds.js";
-import type { ModelsRead } from "./models-read.js";
+import type { ModelsPage } from "./page-models.js";
 import { MODELS_META, type StoredModels } from "./models.js";
 import { editSettings, testSocket } from "./test/folder.js";
 import { artifact, FAKE_OFFER, FAKES, makeRoot, makeVault, readHome, readLedger, removeRoot, TICK_MS, until } from "./test/harness-root.js";
 import { ship } from "./test/harness-deliveries.js";
 import { doorHere } from "./test/harness-door.js";
-import { statusOf, streamsOf } from "./test/harness-status.js";
+import { modelsPageOf, runnerOf, statusOf, streamsOf } from "./test/harness-status.js";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -437,7 +437,7 @@ describe("pausing a runner's calls", () => {
     const db = openHome(openHomeFolder(root), "migrate");
     try {
       const runners = units.map((unit) => ({ unit, name: "MacBook Pro", present: false, power: null, memory_gb: 16, files: [], below: null }));
-      db.commit((tx) => tx.tables.meta.set(MODELS_META, JSON.stringify({ routes: [], runners, openrouter: { connected: false } } satisfies StoredModels)));
+      db.commit((tx) => tx.tables.meta.set(MODELS_META, JSON.stringify({ routes: [], runners, connections: {} } satisfies StoredModels)));
     } finally {
       db.close();
     }
@@ -477,8 +477,8 @@ describe("pausing a runner's calls", () => {
     const pressed = await cli(root, ["models", "runner", UNIT, "pause", "--reason", "the laptop is busy", "--json"]);
     expect(pressed.code).toBe(0);
     expect(controls(root)).toEqual([{ target: `runner:${UNIT}`, by: "terminal", reason: "the laptop is busy" }]);
-    const read = JSON.parse(pressed.said) as ModelsRead;
-    expect(read.runners.filter((runner) => runner.unit === UNIT).map((runner) => [runner.line, runner.paused])).toEqual([["MacBook Pro's runner is not running", expect.stringMatching(/^Paused since \d\d:\d\d$/u)]]);
+    const runner = runnerOf(modelsPageOf(root), UNIT);
+    expect([runner.line, runner.paused]).toEqual(["MacBook Pro's runner is not running", true]);
     for (let press = 0; press < 2; press++) expect((await cli(root, ["models", "runner", UNIT, "resume"])).code).toBe(0);
     expect(controls(root)).toEqual([]);
     artifact(root, "pausing-runner-cli", steps);
@@ -487,21 +487,25 @@ describe("pausing a runner's calls", () => {
   it("from Settings: the press writes the row by you, the door's models read says who and since when, status lists it", async () => {
     const { root, home, verb, steps } = await open("lifestream-pausing-runner-home-", { sources: {} }, (at) => listing(at, [UNIT]));
     const sock = testSocket(root);
-    const press = (to: "pause" | "resume") => ask(sock, { verb: "models", args: ["--", "runner", UNIT, to], by: "you" }) as Promise<ModelsRead>;
+    const press = async (to: "pause" | "resume") => {
+      await ask(sock, { verb: "models", args: ["--", "runner", UNIT, to], by: "you" });
+      return runnerOf(modelsPageOf(root), UNIT);
+    };
     const token = "synthetic-reader-token".padEnd(43, "x");
     mintPrincipal(openHomeFolder(root), { unit: "reader", scopes: ["read"], token, now_ms: 0 });
     const door = await serveDoor(root, { port: 0, max_bundle_bytes: 1 << 30 }, { log: () => undefined, registry: FAKES });
     try {
       const answered = await press("pause");
       expect(controls(root)).toEqual([{ target: `runner:${UNIT}`, by: "you", reason: "" }]);
-      expect(answered.runners[0]!.paused).toMatch(/^Paused since \d\d:\d\d$/u);
-      const served = await (await fetch(`http://127.0.0.1:${door.port}/v1/models`, { headers: { authorization: `Bearer ${token}` } })).json() as ModelsRead;
-      expect(served.runners.map((runner) => [runner.unit, runner.paused])).toEqual([[UNIT, answered.runners[0]!.paused]]);
+      expect(answered.paused).toBe(true);
+      const served = await (await fetch(`http://127.0.0.1:${door.port}/v1/page/models`, { headers: { authorization: `Bearer ${token}` } })).json() as ModelsPage;
+      const runners = served.connections.flatMap((each) => each.kind === "runner" ? [[each.id, each.paused, each.line]] : []);
+      expect(runners).toEqual([[`runner:${UNIT}`, true, answered.line]]);
       const status = statusOf(root) as { paused: Pause[] };
       expect(status.paused).toEqual([{ target: `runner:${UNIT}`, by: "you", reason: "", at_ms: expect.any(Number) as number }]);
-      steps.paused = { controls: controls(root), read: served.runners, status: status.paused };
-      expect((await press("resume")).runners[0]!.paused).toBeNull();
-      expect((await press("resume")).runners[0]!.paused).toBeNull();
+      steps.paused = { controls: controls(root), read: runners, status: status.paused };
+      expect((await press("resume")).paused).toBe(false);
+      expect((await press("resume")).paused).toBe(false);
       expect(controls(root)).toEqual([]);
     } finally {
       await door.close();

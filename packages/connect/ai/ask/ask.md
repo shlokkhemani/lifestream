@@ -149,9 +149,8 @@ Two works, each the stream's own setting:
 - **`voice`** (`ASK_VOICE`, "Voice notes"): each voice note's words, one ask per note
   (`askVoiceNote`, item `voice:<audio hex>`), asked by the home the moment the note is sent and
   stated again by the family's plan, which the ledger answers with the same one call. The work is
-  `as_is`: on a route that leaves (the cloud voice model) the audio goes as it is, whatever Chat's
-  privacy level, its row saying "Sent as it is"; and it `prefers` Parakeet
-  (`parakeet-unified-en-0.6b`): with its setting unset it is served by that file wherever a runner
-  has it installed, else by the cloud voice route.
+  `as_is`: on a route that leaves (Scribe v2 on OpenRouter) the audio goes as it is, whatever Chat's
+  privacy level, its row saying "Sent as it is". With its setting unset it is served by the Voice
+  notes default, and with that Off no note is written out.
 The person's Find finds their past answers; Ask's own search tool leaves out hits from `ask:`
 sources, so Ask never cites its own earlier answer.

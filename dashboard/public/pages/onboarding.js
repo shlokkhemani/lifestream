@@ -22,7 +22,7 @@ import {
   backOf, BEFORE, done, DOTS, FACES, heldSpan, keepSpan, keptOf, landing, leftAs, macOf, macSources, nameHolds, nameText, nextOf, passed, recordOf,
   resume, SCREENS, sensesOf, stepOf,
 } from '../ui/onboarding/model.js';
-import { mediaOf, partsOf, rangeOf, scrambleAct, siteAdded, typedName } from '../ui/onboarding/view.js';
+import { mediaPlaces, partsOf, rangeOf, scrambleAct, siteAdded, typedName } from '../ui/onboarding/view.js';
 
 /** @param {string} value @returns {value is Screen} */
 const isScreen = value => /** @type {string[]} */ (SCREENS).includes(value);
@@ -317,23 +317,13 @@ export function mountOnboarding(container, context, host, reports, changes) {
 
   /**
    * @param {ModelKind} kind
-   * @param {string} route
+   * @param {string} model
    */
-  async function choose(kind, route) {
-    const models = changes.models.read;
-    if (!models) return;
-    if (route !== 'none') {
-      const chosen = mediaOf(seen, models, kind).choices.find(each => each.value === route);
-      if (!chosen || chosen.disabled) return;
-      const at = route.slice(route.indexOf(':') + 1);
-      const cut = at.indexOf('/');
-      const file = cut < 0 ? null : models.runners.find(each => each.unit === at.slice(0, cut))?.files
-        .find(each => each.id === at.slice(cut + 1)) ?? null;
-      if (file && file.state === 'absent') {
-        await send({ act: 'models', do: 'file', runner: at.slice(0, cut), id: file.id, to: 'fetch' }, 'media');
-      }
-    }
-    await send({ act: 'models', do: 'default', kind, route }, 'media');
+  async function choose(kind, model) {
+    if (!changes.models.read) return;
+    const chosen = mediaPlaces(changes.models.read, kind).choices.find(each => each.value === model);
+    if (model !== 'none' && (!chosen || chosen.disabled)) return;
+    await send({ act: 'models', do: 'default', use: kind, model }, 'media');
   }
 
   /** @param {number} at */

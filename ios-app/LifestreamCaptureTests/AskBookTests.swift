@@ -38,25 +38,59 @@ final class AskBookTests: XCTestCase {
         book.choose(model: "gpt-6-luna")
         XCTAssertEqual(book.pick, .init(model: "gpt-6-luna"), "no level was kept: none")
         XCTAssertEqual(book.asks, .init(model: "gpt-6-luna", name: "GPT-6 Luna", thinking: "high"), "drawn at once, at its own level")
-        try await until("the read with Luna answers") { book.ready?.model == "gpt-6-luna" }
+        try await until("the read with Luna answers") { door.answered.last == "gpt-6-luna" && book.chosen == nil }
 
         book.choose(thinking: "xhigh")
         XCTAssertEqual(book.asks?.thinking, "xhigh")
-        try await until("the read at Extra high answers") { book.ready?.thinking == "xhigh" }
+        try await until("the read at Extra high answers") { door.readiness.count == 3 && book.chosen == nil }
 
         book.choose(model: "gpt-6.1-terra")
         XCTAssertEqual(book.pick, .init(model: "gpt-6.1-terra", thinking: "xhigh"), "Terra takes Extra high: kept")
-        try await until("the read with Terra answers") { book.ready?.model == "gpt-6.1-terra" && book.chosen == nil }
+        try await until("the read with Terra answers") { door.answered.last == "gpt-6.1-terra" && book.chosen == nil }
         XCTAssertEqual(book.asks?.thinking, "xhigh")
 
         book.choose(model: "gpt-6-sol")
         XCTAssertEqual(book.pick, .init(model: "gpt-6-sol"), "Sol takes no Extra high: none kept")
         XCTAssertEqual(book.asks, .init(model: "gpt-6-sol", name: "GPT-6 Sol", thinking: "medium"), "drawn at Sol's own level")
-        try await until("the read with Sol answers") { book.ready?.model == "gpt-6-sol" }
+        try await until("the read with Sol answers") { door.answered.last == "gpt-6-sol" && book.chosen == nil }
         XCTAssertEqual(door.readiness.last, "/v1/ask?model=gpt-6-sol", "read again with the pick, no level")
 
         let relaunched = AskBook(defaults: defaults)
         XCTAssertEqual(relaunched.pick, .init(model: "gpt-6-sol"), "the pick outlives the book: one per iPhone")
+    }
+
+    func testWhatAQuestionRunsOnAndTheMenuOfModelsAreTheHomes() async throws {
+        let (book, door) = try await made()
+        door.chatDefault = ("gpt-6-luna", "low")
+        await book.readReady()
+        XCTAssertEqual(book.asks, .init(model: "gpt-6-luna", name: "GPT-6 Luna", thinking: "low"), "the home's default, at its thinking")
+        XCTAssertTrue(book.askable)
+        XCTAssertNil(book.unattachable(holding: 0))
+        XCTAssertFalse(book.stays, "a model that leaves: the level chip is drawn")
+        XCTAssertEqual(book.menu?.rows.map(\.name), ["GPT-6.1 Terra", "GPT-6 Luna", "GPT-6 Sol"], "the home's menu, names only")
+        XCTAssertEqual(book.menu?.local?.rows.map(\.name), ["Qwen 3.5 9B"], "under Local")
+
+        book.choose(model: "runner:macbook-pro-0001/qwen-3.5-9b")
+        XCTAssertEqual(book.asks, .init(model: "runner:macbook-pro-0001/qwen-3.5-9b", name: "Qwen 3.5 9B", thinking: ""), "no levels")
+        XCTAssertTrue(book.stays, "a model that stays: nothing is hidden, no level chip")
+        XCTAssertEqual(book.unattachable(holding: 0), "Qwen 3.5 9B can't see photos.", "the photo button off, saying why")
+
+        door.chatDefault = (nil, "medium")
+        door.said = "Chat has no default model: choose one from the menu."
+        book.reset()
+        try await until("the read with no default answers") { door.answered.count == 3 && book.ready?.default.model == nil }
+        XCTAssertNil(book.asks, "no default: the home names no model for the chip")
+        XCTAssertEqual(book.chooseWords, "Choose a model", "the chip's words, the home's")
+        XCTAssertTrue(book.stays, "no model: no level chip")
+        XCTAssertTrue(book.waits, "no model answers: the composer waits")
+        XCTAssertEqual(book.ready?.said, door.said)
+
+        door.chatDefault = ("gpt-6.1-terra", "high")
+        door.signedIn = false
+        door.said = "Chat needs your Claude sign-in on your Mac."
+        await book.readReady()
+        XCTAssertTrue(book.waits, "the default not ready: the composer waits")
+        XCTAssertEqual(book.menu?.rows, [], "a model not ready is left out of the menu")
     }
 
     func testResetForgetsThePickAndAPickGoneIsForgottenWithNothingSaid() async throws {
@@ -70,7 +104,7 @@ final class AskBookTests: XCTestCase {
         book.reset()
         XCTAssertNil(book.pick)
         XCTAssertNil(defaults.data(forKey: "ask.pick"), "forgotten on the iPhone")
-        try await until("the default is read") { book.ready?.model == "gpt-6.1-terra" }
+        try await until("the default is read") { door.answered.count == 2 }
         XCTAssertEqual(door.readiness.last, "/v1/ask", "read with no pick")
         book.reset()
         XCTAssertEqual(door.readiness.count, 2, "Reset with nothing kept reads nothing")
@@ -95,7 +129,7 @@ final class AskBookTests: XCTestCase {
         try await until("the read for Luna is at the door") { door.holding("gpt-6-luna") }
         door.retire("gpt-6-luna")
         book.choose(model: "gpt-6-sol")
-        try await until("the read for Sol answers") { book.ready?.model == "gpt-6-sol" }
+        try await until("the read for Sol answers") { door.answered.last == "gpt-6-sol" && book.chosen == nil }
 
         door.release("gpt-6-luna")
         await late.value
@@ -156,14 +190,14 @@ final class AskBookTests: XCTestCase {
         await book.readReady()
         book.choose(model: "gpt-6-sol")
         book.choose(thinking: "low")
-        try await until("the read for Sol at Low answers") { book.ready?.thinking == "low" }
+        try await until("the read for Sol at Low answers") { door.readiness.last == "/v1/ask?model=gpt-6-sol&thinking=low" && book.chosen == nil }
 
         let conversation = try book.asked("Where was I on Friday?")
         try await until("the first turn is answered") { conversation.turns.last?.answer.end == .done }
         XCTAssertEqual(door.questions.last, ["question": "Where was I on Friday?", "model": "gpt-6-sol", "thinking": "low"])
 
         book.reset()
-        try await until("the default is read") { book.ready?.model == "gpt-6.1-terra" }
+        try await until("the default is read") { door.readiness.last == "/v1/ask" && door.answered.last == "gpt-6.1-terra" }
         conversation.ask("And after?")
         try await until("the second turn is answered") { conversation.turns.count == 2 && conversation.turns[1].answer.end == .done }
         let chat = try XCTUnwrap(conversation.chat)
@@ -181,13 +215,13 @@ final class AskBookTests: XCTestCase {
         try await until("the old conversation is answered") { old.turns.last?.answer.end == .done }
 
         door.said = "Chat needs your Claude sign-in on your Mac."
-        door.login = "missing"
+        door.signedIn = false
         let conversation = try book.asked("Use my sign-in")
         try await until("the turn ends") { conversation.turns.last.map { $0.answer.end != .running } ?? false }
         XCTAssertEqual(conversation.turns.map(\.question), ["Use my sign-in"], "the question stays")
         XCTAssertEqual(conversation.turns.last?.answer.end, .failed("Chat needs your Claude sign-in on your Mac."), "the server's words, as given")
         XCTAssertEqual(conversation.turns.last?.answer.signIn, true)
-        try await until("readiness is read again") { book.ready?.login == .missing }
+        try await until("readiness is read again") { book.waits }
         XCTAssertTrue(book.waits, "the composer waits")
 
         old.ask("And now?")
@@ -200,7 +234,7 @@ final class AskBookTests: XCTestCase {
         XCTAssertEqual(book.down, "Chat isn't answering on your Mac", "the Ask server not answering is said, in the door's words")
         XCTAssertTrue(book.waits)
         door.down = false
-        door.login = "ready"
+        door.signedIn = true
         door.said = nil
         await book.readReady()
         XCTAssertNil(book.down)
@@ -216,7 +250,7 @@ final class AskBookTests: XCTestCase {
         XCTAssertTrue(book.unread, "the home out of reach: still owed, so the foot reads again when the home heals")
         door.unreached = false
         await book.readReady()
-        XCTAssertEqual(book.ready?.model, "gpt-6.1-terra")
+        XCTAssertEqual(book.asks?.model, "gpt-6.1-terra")
         XCTAssertFalse(book.unread)
     }
 
@@ -448,7 +482,7 @@ final class AskBookTests: XCTestCase {
         await book.readReady()
         book.record(for: "page")
         XCTAssertEqual(book.recorder.phase, .idle, "nothing recorded")
-        XCTAssertEqual(book.recorder.said, AskDoor.voiceLine, "the one fix said")
+        XCTAssertEqual(book.recorder.said, AskDoor.voiceLine, "the home's line said")
         XCTAssertEqual(microphone.starts, 0)
         door.voiceReady = true
         await book.readReady()
@@ -1183,7 +1217,7 @@ final class AskBookTests: XCTestCase {
         let chat = try XCTUnwrap(conversation.chat)
         try await until("its level read back as it began and ended") { conversation.level == .all && door.levelReads(chat) == 2 }
         conversation.pick(level: .none)
-        door.login = "missing"
+        door.signedIn = false
         door.said = "Sign in to Claude again."
         XCTAssertTrue(conversation.ask("And who was there?"))
         try await until("the follow-up has failed") { conversation.turns.count == 2 && conversation.turns[1].answer.end != .running }
@@ -1191,7 +1225,7 @@ final class AskBookTests: XCTestCase {
         XCTAssertEqual(door.level(chat), "all", "a turn that never began keeps nothing")
         try await until("the level is read back after the failure") { conversation.level == .all && door.levelReads(chat) == 3 }
         door.keep(chat, "all")
-        door.login = "ready"
+        door.signedIn = true
         door.said = nil
         XCTAssertTrue(conversation.ask("And who was there?"))
         try await until("the retry is answered") { conversation.turns.count == 3 && conversation.turns[2].answer.end == .done }
@@ -1210,7 +1244,7 @@ final class AskBookTests: XCTestCase {
         try await until("its level read back as it began and ended") { conversation.level == .all && door.levelReads(chat) == 2 }
         conversation.pick(level: .none)
         XCTAssertEqual(conversation.level, HomeLink.Ask.Level.none, "drawn at once")
-        door.login = "missing"
+        door.signedIn = false
         door.losing = true
         XCTAssertTrue(conversation.ask("And who was there?"))
         try await until("the question was posted") { door.questions.count == 2 }
@@ -1247,12 +1281,12 @@ final class AskBookTests: XCTestCase {
 
     func testAStarterObeysWhatTheComposerObeys() async throws {
         let (book, door) = try await made()
-        door.login = "missing"
+        door.signedIn = false
         await book.readReady()
         await book.read()
         XCTAssertFalse(book.askable, "no sign-in: the composer waits")
         XCTAssertEqual(book.starters, [], "and no starter is drawn")
-        door.login = "ready"
+        door.signedIn = true
         await book.readReady()
         XCTAssertTrue(book.askable)
         XCTAssertFalse(book.starters.isEmpty, "signed in: the starters")
@@ -1413,10 +1447,16 @@ private final class AskDoor: HomeTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var paired = false
     private var offered: [[String: Any]] = [
-        ["id": "gpt-6.1-terra", "name": "GPT-6.1 Terra", "thinking": ["low", "medium", "high", "xhigh", "max"], "default": "high", "group": "ChatGPT", "photos": true],
-        ["id": "gpt-6-luna", "name": "GPT-6 Luna", "thinking": ["low", "medium", "high", "xhigh", "max"], "default": "high", "group": "ChatGPT", "photos": true],
-        ["id": "gpt-6-sol", "name": "GPT-6 Sol", "thinking": ["low", "medium"], "default": "medium", "group": "ChatGPT", "photos": true],
+        ["id": "gpt-6.1-terra", "name": "GPT-6.1 Terra", "thinking": ["low", "medium", "high", "xhigh", "max"],
+         "default": "high", "photos_off": NSNull(), "hides": true],
+        ["id": "gpt-6-luna", "name": "GPT-6 Luna", "thinking": ["low", "medium", "high", "xhigh", "max"],
+         "default": "high", "photos_off": NSNull(), "hides": true],
+        ["id": "gpt-6-sol", "name": "GPT-6 Sol", "thinking": ["low", "medium"],
+         "default": "medium", "photos_off": NSNull(), "hides": true],
+        ["id": "runner:macbook-pro-0001/qwen-3.5-9b", "name": "Qwen 3.5 9B", "thinking": [String](),
+         "default": "", "photos_off": "Qwen 3.5 9B can't see photos.", "hides": false],
     ]
+    private var chat: (model: String?, thinking: String?) = ("gpt-6.1-terra", "high")
     private var held: Set<String> = []
     private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
     private var reads: [String] = []
@@ -1428,7 +1468,7 @@ private final class AskDoor: HomeTransport, @unchecked Sendable {
     private var set: [[String: String]] = []
     private var voice: (ready: Bool, value: String, ms: Int) = (true, "default", 600_000)
     static let noteWords = "Where did I have dinner with Person A last week?"
-    static let voiceLine = "Voice notes need Parakeet on your Mac: download it in Lifestream's Settings › AI models."
+    static let voiceLine = "Choose a model for Voice notes"
     static let parakeet = "runner:macbook-pro-0001/parakeet-unified-en-0.6b"
     static let cloud = "openrouter:elevenlabs/scribe-v2"
     static let caution = "Voice notes go to OpenRouter as they are: sound can't be hidden."
@@ -1441,7 +1481,7 @@ private final class AskDoor: HomeTransport, @unchecked Sendable {
     }
     private var stagedHere: [String: Int] = [:]
     private var dropped: Set<String> = []
-    private var state: (login: String, said: String?, down: Bool, unreached: Bool, failing: String?) = ("ready", nil, false, false, nil)
+    private var state: (signedIn: Bool, said: String?, down: Bool, unreached: Bool, failing: String?) = (true, nil, false, false, nil)
     private var failure: (says: String?, full: Bool) = ("fetch failed", false)
     static let lostWords = "Your Mac no longer has this voice note."
     static let fullWords = "Your Mac holds too many photos not sent yet. Send or remove some."
@@ -1522,9 +1562,13 @@ private final class AskDoor: HomeTransport, @unchecked Sendable {
         get { lock.withLock { voice.ms } }
         set { lock.withLock { voice.ms = newValue } }
     }
-    var login: String {
-        get { lock.withLock { state.login } }
-        set { lock.withLock { state.login = newValue } }
+    var signedIn: Bool {
+        get { lock.withLock { state.signedIn } }
+        set { lock.withLock { state.signedIn = newValue } }
+    }
+    var chatDefault: (model: String?, thinking: String?) {
+        get { lock.withLock { chat } }
+        set { lock.withLock { chat = newValue } }
     }
     var said: String? {
         get { lock.withLock { state.said } }
@@ -1787,50 +1831,65 @@ private final class AskDoor: HomeTransport, @unchecked Sendable {
         }
     }
 
+    private func answering(_ model: String?, _ thinking: String?) -> (id: String, thinking: String, gone: Bool) {
+        let listed = model.flatMap { id in offered.first { $0["id"] as? String == id } }
+        let chosen = listed ?? offered.first { $0["id"] as? String == chat.model } ?? offered[0]
+        let wanted = listed == nil ? chat.thinking : thinking
+        let level = wanted.flatMap { (chosen["thinking"] as? [String] ?? []).contains($0) ? $0 : nil } ?? chosen["default"] as! String
+        return (chosen["id"] as! String, level, model != nil && listed == nil)
+    }
+
     private func ready(_ model: String?, _ thinking: String?) -> [String: Any] {
         lock.withLock {
-            let listed = model.flatMap { id in offered.first { $0["id"] as? String == id } }
-            let chosen = listed ?? offered[0]
-            let level = thinking.flatMap { (chosen["thinking"] as? [String] ?? []).contains($0) && (listed != nil || model == nil) ? $0 : nil }
-            var answer: [String: Any] = ["model": chosen["id"]!, "name": chosen["name"]!, "thinking": level ?? chosen["default"]!,
-                                         "login": state.login, "models": offered, "starters": kinds,
-                                         "limits": ["photos": 10, "photo_bytes": 26_214_400, "voice_ms": voice.ms]]
+            let runs = answering(model, thinking)
+            let models = offered.map { row in row.merging(["state": state.signedIn ? "ready" : "unavailable"]) { $1 } }
+            let row = { (model: [String: Any]) -> [String: Any] in
+                ["value": model["id"] ?? "", "name": model["name"] ?? "", "account": NSNull(), "chosen": model["id"] as? String == runs.id]
+            }
+            let usable = state.signedIn ? offered : []
+            let stays = { (model: [String: Any]) in model["hides"] as? Bool == false }
+            let local = usable.filter(stays).map(row)
+            let shown = offered.first { $0["id"] as? String == chat.model }?["id"] as? String
+            let menu: [String: Any] = ["default": NSNull(), "rows": usable.filter { !stays($0) }.map(row),
+                                       "local": local.isEmpty ? NSNull() as Any : ["label": "Local", "rows": local] as Any,
+                                       "more": ["words": "More", "use": "chat", "work": NSNull()], "off": NSNull()]
+            var answer: [String: Any] = ["models": models, "menu": menu, "default": ["model": chat.model as Any, "thinking": chat.thinking as Any, "shown": shown as Any,
+                                                                       "choose": shown == nil ? "Choose a model" : NSNull() as Any],
+                                         "starters": kinds, "limits": ["photos": 10, "photo_bytes": 26_214_400, "voice_ms": voice.ms]]
             let leaves = voice.value == Self.cloud
             answer["voice"] = ["ready": voice.ready, "words": leaves ? "Scribe v2 · Sent as it is" : "Parakeet · your Mac",
                                "line": voice.ready ? NSNull() : Self.voiceLine as Any, "caution": leaves ? Self.caution : NSNull() as Any,
                                "value": voice.value,
                                "choices": [["value": Self.parakeet, "words": "Parakeet · your Mac", "sent": false],
                                            ["value": Self.cloud, "words": "Scribe v2 · Sent as it is", "sent": true]]]
-            if model != nil, listed == nil { answer["gone"] = true }
+            if runs.gone { answer["gone"] = true }
             if let said = state.said { answer["said"] = said }
-            answers.append(answer["gone"] != nil ? "gone" : chosen["id"] as! String)
+            answers.append(runs.gone ? "gone" : runs.id)
             return answer
         }
     }
 
     private func turn(_ question: [String: String], submission: String, photos: [String] = [], voice: [String: Any]? = nil) -> HomeResponse {
-        let (chat, words, login, failing, says) = lock.withLock { () -> (String, String?, String, String?, String?) in
+        let (chat, words, signedIn, failing, says, runs) = lock.withLock { () -> (String, String?, Bool, String?, String?, (id: String, thinking: String, gone: Bool)) in
             asked.append(question)
             let chat = question["chat"] ?? madeFor[submission] ?? "\(1_792_396_900_000 + made.count)-abcdef"
             if question["chat"] == nil, madeFor[submission] == nil {
                 made.append(chat)
                 madeFor[submission] = chat
             }
-            return (chat, state.said, state.login, state.failing, failure.says)
+            return (chat, state.said, state.signedIn, state.failing, failure.says, answering(question["model"], question["thinking"]))
         }
         if losing { return HomeResponse(status: 200, headers: ["Content-Type": "application/x-ndjson"], body: Data()) }
-        let asks = ready(question["model"], question["thinking"])
-        lock.withLock { _ = answers.removeLast() }
         let audio = voice.map { ($0["audio"] as? String) ?? Self.audio(of: $0["note"] as? String ?? "") }
         let changing = changingAccess
         let message: [String: Any] = changing.map { $0.kept.merging(["chat": chat, "n": 2]) { $1 } }
             ?? ["chat": chat, "n": 2, "at_ms": 1_792_396_861_000, "role": "assistant", "text": "At Synthetic Cafe.",
-                "model": asks["model"]!, "thinking": asks["thinking"]!, "ms": 1_200, "end": "done"]
+                "model": runs.id, "thinking": runs.thinking, "ms": 1_200, "end": "done"]
         let events: [[String: Any]] = if erasing {
             [["type": "error", "error": "erased"]]
         } else if let failing {
             [["type": "error", "error": failing].merging(says.map { ["message": $0] } ?? [:]) { $1 }]
-        } else if login == "ready" {
+        } else if signedIn {
             [["type": "chat", "chat": chat, "n": 2].merging(audio.map { ["audio": $0] } ?? [:]) { $1 }]
                 + (voice != nil ? [["type": "words", "words": Self.noteWords]] : [])
                 + (changing?.events ?? [])

@@ -18,6 +18,9 @@ import { atExit, openChrome } from '../tools/chrome.mjs';
 import { hostScript } from './stand-ins/onboarding-home.mjs';
 import { until } from './until.mjs';
 
+/** @typedef {Extract<import('../public/pages.js').ModelConnection, { kind: 'runner' }>} Runner */
+/** @param {import('../public/pages.js').Models} models */
+const runnersOf = models => /** @type {Runner[]} */ (models.connections.filter(each => each.kind === 'runner'));
 const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '.build', 'e2e', 'llm-web');
 const HASH = `sha256:${'a'.repeat(64)}`;
 const SCREEN_NEEDS = /** @type {string} */ (LLM_REPORT.connectors.find(each => each.id === 'screen')?.processing?.rows
@@ -86,8 +89,8 @@ async function standInDoor() {
     /** @param {number} status @param {unknown} body */
     const json = (status, body) => response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     if (path === '/v1/connectors') return json(200, { position: `${door.seq}:0`, ...door.report });
-    if (path === '/v1/models') return door.down ? json(503, { error: 'NOT_NOW', message: 'Lifestream is busy.' })
-      : json(200, { position: `${door.seq}:0`, ...door.models });
+    if (path === '/v1/page/models') return door.down ? json(503, { error: 'NOT_NOW', message: 'Lifestream is busy.' })
+      : json(200, { ...door.models, position: `${door.seq}:0` });
     if (path === '/v1/processing/range') {
       return json(200, { position: `${door.seq}:0`, ...RANGE_STEP, value: address.searchParams.get('value') });
     }
@@ -300,8 +303,9 @@ test('W1–W3: each connector\'s AI section in the window, each work\'s page pus
   await pushWork('llm.photos', 'Photo descriptions');
   await pick('whatsapp.llm.photos', 2);
   const whatsapp = /** @type {import('../public/types.js').ConnectorReport} */ (LLM_REPORT.connectors.find(each => each.id === 'whatsapp'));
-  const step = /** @type {import('../public/types.js').Step} */ (whatsapp.members.find(each => each.key === 'llm.photos')?.steps?.[2]);
-  assert.deepEqual(await sent(), [{ act: 'setting', connector: 'whatsapp', member: 'llm.photos', value: step.value }]);
+  const menu = /** @type {import('../public/pages.js').ModelMenu} */ (whatsapp.members.find(each => each.key === 'llm.photos')?.menu);
+  const row = /** @type {import('../public/pages.js').ModelRow} */ ([menu.default, ...menu.rows, ...menu.local?.rows ?? []][2]);
+  assert.deepEqual(await sent(), [{ act: 'setting', connector: 'whatsapp', member: 'llm.photos', value: row.value }]);
   await page().until(`document.querySelector('${PHOTOS}').getAttribute('aria-busy') === 'true'`, 'Photo descriptions waits');
   await shot('stream-whatsapp-sent');
   /**
@@ -311,10 +315,10 @@ test('W1–W3: each connector\'s AI section in the window, each work\'s page pus
    */
   const changed = (key, value, words) => ({ ...door.report, connectors: door.report.connectors.map(each => each.id !== 'whatsapp' ? each
     : { ...each, members: each.members.map(member => member.key === key ? { ...member, value, words } : member) }) });
-  door.report = changed('llm.photos', step.value, `${step.words} · MacBook Pro`);
+  door.report = changed('llm.photos', row.value, row.name);
   await page().evaluate(`window.dispatchEvent(new Event('focus'))`);
   await page().until(`!document.querySelector('${PHOTOS}').hasAttribute('aria-busy')
-    && document.querySelector('${PHOTOS}').textContent.includes('${step.words} · MacBook Pro')`, 'Photo descriptions said');
+    && document.querySelector('${PHOTOS}').textContent.includes(${JSON.stringify(row.name)})`, 'Photo descriptions said');
   await backTo('WhatsApp');
   assert.equal(await page().evaluate(`document.querySelector('${RANGE}').getAttribute('aria-busy')`), 'true', 'Range waits on its own');
   door.report = changed('llm.range', RANGE_STEP.value, '3 Mar 2024');
@@ -346,75 +350,85 @@ test('W4: Settings: every act of AI models, This Mac and Updates as typed, each 
   /** @param {string} label */
   const rowLine = label => `${ROW(label)}.querySelector('.ck-srow__wait')?.textContent ?? ''`;
 
-  const [MAC] = MODELS_BARE.runners;
-  const QWEN = MAC.files[0];
+  const UNIT = 'runner-macbook-pro-0001';
+  const QWEN = runnersOf(MODELS_BARE)[0].files[0];
   /**
    * @param {'fetching' | 'ready'} state
    * @param {string | null} line
+   * @returns {import('../public/pages.js').Models}
    */
-  const qwen = (state, line) => ({ ...MODELS_BARE, runners: MODELS_BARE.runners.map(runner => ({ ...runner,
-    files: runner.files.map(file => file.id !== QWEN.id ? file : { ...file, state, line }) })) });
+  const qwen = (state, line) => ({ ...MODELS_BARE, connections: MODELS_BARE.connections.map(each => each.kind !== 'runner' ? each
+    : { ...each, files: each.files.map(file => file.id !== QWEN.id ? file
+      : { ...file, state, line, acts: [state === 'ready' ? /** @type {const} */ ('remove') : /** @type {const} */ ('cancel')] }) }) });
   door.models = MODELS_BARE;
   await page().load('#view=connectors&dialog=settings/models', host);
   await page().until(`Boolean(${ROW(QWEN.name)}) && Boolean(${rowButton(QWEN.name, 'Download')})`);
-  assert.equal(await page().evaluate(rowLine(QWEN.name)), QWEN.line, 'its line the home\'s');
+  assert.equal(await page().evaluate(rowLine(QWEN.name)), QWEN.line ?? '', 'its line the home\'s');
   await acts();
   await shot('settings-first-download');
-  const first = door.reads('/v1/models');
+  const first = door.reads('/v1/page/models');
   await click(rowButton(QWEN.name, 'Download'));
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: MAC.unit, id: QWEN.id, to: 'fetch', label: 'Download' }]);
-  await until('the models read after the act', () => door.reads('/v1/models') > first);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: UNIT, id: QWEN.id, to: 'fetch', label: 'Download' }]);
+  await until('the models read after the act', () => door.reads('/v1/page/models') > first);
   assert.equal(await page().evaluate(`${rowButton(QWEN.name, 'Download')}.getAttribute('aria-busy')`), 'true',
     'the home took it and the read still says absent: Download waits');
-  const waited = door.reads('/v1/models');
+  const waited = door.reads('/v1/page/models');
   door.models = qwen('fetching', 'Downloading, 0.9 of 4 GB');
   door.tell('models', 'models');
   await page().until(`Boolean(${rowButton(QWEN.name, 'Cancel')}) && !${rowButton(QWEN.name, 'Cancel')}.disabled`,
     'the file downloading, read again on the feed\'s models event');
   assert.equal(await page().evaluate(rowLine(QWEN.name)), 'Downloading, 0.9 of 4 GB');
-  assert.equal(door.reads('/v1/models'), waited + 1, 'one read for one event, none on a timer');
+  assert.equal(door.reads('/v1/page/models'), waited + 1, 'one read for one event, none on a timer');
   await shot('settings-first-download-moving');
   door.models = qwen('ready', null);
   door.tell('models', 'models');
   await page().until(`Boolean(${rowButton(QWEN.name, 'Remove')})`, 'the file downloaded, read again on the feed\'s models event');
   await shot('settings-first-download-ready');
   assert.deepEqual(await acts(), [], 'read again with no act');
-  const settled = door.reads('/v1/models');
-  door.models = { ...door.models, runners: [...door.models.runners, { unit: 'runner-mac-mini-bb17', name: 'Mac mini', line: null, files: [] }] };
+  const settled = door.reads('/v1/page/models');
+  door.models = { ...door.models, connections: [...door.models.connections, { kind: 'runner', id: 'runner:runner-mac-mini-bb17',
+    unit: 'runner-mac-mini-bb17', place: 'On Mac mini', name: 'Mac mini', line: null, files: [], found: [], battery: null, paused: false }] };
   door.tell('models', 'models');
-  await until('the models read again on the feed\'s models event', () => door.reads('/v1/models') > settled);
+  await until('the models read again on the feed\'s models event', () => door.reads('/v1/page/models') > settled);
   await page().until(`${DIALOG}.textContent.includes('On Mac mini')`, 'the runner come drawn');
 
   door.models = MODELS;
   await page().load('#view=connectors&dialog=settings/models', host);
-  await page().until(`Boolean(${ROW(MODELS.runners[0].files[2].name)})`);
+  await page().until(`Boolean(${ROW(runnersOf(MODELS)[0].files[2].name)})`);
   await acts();
   await shot('settings-ai-models');
   const defaults = await page().evaluate(DRAWN);
   seen.drawn.settings = defaults;
-  assert.deepEqual(defaults.cut, [], 'Defaults: every value whole');
-  assert.ok(defaults.values.includes(MODELS.defaults.audio.words), 'a default in the home’s words');
-  const [mac, mini, imac] = MODELS.runners;
+  assert.deepEqual(defaults.cut, [], 'Uses: every value whole');
+  assert.ok(MODELS.uses.every(use => defaults.values.includes(use.words)), 'each use in the home’s words');
+  const [mac, mini, imac] = runnersOf(MODELS);
   const [ready, fetching, absent] = mac.files;
+  const unitOf = (/** @type {Runner} */ runner) => runner.id.slice('runner:'.length);
   await page().evaluate(`(() => { ${rowButton(absent.name, 'Download')}.click(); ${rowButton(absent.name, 'Download')}.click(); })()`);
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: mac.unit, id: absent.id, to: 'fetch', label: 'Download' }],
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: unitOf(mac), id: absent.id, to: 'fetch', label: 'Download' }],
     'two presses, one act');
   for (const [file, words] of /** @type {const} */ ([[fetching, 'Cancel'], [ready, 'Remove']])) {
     await click(rowButton(file.name, words));
-    assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: mac.unit, id: file.id, to: 'remove', label: words }], file.name);
+    assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: unitOf(mac), id: file.id, to: 'remove', label: words }], file.name);
   }
   await click(BUTTON('Try again'));
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: mini.unit, id: mini.files[0].id, to: 'fetch', label: 'Try again' }]);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'file', runner: unitOf(mini), id: mini.files[0].id, to: 'fetch', label: 'Try again' }]);
   assert.equal(await page().evaluate(`${DIALOG}.textContent.includes(${JSON.stringify(imac.line)})`), true);
-  await pick('settings.default.text', 1);
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'default', kind: 'text', route: MODELS.defaults.text.steps[1].value }]);
-  await pick('settings.default.pictures', 1);
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'default', kind: 'pictures', route: MODELS.defaults.pictures.steps[1].value }]);
-  await pick('settings.default.pictures', 0);
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'default', kind: 'pictures', route: 'none' }], 'the home’s Off first, writing none');
+  const useOf = (/** @type {string} */ use) => /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(each => each.use === use));
+  await pick('settings.use.text', 1);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'default', use: 'text', model: useOf('text').menu.rows[1].value }]);
+  await pick('settings.use.pictures', 0);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'default', use: 'pictures', model: useOf('pictures').menu.rows[0].value }]);
+  const PICTURES_BUSY = `document.querySelector('[aria-controls="ck-mb-settings-use-pictures-menu"]').getAttribute('aria-busy')`;
+  await page().until(`${PICTURES_BUSY} === 'true'`, 'the Photos pick waits for the read that says it');
+  door.models = { ...MODELS, uses: MODELS.uses.map(use => use.use !== 'pictures' ? use : { ...use, value: useOf('pictures').menu.rows[0].value }) };
+  door.tell('models', 'models');
+  await page().until(`${PICTURES_BUSY} === null`, 'the Photos pick landed, read again on the feed\'s models event');
+  await pick('settings.use.pictures', 4);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'default', use: 'pictures', model: 'none' }], 'the home’s Off last, writing none');
   await click(rowButton('OpenRouter', 'Remove'));
   assert.deepEqual(await sent(), [{ act: 'seal', secret: 'openrouter', value: null, label: 'Remove' }]);
-  await click(rowButton('Custom server', 'Remove'));
+  await click(rowButton('http://127.0.0.1:11434/v1', 'Remove'));
   assert.deepEqual(await sent(), [{ act: 'models', do: 'address', none: true, label: 'Remove' }]);
   await click(`[...${DIALOG}.querySelectorAll('[data-flow="connect:claude"]')][0]`);
   assert.deepEqual(await sent(), [{ act: 'ask-login', do: 'start', of: 'claude' }]);
@@ -429,14 +443,14 @@ test('W4: Settings: every act of AI models, This Mac and Updates as typed, each 
   }
   await page().evaluate(`window.setHostState(${JSON.stringify({ ...HOST_STATE, setup: { state: 'done', error: null } })})`);
   await page().until(`${DIALOG}.textContent.includes('Use your Claude plan.')`, 'Subscriptions as they were');
-  const read = door.reads('/v1/models');
+  const read = door.reads('/v1/page/models');
   door.tell('models', 'models');
-  await until('a models read on the feed\'s event', () => door.reads('/v1/models') > read);
+  await until('a models read on the feed\'s event', () => door.reads('/v1/page/models') > read);
   assert.equal(await page().evaluate(`${rowButton(absent.name, 'Download')}.getAttribute('aria-busy')`), 'true', 'Download waits');
-  assert.equal(await page().evaluate(`document.querySelector('[aria-controls="ck-mb-settings-default-text-menu"]').getAttribute('aria-busy')`),
-    'true', 'the default waits');
-  door.models = { ...MODELS, runners: MODELS.runners.map(runner => runner.unit !== mac.unit ? runner : { ...runner,
-    files: runner.files.map(file => file.id === absent.id ? { ...file, state: 'fetching' } : file) }) };
+  assert.equal(await page().evaluate(`document.querySelector('[aria-controls="ck-mb-settings-use-text-menu"]').getAttribute('aria-busy')`),
+    'true', 'the pick waits');
+  door.models = { ...MODELS, connections: MODELS.connections.map(each => each.kind !== 'runner' || each.id !== mac.id ? each : { ...each,
+    files: each.files.map(file => file.id === absent.id ? { ...file, state: /** @type {const} */ ('fetching'), acts: [/** @type {const} */ ('cancel')] } : file) }) };
   door.tell('models', 'models');
   await page().until(`Boolean(${rowButton(absent.name, 'Cancel')}) && !${rowButton(absent.name, 'Cancel')}.disabled`,
     'the file downloading, read again on the feed\'s models event');
@@ -481,17 +495,16 @@ test('W4: Settings: every act of AI models, This Mac and Updates as typed, each 
   await page().evaluate(`window.setHostState(${JSON.stringify({ ...HOST_STATE, setup: { state: 'done', error: null }, ask_login: SUBSCRIBED.mixed })})`);
   await page().until(`${DIALOG}.textContent.includes('Getting Codex to sign in, 120 of 347 MB.')`, 'ChatGPT downloading');
   await acts();
-  await click(BUTTON('Add server'));
-  await page().until(`${DIALOG}.querySelector('.cn-set__back')?.textContent.trim() === 'AI models'`, 'Custom server\'s page');
+  await click(BUTTON('Add address'));
+  await page().until(`${DIALOG}.querySelector('.cn-set__back')?.textContent.trim() === 'AI models'`, 'Custom address\'s page');
   assert.deepEqual(await sent(), [{ act: 'ask-login', do: 'cancel', of: 'chatgpt' }], 'the download hidden is cancelled');
   assert.equal(await page().evaluate(`${DIALOG}.querySelectorAll('[data-item] .ck-srow__label').length`), 0, 'no Subscriptions on the address page');
+  assert.equal(await page().evaluate(`${DIALOG}.querySelectorAll('.cn-set__main input').length`), 1, 'its URL alone');
   await page().type('.ck-dialog input[placeholder="http://127.0.0.1:11434/v1"]', 'http://127.0.0.1:11434/v1');
-  await page().type('.ck-dialog input[placeholder="qwen3.5:4b"]', 'llava:13b');
-  await pick('settings.address.takes', 2);
   await page().until(`${BUTTON('Save')} && !${BUTTON('Save')}.disabled`);
-  await shot('settings-custom-server');
+  await shot('settings-custom-address');
   await click(BUTTON('Save'));
-  assert.deepEqual(await sent(), [{ act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', model: 'llava:13b', kinds: ['pictures'], label: 'Save' }]);
+  assert.deepEqual(await sent(), [{ act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', label: 'Save' }]);
   await page().until(`${DIALOG}.querySelector('.cn-set__title')?.textContent === 'AI models'`, 'back from the server\'s page');
 
   await page().evaluate(`window.setHostState(${JSON.stringify({ ...HOST_STATE, setup: { state: 'done', error: null }, ask_login: SUBSCRIBED.mixed })})`);
@@ -531,7 +544,7 @@ test('W5: in a browser, Settings from the person\'s row: Home first, the browser
     ['home', 'storage', 'time', 'mac', 'iphone', 'chrome', 'models', 'privacy', 'meaning', 'appearance', 'advanced'],
     'the Mac\'s own pages not listed; Agents is its own page, not Settings\'');
   await click(`${DIALOG}.querySelector('[data-cn-set-page="models"]')`);
-  await page().until(`Boolean(${ROW('Qwen 3.5')})`);
+  await page().until(`Boolean(${ROW('Qwen 3.5 4B')})`);
   assert.equal(await page().evaluate(`${DIALOG}.querySelectorAll('.cn-set__main button:not(.ck-tip):not([data-ck-tip]):not(:disabled), .cn-set__main input:not(:disabled)').length`), 0,
     'no control acting in a browser: Subscriptions\' acts at rest, where they are taken their title');
   assert.equal(await page().evaluate(`${DIALOG}.textContent.split(${JSON.stringify(NOTES.browser)}).length - 1`), 1, 'where it is done, once');
@@ -718,8 +731,8 @@ test('W9: the kit gallery\'s LLM processing groups drawn whole, each shot', asyn
   const GROUPS = /** @type {const} */ ([
     ['Streams · LLM processing', ['Photo descriptions', 'Voice note transcripts', 'Email summaries', 'Chat summaries',
       'Screen summaries', SCREEN_NEEDS, 'AI', 'History']],
-    ['Settings · AI models', ['Qwen 3.5', 'Parakeet', 'Nemotron Speech', MODELS.runners[2].line ?? '',
-      'Your AI models couldn’t be read.', 'Custom server']],
+    ['Settings · AI models', ['Qwen 3.5 4B', 'Parakeet', 'Nemotron Speech', runnersOf(MODELS)[2].line ?? '',
+      'Your AI models couldn’t be read.', 'Custom address']],
     ['Made · ', [TRANSCRIBED.again.line, 'Transcribe now', `${TRANSCRIBED.queued.choose[0].words} · ${TRANSCRIBED.queued.choose[0].note}`,
       TRANSCRIBED.resting.line ?? '']],
   ]);
@@ -799,7 +812,7 @@ test('W11: Settings in the window: an id nothing answers closes, a part named sc
   await shot('settings-macs-other');
   await page().evaluate(`window.hostReplies['device-name'] = 'Lifestream renames only a Mac it holds.'`);
   await click(`${DIALOG}.querySelector('[data-set-at="${OTHER.unit}"]').querySelector('button')`);
-  await page().until(`${DIALOG}.querySelector('.cn-set__back')?.textContent.trim() === 'Macs'`, 'the Rename… page');
+  await page().until(`${DIALOG}.querySelector('.cn-set__back')?.textContent.trim() === 'This Mac'`, 'the Rename… page');
   assert.equal(await page().evaluate(`${DIALOG}.querySelector('.cn-set__page input').value`), OTHER.name, 'it starts from the name');
   await page().type('.ck-dialog .cn-set__page input', 'Desk Mac');
   await page().until(`${BUTTON('Save')} && !${BUTTON('Save')}.disabled`);

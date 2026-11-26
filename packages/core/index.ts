@@ -1,7 +1,7 @@
 export * from "./types.js";
 export { accountName, accountOf, notAProduct, selects, SourceNameError, sourceName, TYPES, type NameParts, type SourceParts, type SourceSelector, type Type } from "./sources.js";
 export { canonical, carries, changedPaths, digest, FormatError, isObject, parse, sha256, versionId, wellFormedJson } from "./format.js";
-export { CHECKPOINT_PAGES, compareVersions, HOME_STORE, homeSchema, MIN_SQLITE, openHome, type HomeDb, type OpenOptions, type Tx } from "./home-db.js";
+export { CHECKPOINT_PAGES, compareVersions, HOME_STORE, homeSchema, metaAsItLies, MIN_SQLITE, openHome, SETTINGS_MOVE, type HomeDb, type OpenOptions, type Tx } from "./home-db.js";
 export {
   BLOB_FILE, cipherLoads, formOf, handedFolderIn, openHandedFolder, openHomeFolder, plainFolder, PROGRAMS, scratchFolder, sqliteVersion, StoreError, storeStamp,
   type BlobFile, type FileKind, type Form, type GrowingFile, type GrowingKind, type HandedFolder, type HomeFolder, type FileStat, type KeptFile, type OpenedFile, type OpenFile, type PlainWork, type Program, type Staged,

@@ -10,6 +10,7 @@ export const CHAT_BODY_BYTES = 32 * 1024 * 1024;
 export const REACH_KEPT_MS = 60_000;
 export const HIDDEN = "[hidden]";
 export const NO_MODEL_WORDS = "No connection offers this model to Chat.";
+export const MOVED_WORDS = "This model's connection changed: ask again.";
 
 export interface Reached {
   url: string;
@@ -21,6 +22,7 @@ export interface Reached {
 
 export interface ChatRouteOptions {
   reach(model: string, request: IncomingMessage): Promise<Reached>;
+  leavesOf(model: string): Promise<string | null | undefined>;
   clock(): number;
   fetch?: typeof fetch;
 }
@@ -39,11 +41,20 @@ export function chatRoute(options: ChatRouteOptions): ChatRoute {
     held.set(model, { reached, until_ms: options.clock() + REACH_KEPT_MS });
     return reached;
   };
+  const hiddenFor = async (model: string, request: IncomingMessage): Promise<Reached> => {
+    const leaves = await options.leavesOf(model);
+    const known = await kept(model, request);
+    if (known.leaves === leaves) return known;
+    held.delete(model);
+    const reached = await kept(model, request);
+    if (reached.leaves !== leaves) refuse(409, "NOT_READY", MOVED_WORDS, undefined, { line: MOVED_WORDS });
+    return reached;
+  };
   return async (body, request, response, own) => {
     const model = body.model;
     if (typeof model !== "string" || model === "") refuse(422, "BAD_REQUEST", "a chat call names its model by the model's id");
     if (readRouteId(model) === null) refuse(404, "NO_MODEL", NO_MODEL_WORDS);
-    const reached = await kept(model, request);
+    const reached = await hiddenFor(model, request);
     own();
     const secrets = secretsOf(reached.headers);
     const ended = new AbortController();

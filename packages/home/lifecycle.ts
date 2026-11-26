@@ -11,6 +11,7 @@ import { machine, pointAt, type Machine } from "./machine.js";
 import { hashToken, mintIn, mintPrincipal, passOf, readPrincipals, revokeIn, revokePrincipal, widen, widenIn, writePrincipals, type Mint, type Principal, type PrincipalsFile, type Scope } from "./principals.js";
 import { change, firstSettings, membersBeforeKey, personal, runsAt } from "./settings.js";
 import { socketPath, type HomeSocket } from "./socket.js";
+import { settingsMove } from "./models-move.js";
 import { madeStart } from "./start.js";
 import { makeKeyedVault, Vault, type KeyedHandoff, type MadeKeyed, type SlotHanded } from "./vault.js";
 import { CLI } from "./cli-name.js";
@@ -335,7 +336,7 @@ function startingUnit(folder: HomeFolder | null, at: Machine): string {
 }
 
 export function startingSettings(folder: HomeFolder | string, at: Machine): JsonObject {
-  const held = typeof folder === "string" ? membersBeforeKey(folder) : personal(folder);
+  const held = typeof folder === "string" ? membersBeforeKey(folder) : settingsMove(folder) ?? personal(folder);
   return held.unit === undefined ? { ...held, unit: startingUnit(typeof folder === "string" ? plainFolder(folder) : folder, at) } : held;
 }
 

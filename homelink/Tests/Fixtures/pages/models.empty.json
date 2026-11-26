@@ -1,0 +1,159 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-06-01",
+  "uses": [
+    {
+      "use": "pictures",
+      "label": "Photos",
+      "line": null,
+      "words": "Off",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "pictures",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      },
+      "places": []
+    },
+    {
+      "use": "audio",
+      "label": "Voice notes",
+      "line": null,
+      "words": "Off",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "audio",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      },
+      "places": []
+    },
+    {
+      "use": "text",
+      "label": "Text",
+      "line": null,
+      "words": "Off",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "text",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      },
+      "places": []
+    },
+    {
+      "use": "chat",
+      "label": "Chat",
+      "line": null,
+      "words": "Choose a model",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "chat",
+          "work": null
+        },
+        "off": null
+      },
+      "places": []
+    },
+    {
+      "use": "search",
+      "label": "Search by meaning",
+      "line": null,
+      "words": "Off",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "search",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      },
+      "places": []
+    },
+    {
+      "use": "hiding",
+      "label": "Hiding details",
+      "line": null,
+      "words": "Off",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "hiding",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      },
+      "places": []
+    }
+  ],
+  "connections": [
+    {
+      "id": "address",
+      "url": null,
+      "line": null,
+      "kind": "address"
+    }
+  ]
+}

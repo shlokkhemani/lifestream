@@ -3,6 +3,7 @@
 /** @import { HostAct, PrivacyWrite } from '../../lib/host.js' */
 /** @import { DetailPart, End, Opened, PanelRow } from './dialog.js' */
 /** @import { Act, Do } from './words.js' */
+/** @import { Picked } from './settings-search.js' */
 import { hiderWords, hidWords } from '../../lib/sent.js';
 import { today } from '../../lib/home-clock.js';
 import { calendarDate, clock, count, counted, dayDate, relativeDay } from '../../lib/words.js';
@@ -10,15 +11,13 @@ import { rowOf } from './dialog.js';
 import { homeSettingKey, keyOf } from './pending.js';
 import { part } from './settings-pages.js';
 
-/** @typedef {'none' | 'known' | 'model'} Choice */
+/** @typedef {'none' | 'known'} Choice */
 
 /** @type {{ id: Choice, title: string, line: string }[]} */
 export const CHOICES = [
   { id: 'none', title: 'Don’t hide', line: 'What a model reads is sent as it is.' },
   { id: 'known', title: 'Hide what Lifestream knows',
-    line: 'Numbers, addresses, links, passwords and the names in People are replaced before anything leaves. Nothing to download, nothing waits. It misses names Lifestream has never seen.' },
-  { id: 'model', title: 'Hide with a hiding model',
-    line: 'A model on this Mac also finds names Lifestream has never seen, English first. About 1.6 GB to download; until it is there, what Lifestream knows is hidden.' },
+    line: 'Numbers, addresses, links, passwords and the names in People are replaced before anything leaves. A hiding model, chosen in AI models, also finds names Lifestream has never seen.' },
 ];
 
 export const CHOSEN_BY_DEFAULT = /** @type {Choice} */ ('known');
@@ -64,24 +63,20 @@ const switchWords = words => words.charAt(0).toUpperCase() + words.slice(1);
  * @param {Pick<PrivacyRead, 'level' | 'detector'>} privacy
  * @returns {Choice}
  */
-export const choiceOf = privacy => privacy.level === 'none' ? 'none' : privacy.detector.runner === 'off' ? 'known' : 'model';
+export const choiceOf = privacy => privacy.level === 'none' ? 'none' : 'known';
 
 /**
  * @param {Choice} choice
- * @param {string | null} runner
- * @returns {HostAct | null}
+ * @returns {HostAct}
  */
-export function choiceAct(choice, runner) {
-  const detector = choice === 'model' ? runner : 'off';
-  return detector ? { act: 'home-setting', settings: { 'privacy.level': choice === 'none' ? 'none' : 'all', 'privacy.detector': detector } } : null;
-}
+export const choiceAct = choice => ({ act: 'home-setting', settings: { 'privacy.level': choice === 'none' ? 'none' : 'all' } });
 
-export const CHOICE_BUSY = /** @type {string} */ (keyOf(/** @type {HostAct} */ (choiceAct('known', null))));
+export const CHOICE_BUSY = /** @type {string} */ (keyOf(choiceAct('known')));
 
 /** @param {number} bytes */
 const megabytes = bytes => count(Math.round(bytes / 1_000_000));
 
-const MODEL_LINE = 'Finds names Lifestream has never seen · 1.6 GB';
+const MODEL_LINE = 'Finds names Lifestream has never seen, English first.';
 
 /**
  * @param {PrivacyRead} privacy
@@ -92,28 +87,23 @@ export function modelProgress({ detector, marking }) {
     return { label: 'Hiding model downloading', share: (detector.bytes ?? 0) / detector.total,
       words: `${megabytes(detector.bytes ?? 0)} of ${megabytes(detector.total)} MB` };
   }
-  if (detector.runner === 'off' || !marking) return null;
+  if (!detector.model || !marking) return null;
   return { label: 'Marked so far', share: marking.total ? marking.marked / marking.total : 1, words: marking.line };
 }
 
 /**
  * @param {PrivacyRead} privacy
- * @param {string | null} runner
+ * @param {{ acts: boolean, model: Picked | null, choose: Do }} reach
  * @returns {PanelRow}
  */
-export function modelRow(privacy, runner) {
+export function modelRow(privacy, { acts, model, choose }) {
   const { detector } = privacy;
-  const choose = runner ? choiceAct('model', runner) : null;
-  const absent = detector.runner !== 'off' && detector.state === 'absent';
-  /** @type {End} */
-  let end;
-  if (detector.state === 'ready') end = { words: 'Downloaded', done: true };
-  else if (detector.state === 'downloading') end = { words: 'Downloading' };
-  else if (!absent) end = choose ? { acts: [{ label: 'Download', variant: 'secondary', do: asking(choose) }] } : { words: 'Not downloaded' };
-  else end = runner && detector.file ? { acts: [{ label: 'Download', variant: 'secondary',
-    do: asking({ act: 'models', do: 'file', runner: detector.runner, id: detector.file, to: 'fetch' }) }] } : { words: 'Not there' };
-  return rowOf('Hiding model', { tag: 'English first', line: absent ? detector.line ?? privacy.line ?? MODEL_LINE : MODEL_LINE,
-    signal: absent ? 'caution' : null, end, progress: modelProgress(privacy) });
+  const chosen = Boolean(detector.model);
+  const absent = chosen && detector.state === 'absent';
+  const words = model?.words ?? (!chosen ? 'Off' : detector.state === 'ready' ? 'Downloaded' : detector.state === 'downloading' ? 'Downloading' : '');
+  return rowOf('Hiding model', { line: absent ? detector.line ?? privacy.line ?? MODEL_LINE : model?.line ?? MODEL_LINE,
+    signal: absent ? 'caution' : null, progress: modelProgress(privacy),
+    end: { words, done: chosen && detector.state === 'ready', acts: acts ? [{ label: chosen ? 'Change' : 'Choose', variant: 'secondary', do: choose }] : [] } });
 }
 
 /**
@@ -141,19 +131,16 @@ const LISTS = /** @type {const} */ ({
 
 /**
  * @param {PrivacyRead} privacy
- * @param {{ acts: boolean, runner: string | null }} reach
+ * @param {boolean} acts
  * @returns {End}
  */
-function choiceMenu(privacy, { acts, runner }) {
+function choiceMenu(privacy, acts) {
   const chosen = choiceOf(privacy);
   const words = CHOICES.find(choice => choice.id === chosen)?.title ?? '';
   if (!acts) return { words };
   return { menu: { id: 'settings.privacy-choice', busy: CHOICE_BUSY, label: 'Hide personal details', words,
-    find: '', date: null, choices: CHOICES.map(choice => {
-      const these = choiceAct(choice.id, runner);
-      return { words: choice.title, note: choice.line, chosen: choice.id === chosen,
-        default: choice.id === CHOSEN_BY_DEFAULT, do: these ? asking(these) : null };
-    }) } };
+    find: '', date: null, choices: CHOICES.map(choice => ({ words: choice.title, note: choice.line, chosen: choice.id === chosen,
+      default: choice.id === CHOSEN_BY_DEFAULT, do: asking(choiceAct(choice.id)) })) } };
 }
 
 /**
@@ -179,7 +166,7 @@ export const voiceCaution = provider => `Voice notes go to ${provider} as they a
 
 /**
  * @param {PrivacyRead} privacy
- * @param {{ acts: boolean, runner: string | null }} reach
+ * @param {{ acts: boolean, model: Picked | null, choose: Do }} reach
  * @returns {DetailPart[]}
  */
 function hideParts(privacy, reach) {
@@ -187,8 +174,8 @@ function hideParts(privacy, reach) {
   return [
     part({ rows: [
       rowOf('Hide personal details', { line: 'Before anything goes to a cloud model, names and numbers become placeholders like '
-        + '[[Person 3]]. The model still reads what was said.', end: choiceMenu(privacy, reach) }),
-      modelRow(privacy, acts ? reach.runner : null),
+        + '[[Person 3]]. The model still reads what was said.', end: choiceMenu(privacy, acts) }),
+      modelRow(privacy, reach),
       chatRow(privacy, acts),
       rowOf('Links', { end: settingMenu('privacy.links', 'Links', LINKS, privacy.links, 'tokens', acts) }),
       listRow('privacy.always', privacy.always),
@@ -322,12 +309,13 @@ function readable(body) {
 }
 
 /**
- * @param {{ privacy: PrivacyRead | null, failed: boolean, days: OutboundList | null, acts: boolean, runner: string | null, today: string }} read
+ * @param {{ privacy: PrivacyRead | null, failed: boolean, days: OutboundList | null, acts: boolean,
+ *   model: Picked | null, choose: Do, today: string }} read
  * @returns {{ parts: DetailPart[], reading: boolean }}
  */
-export function privacyParts({ privacy, failed, days, acts, runner, today }) {
+export function privacyParts({ privacy, failed, days, acts, model, choose, today }) {
   if (!privacy) return { parts: [], reading: !failed };
-  return { parts: [...hideParts(privacy, { acts, runner }), ...outboundParts(privacy, days, today)], reading: false };
+  return { parts: [...hideParts(privacy, { acts, model, choose }), ...outboundParts(privacy, days, today)], reading: false };
 }
 
 

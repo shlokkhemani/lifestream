@@ -1,7 +1,7 @@
 // @ts-check
 import { randomBytes } from 'node:crypto';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { clampThinkingLevel, getSupportedThinkingLevels, Type } from '@earendil-works/pi-ai';
+import { Type } from '@earendil-works/pi-ai';
 import { CodemodeSandbox } from '@earendil-works/pi-codemode';
 import { createRegistry, defineExtension, defineTool, Harness, MemoryStorage, ProviderDoc, watchEvents } from '@earendil-works/pi-durable';
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode';
@@ -13,16 +13,13 @@ import { named } from '../pieces.mjs';
 import { BUILDING, compactCatalog } from './catalog.mjs';
 import { ASK_TOOLS, FAULT, fault, unfit } from '../tools.mjs';
 import { agents } from './agents.mjs';
-import { CHAT_ERASED, ERASED, openConversations, RESTARTED, serverCall, VOICE_TITLE } from './conversations.mjs';
+import { CHAT_ERASED, ERASED, modelsRead, openConversations, RESTARTED, serverCall, VOICE_TITLE } from './conversations.mjs';
 import { openHandles } from './handles.mjs';
 import { ClaudeError, NoClaude } from './claude.mjs';
 import { CodexError, NoCodex } from './codex.mjs';
-import { OPENROUTER } from './openrouter.mjs';
-
-const MODELS_ROUTE = '/v1/models';
-import { downloading, PROGRAM_OF, programOf } from './programs.mjs';
+import { downloading } from './programs.mjs';
 import { askedLine, askPrompt, EARLIER_PHOTO, photoLine, TITLE_PROMPT, titleAsk, VOICE_LINE, youLine } from './prompt.mjs';
-import { heldOf, PAID_PLAN } from './sign-in.mjs';
+import { doorModels, TOO_LITTLE, windowOf as rowWindow } from './reach.mjs';
 import { askedOf, seenOf } from './seen.mjs';
 import { openStarters } from './starters.mjs';
 import { openTracer } from './trace.mjs';
@@ -32,6 +29,12 @@ import { textHead } from '../shape.mjs';
  * @typedef {import('../door.mjs').Door} Door
  * @typedef {ReturnType<typeof import('../memory.mjs').openMemory>} Memory
  * @typedef {import('@earendil-works/pi-ai').Models} Models
+ * @typedef {import('./reach.mjs').Row} Row
+ * @typedef {{ value: string, name: string, account: string | null, chosen: boolean }} MenuRow
+ * @typedef {{ default: MenuRow | null, rows: MenuRow[], local: { label: string, rows: MenuRow[] } | null, more: { words: string, use: string, work: string | null }, off: MenuRow | null }} ModelMenu
+ * @typedef {{ connections: { id: string, kind: 'plan' | 'key' | 'runner' | 'address', name: string, line: string | null }[], uses: { chat: { value: string | null, thinking: string | null, fits: string[], menu: ModelMenu } }, models: Record<string, Row> }} ModelsRead
+ * @typedef {'door' | 'claude' | 'codex'} WayName
+ * @typedef {(row: Row) => { models: Models, model: Model }} Reach
  * @typedef {import('@earendil-works/pi-durable').AgentEvent} AgentEvent
  * @typedef {import('@earendil-works/pi-durable').SubmissionRecord} SubmissionRecord
  * @typedef {import('./conversations.mjs').Message} Message
@@ -50,10 +53,10 @@ import { textHead } from '../shape.mjs';
  * @typedef {{ refused: number, error: string }} Refused
  * @typedef {import('@earendil-works/pi-ai').ThinkingLevel} Thinking
  * @typedef {{ provider: string, modelId: string }} Model
- * @typedef {{ maker: Maker, modelId: string, name: string, thinking: string, value: string }} Picked
+ * @typedef {{ row: Row, way: WayName, modelId: string, name: string, thinking: string, value: string }} Picked
+ * @typedef {{ read: ModelsRead, rows: Row[], fits: Row[], picked: Picked | null, gone: boolean, said: string | undefined, failure: Ended }} Chosen
  * @typedef {ReturnType<typeof import('./codex.mjs').openCodex>} Codex
  * @typedef {ReturnType<typeof import('./claude.mjs').openClaude>} Claude
- * @typedef {'chatgpt' | 'claude' | 'openrouter'} Maker
  * @typedef {import('../home-clock.mjs').HomeClock} Home
  * @typedef {{ chat: string, level: string, epoch: number | null, turn: Turn, door: Door, home: Home, today: string, asked: string, question: string, images: Image[], messages: Earlier[], handles: Handles, wrapper: Wrapper, picked: Picked, steps: Taken[], tools: string }} Asking
  * @typedef {ReturnType<typeof openWrapper>} Wrapper
@@ -63,21 +66,18 @@ import { textHead } from '../shape.mjs';
  * @typedef {{ words: string } | { writing: true } | { failed: string }} Words
  * @typedef {{ answered: Turn, question: string, at_ms: number }} Settled
  * @typedef {{ level: string, epoch: number | null, name: string }} Privacy
- * @typedef {{ end: 'done' | 'stopped' | 'failed', tokens: Tokens, model?: string, error?: { error: Ended, message: string }, refused?: true }} Answered
+ * @typedef {{ end: 'done' | 'stopped' | 'failed', tokens: Tokens, model?: string, error?: { error: Ended, message: string } }} Answered
  * @typedef {{ answer: (asking: Asking) => Promise<Answered>, close: () => Promise<void>, alive: () => boolean }} Context
- * @typedef {{ choices: () => Promise<Choice[]>, preferred: (list: Choice[]) => Promise<string>, open: (asking: Asking) => Promise<Context>, title: (asked: string, picked: Picked, signal: AbortSignal) => Promise<string | null>, said: (error: unknown) => string | null }} Way
+ * @typedef {{ open: (asking: Asking) => Promise<Context>, title: (asked: string, picked: Picked, signal: AbortSignal) => Promise<string | null>, said: (error: unknown) => string | null }} Way
  * @typedef {{ follow: ReturnType<typeof streamFollowing>, door: Door, handles: Handles, wrapper: Wrapper, signal: AbortSignal }} Bound
  * @typedef {Context & { readonly turn: Bound | null }} ClaudeContext
- * @typedef {{ context: Context, handles: Handles, wrapper: Wrapper, shown: string[], level: string, epoch: number | null, maker: Maker, model: string, thinking: string, clock: string, day: string, at: number, idle?: number, timer?: NodeJS.Timeout }} Live
+ * @typedef {{ context: Context, handles: Handles, wrapper: Wrapper, shown: string[], level: string, epoch: number | null, model: string, thinking: string, clock: string, day: string, at: number, idle?: number, timer?: NodeJS.Timeout }} Live
  * @typedef {{ data: string, mimeType: string }} Image
  * @typedef {{ text: string, images: Image[], error: boolean }} ToolAnswer
- * @typedef {{ login: 'missing' | 'ready' | 'refused', said?: string, failure?: Ended }} SignedIn
- * @typedef {{ id: string, name: string, thinking: string[], default: string, group?: string, value?: string, photos: boolean }} Choice
+ * @typedef {Pick<Row, 'id' | 'name' | 'thinking' | 'state'> & { default: string, photos: boolean, photos_off: string | null, hides: boolean }} AskModel
  */
 
-const CHATGPT = 'gpt-6.1-terra';
-const CLAUDE_DEFAULT = 'claude/default';
-const GROUPS = /** @type {const} */ ({ chatgpt: 'ChatGPT', claude: 'Claude' });
+const MODELS_ROUTE = '/v1/models';
 const ALONE = 'Answer alone, with the record\'s tools: never start, message or wait on other agents, never ask the person for input before you answer, and never edit files.';
 const CATALOG_MS = 60 * 60_000;
 const context = BACKGROUND_CONTEXT;
@@ -92,7 +92,7 @@ const PROVIDER_CITING = /[ \t]*\uE200[^\uE201]*$/u;
 const SPACES = /[ \t]+$/u;
 const SENTENCE_END = /[.!?…]\s+/u;
 const QUIET_MS = 900;
-const THINKING = 'high';
+const THINKING = 'medium';
 const MOST_LIVE = 12;
 const LIVE_MS = 60 * 60_000;
 const LISTED_MS = 2_000;
@@ -116,9 +116,9 @@ const TOOLKIT = [...ASK_TOOLS, agents].map(tool => {
   return { tool: /** @type {import('../hiding.mjs').Tool} */ (tool), schema, parameters: Type.Unsafe(schema) };
 });
 const IMAGES = /** @type {const} */ ({
-  claude: { count: 100, tokens: 3_025, window: 200_000 },
-  chatgpt: { count: 1_500, tokens: 2_765, window: 1_050_000 },
-  openrouter: { count: 100, tokens: 3_025, window: null },
+  claude: { count: 100, tokens: 3_025 },
+  codex: { count: 1_500, tokens: 2_765 },
+  door: { count: 100, tokens: 3_025 },
 });
 export const LIMITS = /** @type {const} */ ({ photos: 10, photo_bytes: 26_214_400, voice_ms: 600_000 });
 const WORDS_POLL_MS = 1_000;
@@ -127,20 +127,18 @@ const ASK_CONNECTOR = 'ask';
 const VOICE_MEMBER = 'llm.voice';
 const NO_SPEECH = 'Your voice note had no words in it.';
 const PHOTO_UNMADE = 'Lifestream couldn\'t prepare your photo for the model. Try again.';
-const VOICE_FIX = { mac: 'Voice notes need Parakeet: download it in Settings › AI models.', phone: 'Voice notes need Parakeet on your Mac: download it in Lifestream\'s Settings › AI models.' };
 /** @typedef {{ ready: boolean, words: string, line: string | null, caution: string | null, value: string, choices: { value: string, words: string, sent: boolean }[] }} Voice */
 const UNREAD_VOICE = /** @type {const} */ ({ ready: true, words: '', line: null, caution: null, value: 'default', choices: [] });
 class PhotoUnmade extends Error {}
 
-const TRANSPORT = /** @type {const} */ ({ chatgpt: 'codex', claude: 'claude', openrouter: 'openrouter' });
 const READS = 3;
 const KEEP_TRIES = 3;
 const NOT_KEPT = 'Lifestream couldn\'t keep this conversation\'s privacy level: ask again.';
 const READY_POLL_MS = 2_000;
 const LONGEST_PLACEHOLDER = 32;
 
-/** @param {{ models: Models, otherwise?: Model, codex?: Codex, claude?: Claude, memory: Memory, machine: string, door: string, now?: () => number, liveMs?: number, listedMs?: number | null, putMs?: number, retryMs?: number, log: (line: Record<string, unknown>) => void, conversations?: Conversations, trace?: (trace: import('./trace.mjs').TurnTrace) => void, titles?: boolean, prompt?: typeof askPrompt }} options */
-export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory, machine, door: doorUrl, now = Date.now, liveMs = LIVE_MS, listedMs = LISTED_MS, putMs, retryMs, log,
+/** @param {{ reach?: Reach, codex?: Codex, claude?: Claude, memory: Memory, machine: string, door: string, now?: () => number, liveMs?: number, listedMs?: number | null, putMs?: number, retryMs?: number, log: (line: Record<string, unknown>) => void, conversations?: Conversations, trace?: (trace: import('./trace.mjs').TurnTrace) => void, titles?: boolean, prompt?: typeof askPrompt }} options */
+export function openAsk({ codex, claude, memory, machine, door: doorUrl, reach = row => doorModels(row, { door: doorUrl, machine }), now = Date.now, liveMs = LIVE_MS, listedMs = LISTED_MS, putMs, retryMs, log,
   conversations: given, trace, titles = true, prompt: promptOf = askPrompt }) {
   const conversations = given ?? openConversations({ machine, door: doorUrl, now, log, putMs, retryMs, onLetGo: (conversation, n) => {
     const running = conversation.running;
@@ -161,8 +159,6 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
   const admissions = new Map();
   const starters = openStarters({ memory, any: door => conversations.any(door), now });
   const sandbox = new CodemodeSandbox();
-  /** @type {Set<Maker>} */
-  const refused = new Set();
   let closing = false;
   let idled = 0;
   /** @type {Map<string, ClaudeContext>} */
@@ -190,8 +186,6 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
     }
     return text;
   };
-  codex?.on('account/login/completed', message => { if (message.params?.success === true) refused.delete('chatgpt'); });
-  claude?.onSignedIn(() => refused.delete('claude'));
 
   /**
    * @param {Conversation} conversation
@@ -215,25 +209,6 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
     if (conversation.live === live) conversation.live = null;
     clearTimeout(live.timer);
     await live.context.close().catch(() => undefined);
-  };
-
-  /** @param {'claude' | 'chatgpt'} maker */
-  const chosenHere = maker => (maker === 'claude' ? claude : codex) !== undefined && programOf(machine, PROGRAM_OF[maker]).chosen;
-
-  /** @param {SignedIn} signed */
-  const cannot = signed => signed.login === 'missing' || signed.said === PAID_PLAN;
-
-  /**
-   * @param {Door} door
-   * @returns {Promise<Maker[]>}
-   */
-  const inPlay = async door => {
-    const makers = /** @type {const} */ (['claude', 'chatgpt']).filter(chosenHere);
-    if (makers.length === 0) return ['openrouter'];
-    if (makers.some(maker => programOf(machine, PROGRAM_OF[maker]).binary === null)) return makers;
-    if ((await signIn('openrouter', door)).login === 'missing') return makers;
-    const signed = await Promise.all(makers.map(maker => within(signIn(maker, door), listedMs, /** @type {SignedIn} */ ({ login: 'ready' }))));
-    return signed.every(cannot) ? ['openrouter'] : makers;
   };
 
   /** @param {Asking} asking */
@@ -303,92 +278,10 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
   };
 
   /**
-   * @param {Maker} maker
-   * @param {Door} door
-   * @returns {Promise<SignedIn>}
-   */
-  const signIn = async (maker, door) => {
-    if (maker === 'openrouter') {
-      const read = await door.json(MODELS_ROUTE).catch(() => null);
-      if (read?.openrouter?.connected !== true) return { login: 'missing' };
-    } else {
-      let held;
-      try {
-        held = await heldOf(maker, { machine, codex, claude });
-      } catch (error) {
-        const why = error instanceof Error ? error.message : String(error);
-        return { login: 'refused', said: `Chat can't reach ${GROUPS[maker]}: ${why}`, failure: 'model' };
-      }
-      if (held.program === 'downloading') return { login: 'refused', said: downloading(maker), failure: 'model' };
-      if (held.program === 'absent' || held.account === null) return { login: 'missing' };
-      if (!held.account.usable) return { login: 'refused', said: PAID_PLAN, failure: 'login' };
-    }
-    return refused.has(maker) ? { login: 'refused' } : { login: 'ready' };
-  };
-
-  /**
-   * @param {Maker} maker
-   * @param {number | null} waitMs
-   * @param {Door} door
-   * @returns {Promise<{ maker: Maker, signed: SignedIn, list: Choice[] | null, late?: true }>}
-   */
-  const offered = async (maker, waitMs, door) => {
-    /** @type {Promise<{ maker: Maker, signed: SignedIn, list: Choice[] | null, late?: true }>} */
-    const read = (async () => {
-      const signed = await signIn(maker, door);
-      if (signed.login === 'missing' || signed.said !== undefined) return { maker, signed, list: null };
-      const list = await ways[maker].choices().catch(error => {
-        log({ ask: 'models unread', maker, why: error instanceof Error ? error.message : String(error) });
-        return null;
-      });
-      return { maker, signed, list };
-    })();
-    return within(read, waitMs, { maker, signed: /** @type {SignedIn} */ ({ login: 'ready' }), list: null, late: true });
-  };
-
-  /** @param {Door} door */
-  const offer = async door => {
-    const makers = await Promise.all((await inPlay(door)).map(maker => offered(maker, listedMs, door)));
-    const listed = makers.filter(each => each.list !== null && each.list.length > 0);
-    const first = listed.find(each => each.signed.login === 'ready') ?? listed[0] ?? /** @type {(typeof makers)[number]} */ (makers[0]);
-    const modelId = await ways[first.maker].preferred(first.list ?? []);
-    const all = makers.flatMap(each => each.list ?? []);
-    return { first, modelId, all, moved: listed[0] !== undefined && listed[0] !== first ? listed[0] : null };
-  };
-
-  /**
    * @param {{ model?: string, thinking?: string }} asked
    * @param {Door} door
-   * @param {number | null} waitMs
    */
-  const asksOf = async (asked, door, waitMs) => {
-    let own = null;
-    if (asked.model !== undefined) {
-      const plan = asked.model.startsWith('claude/') ? 'claude' : 'chatgpt';
-      const named = chosenHere(plan) ? await offered(plan, waitMs, door) : null;
-      const key = plan === 'chatgpt' && (named === null || cannot(named.signed)) && (await inPlay(door))[0] === 'openrouter'
-        ? await offered('openrouter', waitMs, door) : null;
-      own = key !== null && (named === null || key.list?.some(each => each.id === asked.model)) ? key : named;
-    }
-    const chosen = own?.list?.find(each => each.id === asked.model);
-    if (own !== null && chosen !== undefined && own.signed.login === 'ready') {
-      return { maker: own, picked: pickedOf(own.maker, chosen, asked.thinking), said: undefined, gone: false, offering: null };
-    }
-    const offering = await offer(door);
-    if (own?.late) {
-      const id = /** @type {string} */ (asked.model);
-      const listed = offering.all.find(each => each.id === id) ?? { id, name: id, thinking: [], default: asked.thinking ?? THINKING, photos: true };
-      return { maker: own, picked: pickedOf(own.maker, listed, asked.thinking), said: undefined, gone: false, offering };
-    }
-    const { first, modelId, moved } = offering;
-    const picked = pickedOf(first.maker, first.list?.find(each => each.id === modelId) ?? { id: modelId, name: modelId, thinking: [], default: THINKING, photos: true },
-      asked.model === undefined ? asked.thinking : undefined);
-    const gone = asked.model !== undefined && (own === null || (own.list !== null && chosen === undefined));
-    const stops = first.signed.login === 'ready' ? undefined : first.signed.said ?? needs(first.maker);
-    const why = own !== null && !gone && own.signed.login !== 'ready' ? pickNeeds(own)
-      : (asked.model === undefined || gone) && moved !== null ? `${NAMED_MAKER[moved.maker]} needs your sign-in on your Mac.` : null;
-    return { maker: first, picked, said: stops ?? (why === null ? undefined : `${why} Asking ${picked.name}.`), gone, offering };
-  };
+  const asksOf = async (asked, door) => chosenOf(/** @type {ModelsRead} */ (await door.json(MODELS_ROUTE, asked.model === undefined ? {} : { chat: asked.model })), asked);
 
   /**
    * @param {Failure} error
@@ -408,10 +301,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
   const refusedTurn = (status, message) => alone(status === 503 ? 'restart' : 'door', message);
 
   /** @type {Way} */
-  const throughPi = {
-    choices: async () => models.getModels(otherwise.provider).map(each => ({ id: each.id, name: each.name, thinking: getSupportedThinkingLevels(each), default: clampThinkingLevel(each, THINKING),
-      photos: each.input.includes('image') })),
-    preferred: async () => otherwise.modelId,
+  const throughDoor = {
     said: () => null,
     async open(asking) {
       const { chat, door, messages, picked } = asking;
@@ -433,8 +323,8 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
       const registry = createRegistry();
       registry.install(defineExtension({ name: 'lifestream', tools }));
       registry.install(createCodemodeExtension({ sandbox, models: false }));
-      const pi = await Harness.open(new MemoryStorage(), { models, registry, settings: { toolExecution: 'parallel' } }, context);
-      const model = { provider: otherwise.provider, modelId: picked.modelId };
+      const { models, model } = reach(picked.row);
+      const pi = await Harness.open(new MemoryStorage(), { models, registry, settings: { toolExecution: 'parallel', compaction: { enabled: false } } }, context);
       const api = models.getModel(model.provider, model.modelId)?.api ?? 'unknown';
       const conversation = await pi.createConversation({
         ownership: { kind: 'ownerless' },
@@ -475,8 +365,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
           if (settled.status !== 'done') {
             const detail = typeof settled.detail === 'string' ? settled.detail : settled.reason ?? 'unanswered';
             log({ ask: 'model failed', detail: detail.slice(0, 300) });
-            return NO_KEY.test(detail) ? unfinished(follow, { error: 'login', message: needs('openrouter') })
-              : unfinished(follow, { error: 'model', message: modelFailed(otherwise.provider, detail) });
+            return unfinished(follow, { error: 'model', message: modelFailed(asking.picked.name, detail) });
           }
           const answerId = settled.answer;
           const entry = (await conversation.context(context)).entries.find(each => each.id === answerId);
@@ -485,8 +374,9 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
         },
       };
     },
-    async title(asked, _picked, signal) {
-      const info = models.getModel(otherwise.provider, otherwise.modelId);
+    async title(asked, picked, signal) {
+      const { models, model } = reach(picked.row);
+      const info = models.getModel(model.provider, model.modelId);
       if (info === undefined) return null;
       const reply = await models.completeSimple(info, { systemPrompt: TITLE_PROMPT, messages: [{ role: 'user', content: asked, timestamp: now() }] }, { signal });
       return reply.stopReason === 'error' || reply.stopReason === 'aborted' ? null : textOf(reply);
@@ -498,25 +388,13 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    * @returns {Way}
    */
   const throughCodex = client => {
-    const choices = async () => (await client.models()).map(each => {
-      const thinking = each.supportedReasoningEfforts.map(effort => effort.reasoningEffort);
-      const photos = Array.isArray(each.inputModalities) ? each.inputModalities.includes('image') : true;
-      return { id: each.id, name: each.displayName || each.id, thinking, default: thinking.includes(THINKING) ? THINKING : each.defaultReasoningEffort, group: GROUPS.chatgpt, photos };
-    });
-    /** @param {Choice[]} list */
-    const preferred = async list => {
-      if (list.length === 0 || list.some(each => each.id === CHATGPT)) return CHATGPT;
-      return (await client.models().catch(() => /** @type {import('./codex.mjs').CodexModel[]} */ ([]))).find(each => each.isDefault)?.id ?? CHATGPT;
-    };
     return {
-      choices,
-      preferred,
       said: error => error instanceof NoCodex ? downloading('chatgpt') : error instanceof CodexError ? CODEX_EXITED : null,
       async open(asking) {
         const { chat, messages, picked } = asking;
         const prompt = promptFor(asking, await homeQuoted(asking));
         const started = await client.request('thread/start', {
-          model: picked.modelId, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only',
+          model: picked.value, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only',
           baseInstructions: prompt, developerInstructions: ALONE,
           dynamicTools: TOOLKIT.map(({ tool, schema }) => ({ type: 'function', name: tool.name, description: tool.description, inputSchema: schema })),
         });
@@ -609,7 +487,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
             try {
               const begun = await client.request('turn/start', {
                 threadId: thread, input: [{ type: 'text', text: sentOf(asking), text_elements: [] }, ...asking.images.map(image => ({ type: 'image', url: dataUrl(image) }))],
-                model: asking.picked.modelId, effort: asking.picked.thinking,
+                model: asking.picked.value, effort: asking.picked.thinking,
               });
               turnId = String(begun.turn?.id ?? '');
               if (interrupting) interrupt();
@@ -625,8 +503,9 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
             if (how.status !== 'completed') {
               const error = how.error ?? { message: `the turn ended ${how.status}` };
               log({ ask: 'model failed', detail: String(error.message ?? '').slice(0, 300), info: error.codexErrorInfo ?? null });
-              return signedOutOf(error) ? unfinished(follow, { error: 'login', message: needs('chatgpt') }, true)
-                : unfinished(follow, { error: 'model', message: codexFailed(error) });
+              if (!signedOutOf(error)) return unfinished(follow, { error: 'model', message: codexFailed(error) });
+              await modelsRead(machine, doorUrl);
+              return unfinished(follow, { error: 'login', message: signInLine(asking.picked.row) });
             }
             return { end: 'done', tokens: follow.usage() };
           },
@@ -637,8 +516,8 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
         if (items.length > 0) await client.request('thread/inject_items', { threadId: thread, items });
         return opened;
       },
-      async title(asked, _picked, signal) {
-        const modelId = await preferred(await choices().catch(() => []));
+      async title(asked, picked, signal) {
+        const modelId = picked.value;
         const started = await client.request('thread/start', { model: modelId, ephemeral: true, approvalPolicy: 'never', sandbox: 'read-only', baseInstructions: TITLE_PROMPT, developerInstructions: ALONE });
         const thread = String(started.thread.id);
         let text = '';
@@ -675,19 +554,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    * @returns {Way}
    */
   const throughClaude = client => {
-    const choices = async () => (await client.models()).filter(each => each.value !== 'default').map(each => {
-      const thinking = Array.isArray(each.supportedEffortLevels) ? each.supportedEffortLevels.map(String) : [];
-      return { id: `claude/${each.value}`, name: each.displayName || each.value, thinking,
-        default: thinking.includes(THINKING) ? THINKING : thinking[0] ?? '', group: GROUPS.claude, value: each.value, photos: true };
-    });
     return {
-      choices,
-      preferred: async list => {
-        const models = await client.models().catch(() => /** @type {import('./claude.mjs').ClaudeModel[]} */ ([]));
-        const stands = models.find(each => each.value === 'default')?.resolvedModel;
-        const same = stands === undefined ? undefined : models.find(each => each.value !== 'default' && each.resolvedModel === stands);
-        return list.find(each => each.id === `claude/${same?.value}`)?.id ?? list[0]?.id ?? CLAUDE_DEFAULT;
-      },
       said: error => error instanceof NoClaude ? downloading('claude') : error instanceof ClaudeError ? CLAUDE_EXITED : null,
       async open(asking) {
         const { chat, picked, tools } = asking;
@@ -727,7 +594,10 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
               if (end.status === 'stopped' || turn.stopping.signal.aborted) return unfinished(follow);
               if (end.status === 'failed') {
                 log({ ask: 'model failed', maker: 'claude', detail: end.detail.slice(0, 300), limited: end.limited, auth: end.auth, exited: end.exited });
-                if (end.auth) return unfinished(follow, { error: 'login', message: needs('claude') }, true);
+                if (end.auth) {
+                  await modelsRead(machine, doorUrl);
+                  return unfinished(follow, { error: 'login', message: signInLine(asking.picked.row) });
+                }
                 if (end.limited) {
                   const until = end.until_ms !== null && Number.isFinite(end.until_ms) && end.until_ms > now() ? end.until_ms : null;
                   return unfinished(follow, { error: 'model', message: usedUp(until, asking.home) });
@@ -749,14 +619,14 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
         return opened;
       },
       async title(asked, picked, signal) {
-        const effort = (await choices().catch(() => /** @type {Choice[]} */ ([]))).find(each => each.id === picked.modelId)?.thinking.includes('low') ? 'low' : null;
+        const effort = picked.row.thinking.includes('low') ? 'low' : null;
         return client.title({ system: TITLE_PROMPT, ask: asked, model: picked.value, effort, signal });
       },
     };
   };
 
-  /** @type {Record<Maker, Way>} */
-  const ways = { openrouter: throughPi, chatgpt: throughCodex(/** @type {Codex} */ (codex)), claude: throughClaude(/** @type {Claude} */ (claude)) };
+  /** @type {Record<WayName, Way>} */
+  const ways = { door: throughDoor, codex: throughCodex(/** @type {Codex} */ (codex)), claude: throughClaude(/** @type {Claude} */ (claude)) };
 
   /** @param {{ conversation: Conversation, turn: Turn, door: Door, home: Home, question: string, asked: Message, note: string | null, earlier: import('./conversations.mjs').Read | null, handles: Handles, wrapper: Wrapper, privacy: Privacy, started: number, release: () => void, picked: Picked, moved: string | null, session: Live | null, tools: string, tracer: import('./trace.mjs').Tracer | null }} given */
   const run = async ({ conversation, turn, door: asker, home, question, asked, note, earlier, handles, wrapper, privacy, started, release, picked, moved, session, tools, tracer }) => {
@@ -780,7 +650,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
     const messages = earlier?.messages ?? [];
     /** @type {Asking} */
     const asking = { chat, level: privacy.level, epoch: privacy.epoch, turn: voice.turn, door, home, today, asked: askedLine(asked.at_ms, home), question, images: [], messages, handles, wrapper, picked, steps: [], tools };
-    const way = ways[picked.maker];
+    const way = ways[picked.way];
     let live = session;
     const shown = session?.shown ?? [];
     conversation.shown = shown;
@@ -815,8 +685,8 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
         for (const message of asking.messages) if (message.role === 'user') handles.heard(message.text);
         handles.heard(asking.question);
         shown.push(asking.question);
-        live ??= { context: await way.open(asking), handles, wrapper, shown, level: privacy.level, epoch: privacy.epoch,
-          maker: picked.maker, model: picked.modelId, thinking: picked.thinking, clock: home.id, day: today, at: now() };
+        live ??= { context: await way.open(asking), handles, wrapper, shown, level: levelOf(picked.row, privacy), epoch: privacy.epoch,
+          model: picked.modelId, thinking: picked.thinking, clock: home.id, day: today, at: now() };
         answered = await live.context.answer(asking);
       }
     } catch (error) {
@@ -827,14 +697,12 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
       answered = { end: 'failed', tokens: { ...NO_TOKENS }, error: { error: said.error, message: said.message } };
     } finally {
       if (live !== null) {
-        const same = levelKey(wrapper.level()) === live.level && wrapper.epoch() === live.epoch;
+        const same = levelOf(picked.row, { level: levelKey(wrapper.level()) }) === live.level && wrapper.epoch() === live.epoch;
         if (answered?.end === 'done' && live.context.alive() && same && !conversation.erased) holdLive(conversation, { ...live, at: now() });
         else await dropLive(conversation, live);
       }
     }
     if (conversation.erased) return;
-    if (answered.refused) refused.add(picked.maker);
-    else if (answered.end === 'done') refused.delete(picked.maker);
     /** @type {Answered} */
     const outcome = answered.end === 'stopped' && turn.restarting ? { ...answered, end: 'failed', error: { error: 'restart', message: RESTARTED } } : answered;
 
@@ -855,13 +723,13 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
     const reply = {
       type: 'ask.msg', chat, n, at_ms, role: 'assistant', text: kept.text, ...(seen === null ? {} : { seen }),
       ...(Object.keys(refs).length === 0 ? {} : { refs }), ...(steps.length === 0 ? {} : { steps }), ...(turn.access.length === 0 ? {} : { access: [...turn.access] }),
-      model: ended.model ?? picked.modelId, thinking: picked.thinking, ms: Math.round(at_ms - started),
+      model: picked.modelId, thinking: picked.thinking, ms: Math.round(at_ms - started),
       thought_ms: Math.round((answering() ?? at_ms) - started), end: ended.end,
       ...(ended.error === undefined ? {} : { error: ended.error.message, failed: ended.error.error }),
     };
     if (ended.error !== undefined) turn.send({ type: 'error', ...ended.error });
     tracer?.ended({
-      question_hidden: asking.question, answered_model: reply.model ?? picked.modelId, end: ended.end, text: kept.text, written,
+      question_hidden: asking.question, answered_model: ended.model ?? picked.modelId, end: ended.end, text: kept.text, written,
       tokens: ended.tokens, ...(ended.error === undefined ? {} : { error: ended.error.message, failed: ended.error.error }),
     });
     if (conversation.erased) return;
@@ -915,9 +783,9 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    * @param {Home} home
    */
   const earlierOf = async (conversation, messages, picked, door, current, home) => {
-    const bound = IMAGES[picked.maker];
-    const window = bound.window ?? (picked.maker === 'openrouter' ? models.getModel(otherwise.provider, picked.modelId)?.contextWindow : undefined) ?? 128_000;
-    let room = Math.max(0, Math.min(bound.count, Math.floor(window / 4 / bound.tokens)) - current);
+    const bound = IMAGES[picked.way];
+    const window = rowWindow(picked.row);
+    let room = !picked.row.input.includes('image') ? 0 : Math.max(0, Math.min(bound.count, Math.floor(window / 4 / bound.tokens)) - current);
     /** @type {Set<string>} */
     const restated = new Set();
     for (const message of [...messages].reverse()) {
@@ -1036,7 +904,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    */
   const wrapperOf = (chat, picked, epoch) => {
     const wrapper = openWrapper({
-      table: `chat:${chat}`, to: `${TRANSPORT[picked.maker]}:${picked.modelId}`, agent: false, epoch,
+      table: `chat:${chat}`, to: picked.modelId, agent: false, epoch,
       shown: () => conversations.get(chat)?.shown ?? [],
       showed: words => void conversations.get(chat)?.shown.push(words),
       ready: (line, door) => readyFor(chat, line, door),
@@ -1077,7 +945,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    * @param {Picked} picked
    */
   const titleOf = async (question, answer, signal, picked) => {
-    const said = await ways[picked.maker].title(titleAsk(question, answer), picked, signal).catch(() => null);
+    const said = await ways[picked.way].title(titleAsk(question, answer), picked, signal).catch(() => null);
     if (said === null) return null;
     const title = textHead(said.replace(/^["'“”‘’\s]+|["'“”‘’.\s]+$/gu, '').replace(/\s+/gu, ' '), MAX_TITLE);
     return title === '' ? null : title;
@@ -1116,10 +984,10 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    * @returns {Promise<Voice>}
    */
   const voiceOf = async door => {
-    const [connectors, me, privacy] = await Promise.all([serverCall(machine, doorUrl, 'GET', '/v1/connectors'), door.json('/v1/me'), door.json('/v1/privacy')]);
+    const [connectors, privacy] = await Promise.all([serverCall(machine, doorUrl, 'GET', '/v1/connectors'), door.json('/v1/privacy')]);
     if (connectors.status !== 200) throw new ToolError(typeof connectors.body.message === 'string' ? connectors.body.message : GONE);
     const listed = connectors.body;
-    const voice = voiceRow({ listed, me, privacy });
+    const voice = voiceRow({ listed, privacy });
     lastVoice = voice;
     return voice;
   };
@@ -1184,20 +1052,18 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
    * @returns {Promise<Turn | { refused: number, error: string, missing?: unknown }>}
    */
   const begin = async (door, { question, chat, id, tools, started, keep, photos, voice, submission, asked, resumed, hold }) => {
-    let { maker: { maker, signed, list }, picked, said } = await asksOf(asked, door, null);
-    if (signed.login === 'missing' || signed.said !== undefined) return alone(signed.failure ?? 'login', /** @type {string} */ (said));
-    if (!list?.some(each => each.id === picked.modelId)) return alone('model', `${NAMED_MAKER[maker]} didn't answer: Lifestream couldn't read its models.`);
-    /** @type {string | null} */
-    let moved = null;
-    if (photos.length > 0 && list.find(each => each.id === picked.modelId)?.photos === false) {
-      const { first, modelId } = await offer(door);
-      const fallback = first.list?.find(each => each.id === modelId);
-      if (fallback === undefined || !fallback.photos || first.signed.login !== 'ready') return alone('model', `${picked.name} can't see photos.`);
-      moved = `${picked.name} can't see photos. Asking ${fallback.name}.`;
-      log({ ask: 'a pick that takes no photos', said: moved });
-      ({ maker, signed, list } = first);
-      picked = pickedOf(first.maker, fallback, undefined);
+    let chosen;
+    try {
+      chosen = await asksOf(asked, door);
+    } catch (error) {
+      if (!(error instanceof ToolError)) throw error;
+      return alone('door', error.message);
     }
+    const { picked, said, failure } = chosen;
+    if (picked === null || picked.row.state !== 'ready') return alone(failure, said ?? NO_MODEL);
+    const blind = photosOff(picked.row);
+    if (photos.length > 0 && blind !== null) return alone('model', blind);
+    const moved = said ?? null;
     if (chat !== undefined && resumed === null) conversations.landUnsealed(chat);
     let home;
     let placed;
@@ -1260,8 +1126,8 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
       conversation.live = null;
       clearTimeout(held.timer);
     }
-    const session = held !== undefined && held.context.alive() && held.maker === picked.maker && held.model === picked.modelId && held.thinking === picked.thinking
-      && held.clock === home.id && held.day === home.dayAt(now()).day && now() - held.at < LIVE_MS && held.level === privacy.level && held.epoch === privacy.epoch ? held : null;
+    const session = held !== undefined && held.context.alive() && held.model === picked.modelId && held.thinking === picked.thinking
+      && held.clock === home.id && held.day === home.dayAt(now()).day && now() - held.at < LIVE_MS && held.level === levelOf(picked.row, privacy) && held.epoch === privacy.epoch ? held : null;
     if (held !== undefined && session === null) void dropLive(conversation, held);
     const handles = session?.handles ?? openHandles(Object.assign({}, ...messages.map(message => message.refs ?? {})));
     const wrapper = session?.wrapper ?? wrapperOf(id, picked, privacy.epoch);
@@ -1276,7 +1142,7 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
       claimed.delete(id);
     };
     const note = voice !== undefined && 'note' in voice ? voice.note : null;
-    const tracer = trace === undefined ? null : openTracer({ chat: id, n, maker: picked.maker, model: picked.modelId, thinking: picked.thinking,
+    const tracer = trace === undefined ? null : openTracer({ chat: id, n, connection: picked.row.connection, model: picked.modelId, thinking: picked.thinking,
       question, prompt: prompts.get(wrapper) });
     if (tracer !== null) {
       tracing.set(wrapper, tracer);
@@ -1310,19 +1176,14 @@ export function openAsk({ models, otherwise = OPENROUTER, codex, claude, memory,
      * @param {{ model?: string, thinking?: string }} asked
      */
     async status(door, asked) {
-      const [{ maker, picked, said, gone, offering }, offered, voice] = await Promise.all([asksOf(asked, door, listedMs),
+      const [chosen, offered, voice] = await Promise.all([asksOf(asked, door),
         within(starters.read(door), listedMs, []), within(voiceOf(door).catch(error => {
           if (!(error instanceof ToolError)) throw error;
           return null;
         }), listedMs, null)]);
-      const { modelId, all } = offering ?? await offer(door);
       const unsaved = conversations.unsavedIn();
       return {
-        model: picked.modelId, name: picked.name, thinking: picked.thinking,
-        group: maker.maker === 'openrouter' ? null : GROUPS[maker.maker], login: maker.signed.login,
-        ...(said === undefined ? {} : { said }), ...(gone ? { gone: true } : {}),
-        models: all.map(({ value: _value, ...each }) => each),
-        default: { model: modelId }, starters: offered,
+        ...readyModels(chosen), starters: offered,
         voice: voice ?? lastVoice ?? UNREAD_VOICE, limits: LIMITS,
         ...(unsaved === null ? {} : { unsaved_in_ms: unsaved }),
       };
@@ -1574,29 +1435,140 @@ function turnOf(chat, n, asked, title) {
   };
 }
 
-const NO_KEY = /^Provider is not configured\b/u;
-const NAMED_MAKER = /** @type {const} */ ({ chatgpt: 'ChatGPT', claude: 'Claude', openrouter: 'OpenRouter' });
+const NO_MODEL = 'Chat needs a model: choose one in Settings › AI models.';
+const NO_DEFAULT = 'Chat has no default model: choose one from the menu.';
+const CHOOSE_MODEL = 'Choose a model';
+const CONNECT_MODEL = 'Connect a model…';
+const OPEN_MODELS = 'Open AI models';
 
-/** @param {Maker} maker */
-const needs = maker => (maker === 'openrouter' ? 'Chat needs a model.' : `Chat needs your ${NAMED_MAKER[maker]} sign-in on your Mac.`);
+/**
+ * @param {Row} row
+ * @returns {WayName | null}
+ */
+function wayOf(row) {
+  if (row.chat === 'door') return 'door';
+  if (row.chat !== 'program') return null;
+  return row.connection === 'claude' || row.connection === 'codex' ? row.connection : null;
+}
 
-/** @param {{ maker: Maker, signed: SignedIn }} own */
-function pickNeeds({ maker, signed }) {
-  if (signed.said === PAID_PLAN) return 'Your pick needs a paid ChatGPT plan.';
-  if (signed.said !== undefined) return 'Your pick can\'t answer now.';
-  return `Your pick needs your ${NAMED_MAKER[maker]} sign-in on your Mac.`;
+/** @param {Pick<Row, 'thinking'>} row */
+const startOf = row => (row.thinking.includes(THINKING) ? THINKING : row.thinking[0] ?? '');
+
+/**
+ * @param {Pick<Row, 'thinking'>} row
+ * @param {string | null | undefined} wanted
+ */
+const levelFor = (row, wanted) => (typeof wanted === 'string' && row.thinking.includes(wanted) ? wanted : startOf(row));
+
+/**
+ * @param {Row} row
+ * @param {string} thinking
+ * @returns {Picked}
+ */
+function pickedOf(row, thinking) {
+  return { row, way: /** @type {WayName} */ (wayOf(row)), modelId: row.id, name: row.name, thinking, value: row.model };
 }
 
 /**
- * @param {Maker} maker
- * @param {Choice} chosen
- * @param {string} [thinking]
- * @returns {Picked}
+ * @param {ModelsRead} read
+ * @param {{ model?: string, thinking?: string }} asked
+ * @returns {Chosen}
  */
-function pickedOf(maker, chosen, thinking) {
-  return { maker, modelId: chosen.id, name: chosen.name, value: chosen.value ?? chosen.id,
-    thinking: thinking !== undefined && chosen.thinking.includes(thinking) ? thinking : chosen.default };
+export function chosenOf(read, asked) {
+  const chat = read.uses.chat;
+  const fits = chat.fits.flatMap(id => {
+    const row = read.models[id];
+    return row !== undefined && wayOf(row) !== null ? [row] : [];
+  });
+  const listed = new Set([...chat.menu.rows, ...chat.menu.local?.rows ?? []].map(row => row.value));
+  const rows = fits.filter(row => listed.has(row.id));
+  const pick = asked.model === undefined ? undefined : fits.find(row => row.id === asked.model);
+  const gone = asked.model !== undefined && pick === undefined;
+  const chosen = pick ?? fits.find(row => row.id === chat.value);
+  if (chosen === undefined) {
+    const first = rows[0] ?? fits[0];
+    if (first === undefined) return { read, rows, fits, picked: null, gone, said: NO_MODEL, failure: 'model' };
+    if (first.state === 'ready') return { read, rows, fits, picked: null, gone, said: NO_DEFAULT, failure: 'model' };
+    return { read, rows, fits, picked: null, gone, said: first.line ?? NO_MODEL, failure: failureOf(read, first) };
+  }
+  const picked = pickedOf(chosen, levelFor(chosen, pick === undefined ? chat.thinking : asked.thinking));
+  const moved = gone ? `${read.models[/** @type {string} */ (asked.model)]?.name ?? asked.model} isn't offered now. Asking ${chosen.name}.` : undefined;
+  return { read, rows, fits, picked, gone, said: chosen.state === 'ready' ? moved : chosen.line ?? NO_MODEL, failure: failureOf(read, chosen) };
 }
+
+/** @param {Chosen} chosen */
+export function readyModels({ read, rows, fits, picked, said, gone }) {
+  const kept = keptOf(rows.length > 0 ? rows : fits, picked);
+  const told = said ?? kept.said;
+  const act = actOf(read, picked?.row ?? rows[0] ?? fits[0]);
+  const { value, thinking, menu } = read.uses.chat;
+  const shown = fits.find(row => row.id === value)?.id ?? null;
+  return {
+    model: kept.model, name: kept.name, thinking: kept.thinking, login: kept.login,
+    ...(told === undefined ? {} : { said: told }), ...(act === null ? {} : { act }), ...(gone ? { gone: true } : {}),
+    models: fits.filter(row => rows.includes(row) || row.id === picked?.row.id || row.id === shown).map(askModelOf),
+    menu,
+    default: { model: value, thinking, shown, choose: shown === null && fits.length > 0 ? CHOOSE_MODEL : null },
+  };
+}
+
+/**
+ * @param {ModelsRead} read
+ * @param {Row | undefined} row
+ * @returns {Ended}
+ */
+function failureOf(read, row) {
+  return read.connections.find(each => each.id === row?.connection)?.kind === 'plan' ? 'login' : 'model';
+}
+
+/** @param {Row} row */
+const signInLine = row => row.line ?? `Chat needs your ${row.group} sign-in on your Mac.`;
+
+/** @param {Pick<Row, 'name' | 'input'>} row */
+const photosOff = row => (row.input.includes('image') ? null : `${row.name} can't see photos.`);
+
+/**
+ * @param {ModelsRead} read
+ * @param {Row | undefined} row
+ * @returns {string | null}
+ */
+function actOf(read, row) {
+  if (row === undefined) return CONNECT_MODEL;
+  if (row.state === 'ready') return null;
+  const connection = read.connections.find(each => each.id === row.connection);
+  return connection?.kind === 'plan' ? `Sign in with ${connection.name}…` : OPEN_MODELS;
+}
+
+/**
+ * @param {Pick<Row, 'leaves'>} row
+ * @param {Pick<Privacy, 'level'>} privacy
+ */
+export const levelOf = (row, privacy) => (hides(row) ? privacy.level : levelKey('none'));
+
+/** @param {Pick<Row, 'leaves'>} row */
+const hides = row => row.leaves !== null;
+
+/**
+ * @param {Row} row
+ * @returns {AskModel}
+ */
+function askModelOf(row) {
+  const { id, name, input, thinking, state } = row;
+  return { id, name, thinking, state, default: startOf(row), photos: input.includes('image'), photos_off: photosOff(row), hides: hides(row) };
+}
+
+/**
+ * @param {Row[]} rows
+ * @param {Picked | null} picked
+ * @returns {{ model: string, name: string, thinking: string, login: 'ready' | 'missing', said?: string }}
+ */
+export function keptOf(rows, picked) {
+  const row = picked?.row ?? rows[0];
+  if (row === undefined) return { model: '', name: '', thinking: '', login: 'missing', said: NO_MODEL };
+  if (picked === null) return { model: row.id, name: row.name, thinking: row.thinking[0] ?? '', login: 'missing', said: row.state === 'ready' ? NO_DEFAULT : row.line ?? NO_MODEL };
+  return { model: row.id, name: row.name, thinking: picked.thinking, ...(row.state === 'ready' ? { login: 'ready' } : { login: 'missing', said: row.line ?? NO_MODEL }) };
+}
+
 const CLAUDE_UNREACHED = 'Claude didn\'t answer: this Mac can\'t reach it. Check that it\'s online.';
 const CLAUDE_EXITED = 'Claude didn\'t answer: Chat\'s Claude Code stopped. Ask again.';
 
@@ -1643,12 +1615,12 @@ const UNREACHED = /fetch failed|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ENET
 const NO_CREDIT = /^402\b|"code":\s*402\b|insufficient credits/iu;
 
 /**
- * @param {string} provider
+ * @param {string} name
  * @param {string} detail
  */
-function modelFailed(provider, detail) {
-  const name = provider === OPENROUTER.provider ? 'OpenRouter' : 'The model';
-  if (provider === OPENROUTER.provider && NO_CREDIT.test(detail)) return 'OpenRouter didn\'t answer: your OpenRouter account is out of credits. Add credits on openrouter.ai, then ask again.';
+function modelFailed(name, detail) {
+  if (detail === TOO_LITTLE) return `${name} ${TOO_LITTLE}.`;
+  if (NO_CREDIT.test(detail)) return `${name} didn't answer: the account it runs on is out of credits. Add credits, then ask again.`;
   if (UNREACHED.test(detail)) return `${name} didn't answer: this Mac can't reach it. Check that it's online.`;
   return `${name} didn't answer: ${detail}`;
 }
@@ -1658,12 +1630,10 @@ const NO_TOKENS = /** @type {const} */ ({ input: 0, output: 0, cache_read: 0 });
 /**
  * @param {{ usage: () => Tokens }} follow
  * @param {{ error: Ended, message: string }} [error]
- * @param {boolean} [refused]
  * @returns {Answered}
  */
-function unfinished(follow, error, refused = false) {
-  return { end: error === undefined ? 'stopped' : 'failed', tokens: follow.usage(),
-    ...(error === undefined ? {} : { error }), ...(refused ? { refused: true } : {}) };
+function unfinished(follow, error) {
+  return { end: error === undefined ? 'stopped' : 'failed', tokens: follow.usage(), ...(error === undefined ? {} : { error }) };
 }
 
 /**
@@ -2527,28 +2497,26 @@ const refusedAbsent = (chat, absent) => absent === 'erased' ? { refused: 410, er
   : absent === 'waiting' ? { refused: 503, error: NOT_YET } : { refused: 404, error: `No conversation ${chat}.` };
 
 /**
- * @param {{ listed: any, me: any, privacy: any }} reads
+ * @param {{ listed: any, privacy: any }} reads
  * @returns {Voice}
  */
-export function voiceRow({ listed, me, privacy }) {
+export function voiceRow({ listed, privacy }) {
   const member = (listed.connectors ?? []).find((/** @type {{ id: string }} */ each) => each.id === ASK_CONNECTOR)?.members
     ?.find((/** @type {{ key: string }} */ each) => each.key === VOICE_MEMBER);
-  const phone = me.kind === 'phone';
-  /** @type {{ value: string, words: string, note: string | null, runner?: { unit: string, name: string, home: boolean } }[]} */
-  const steps = Array.isArray(member?.steps) ? member.steps : [];
-  const choices = steps.filter(step => step.value !== 'off' && step.value !== 'default').map(step => {
-    const where = step.runner === undefined ? null : step.runner.home ? (phone ? 'your Mac' : 'this Mac') : step.runner.name;
-    return { value: step.value, words: `${step.words} · ${where ?? 'Sent as it is'}`, sent: where === null };
-  });
+  /** @type {ModelMenu | null | undefined} */
+  const menu = member?.menu;
+  const choiceOf = (/** @type {boolean} */ sent) => (/** @type {MenuRow} */ row) =>
+    ({ value: row.value, words: row.account === null ? row.name : `${row.name} · ${row.account}`, sent });
+  const choices = [...(menu?.rows ?? []).map(choiceOf(true)), ...(menu?.local?.rows ?? []).map(choiceOf(false))];
   const value = typeof member?.value === 'string' ? member.value : 'default';
   const route = typeof member?.route === 'string' ? member.route : null;
-  const chosen = route === null ? undefined : choices.find(each => each.value === route);
-  const hides = !(privacy.chat === 'none' || (Array.isArray(privacy.chat) && privacy.chat.length === 0) || privacy.chat == null);
+  const said = typeof member?.words === 'string' ? member.words : '';
+  const hiding = !(privacy.chat === 'none' || (Array.isArray(privacy.chat) && privacy.chat.length === 0) || privacy.chat == null);
   const leaves = privacy.voice.leaves;
   return {
-    ready: chosen !== undefined, words: chosen?.words ?? (typeof member?.words === 'string' ? member.words : ''),
-    line: chosen !== undefined ? null : VOICE_FIX[phone ? 'phone' : 'mac'],
-    caution: typeof leaves === 'string' && hides ? `Voice notes go to ${leaves} as they are: sound can't be hidden.` : null,
+    ready: route !== null, words: choices.find(each => each.value === route)?.words ?? said,
+    line: route !== null ? null : typeof member?.line === 'string' ? member.line : null,
+    caution: typeof leaves === 'string' && hiding ? `Voice notes go to ${leaves} as they are: sound can't be hidden.` : null,
     value, choices,
   };
 }

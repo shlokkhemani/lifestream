@@ -25,7 +25,7 @@ import { pageOf } from './ui/connectors/page.js';
 import { detailOf, OPENED } from './ui/connectors/dialog.js';
 import { AT_REST, bodyMarkup, menusMarkup, sideMarkup } from './ui/connectors/view.js';
 import { detailMarkup } from './ui/connectors/detail.js';
-import { GROUPS as SETTINGS_GROUPS, NO_PRIVACY, SETTINGS_MODELS, SETTINGS_PRIVACY, settingsDetail } from './ui/connectors/settings.js';
+import { ENTRIES as SETTINGS_ENTRIES, NO_PRIVACY, SETTINGS_MODELS, SETTINGS_PRIVACY, settingsDetail } from './ui/connectors/settings.js';
 import { SUBSCRIPTIONS } from './ui/connectors/settings-models.js';
 import { flowOf, sessionOf } from './ui/flows/model.js';
 import { BATTERY_SPENT, DESCRIBED, LLM_REPORT, MODELS, MODELS_BARE, ON_BATTERY, SHAPED, SUBSCRIBED, TRANSCRIBED } from './kit-gallery-llm.js';
@@ -49,8 +49,8 @@ import { DRIVE_AWAY, reach, STATES as REACH_STATES } from './kit-gallery-reach.j
 import { video } from './kit-gallery-video.js';
 import { daysSide, drawDaysSide } from './kit-gallery-days-side.js';
 import { sizeRuns } from './ui/days/fold.js';
-import { installSettings, settings, STORAGE_COUNTING, STORAGE_MAP, STORAGE_NEW, STORAGE_YEAR } from './kit-gallery-settings.js';
-import { storageModel } from './ui/connectors/settings-storage.js';
+import { installSettings, settings, SETTINGS_ANSWERS, STORAGE_COUNTING, STORAGE_MAP, STORAGE_NEW, STORAGE_YEAR } from './kit-gallery-settings.js';
+import { phraseOf } from './lib/words.js';
 
 const ACTION_VERBS = ['Allow', 'Settings', 'Sign in', 'Open', 'Open page', 'Sign out', 'Save', 'Connect', 'Create', 'Retry',
   'New key', 'Set up', 'Try again', 'Continue', 'Close', 'Cancel it', 'Done', 'Pair it', 'Choose', 'Change', 'Edit',
@@ -417,12 +417,16 @@ const SEEN_MAIL = askThread([askTurn({ model: true, question: askQuestion('Who w
     seen: [{ start: 0, end: 9, placeholder: '[[Person 1]]' }, { start: 11, end: 31, placeholder: '[[Email 1]]' }], model: true }, DRAW) })]);
 const STARTERS = [{ kind: 'places', question: 'Where have I been today?' }, { kind: 'walking', question: 'How far did I walk today?' },
   { kind: 'photos', question: 'What did I photograph this week?' }];
-const PICK_MODELS = [{ group: 'Claude', choices: [{ id: 'claude/opus', name: 'Opus' }, { id: 'claude/sonnet', name: 'Sonnet' }] },
-  { group: 'ChatGPT', choices: [{ id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra' }] }];
+const pickRow = (/** @type {string} */ value, /** @type {string} */ name, account = /** @type {string | null} */ (null)) => ({ value, name, account, chosen: value === 'claude/opus' });
+const PICK_MENU = { default: null, rows: [pickRow('claude/opus', 'Opus 5.5'), pickRow('codex/sol', 'GPT-6.2 Sol'), pickRow('openrouter/gemini', 'Gemini 3.8 Flash')],
+  local: { label: 'Local', rows: [pickRow('runner/qwen', 'Qwen 3.5 9B')] }, more: { words: 'More', use: /** @type {const} */ ('chat'), work: null }, off: null };
 const LEVEL_CHOICES = ['low', 'medium', 'high', 'xhigh'].map(value => ({ value, label: { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high' }[value] ?? value }));
-/** @param {{ active?: number, page?: 'models' | 'voice', voice?: Parameters<typeof askPick>[0]['voice'] }} [open] */
-const pick = (open = {}) => askPick({ model: 'Opus', level: 'Medium', levels: LEVEL_CHOICES, thinking: 'medium', models: PICK_MODELS,
-  chosen: 'claude/opus', reset: true, ...open });
+const PICK_FIND = { placeholder: 'Search', found: { rows: [], local: null }, none: '' };
+const PICK_FOUND = { ...PICK_FIND, found: { rows: [pickRow('claude/opus', 'Opus 5.5', 'Claude'), pickRow('openrouter/opus', 'Opus 5.5', 'OpenRouter')],
+  local: { label: 'Local', rows: [pickRow('runner/qwen-27b', 'Qwen 3.5 27B')] } } };
+/** @param {{ active?: number, page?: 'models' | 'voice' | 'other', voice?: Parameters<typeof askPick>[0]['voice'], find?: Parameters<typeof askPick>[0]['find'] }} [open] */
+const pick = (open = {}) => askPick({ model: 'Opus 5.5', level: 'Medium', levels: LEVEL_CHOICES, thinking: 'medium', menu: PICK_MENU,
+  chosen: 'claude/opus', reset: true, find: PICK_FIND, ...open });
 
 const THREAD = askThread([
   askTurn({ stamp: 'Sat 17 Oct 09:12', question: askQuestion('When did I last have dinner with Person A?', { at: 'Sat 17 Oct · 09:12', edit: {} }),
@@ -476,12 +480,13 @@ const ask = () => !wants('Chat', 'Composer', 'Question', 'Starters', 'Steps line
   ].join('') + '</div>'),
   group('Composer · menus', '<div class="gallery__ask-col gallery__ask-menus">' + [
     specimen('The pick chip’s menu: Thinking, then Model ›', `<div class="gallery__ask-menu">${pick({ active: 2 })}</div>`),
-    specimen('Model ›: each plan’s models a section', `<div class="gallery__ask-menu">${pick({ active: 11, page: 'models' })}</div>`),
+    specimen('Model ›: each model its name, local ones under Local, then More', `<div class="gallery__ask-menu">${pick({ active: 12, page: 'models' })}</div>`),
+    specimen('More: what was typed finds any model that fits Chat; a name found twice says its account', `<div class="gallery__ask-menu">${pick({ active: 12, page: 'other', find: PICK_FOUND })}</div>`),
     specimen('The level chip’s menu: Sensitive information, the three levels, the one kept checked',
       `<div class="gallery__ask-menu">${askLevel({ level: 'names', active: 2 })}</div>`),
     specimen('The + menu', `<div class="gallery__ask-menu">${composerAttach({ active: 0 })}</div>`),
     specimen('The + menu greyed: the model sees no photos', `<div class="gallery__ask-menu">${composerAttach({ active: 0,
-      off: 'Synthetic Blind can’t see photos.' })}</div>`),
+      off: 'Synthetic Blind can\'t see photos.' })}</div>`),
     specimen('The pick chip’s menu with Voice, its caution mark while notes leave as they are', `<div class="gallery__ask-menu">${pick({ active: 2,
       voice: { words: 'Cloud voice · Sent as it is', caution: 'Voice notes go to a cloud as they are: sound can’t be hidden.',
         choices: [{ value: 'parakeet', words: 'Parakeet · this Mac', chosen: false }, { value: 'cloud', words: 'Cloud voice · Sent as it is', chosen: true }] } })}</div>`),
@@ -614,12 +619,12 @@ const onboarding = () => !wants('Action', 'Status', 'Offer', 'List rows', 'AppIc
 /** @type {import('./lib/reach.js').Drawn} */
 const READ_FAILED = { kind: 'lack', words: null, retry: true };
 
-/** @param {{ label: string, shot: string, id: string, state?: HostState | null, report?: import('./types.js').StreamsReport | null, models?: import('./types.js').ModelsRead | null, failed?: import('./lib/reach.js').Drawn | null, unread?: boolean, opened?: Partial<import('./ui/connectors/dialog.js').Opened>, asking?: string, query?: string, size?: [number, number], privacy?: import('./ui/connectors/settings.js').PrivacyReads, storage?: import('./ui/connectors/settings.js').StorageReads }} shown */
+/** @param {{ label: string, shot: string, id: string, state?: HostState | null, report?: import('./types.js').StreamsReport | null, models?: import('./pages.js').Models | null, failed?: import('./lib/reach.js').Drawn | null, unread?: boolean, opened?: Partial<import('./ui/connectors/dialog.js').Opened>, asking?: string, query?: string, size?: [number, number], privacy?: import('./ui/connectors/settings.js').PrivacyReads, storage?: import('./ui/connectors/settings.js').StorageReads, answers?: import('./ui/connectors/settings.js').SettingsReads }} shown */
 const settingsWindow = ({ label, shot, id, state = HOST_STATE, report = REPORT, models = MODELS, failed = null, unread = false,
   opened = {}, asking = '', query = '', size = [1100, 860], privacy = SHOWN_PRIVACY,
-  storage = { read: STORAGE_YEAR, drawn: null } }) => {
+  storage = { read: STORAGE_YEAR, drawn: null }, answers = SETTINGS_ANSWERS }) => {
   const detail = settingsDetail({ report, models, failed, state, id, opened: { ...OPENED, ...opened }, query, unread, privacy,
-    storage,
+    storage, answers,
     subscriptions: flowOf('model', { state, report: null }, { ...sessionOf(state !== null, 'dialog'), models: [...SUBSCRIPTIONS] }, AT) });
   return specimen(label, `<div class="gallery__window" data-shot="${esc(shot)}" data-geo="width:${size[0]}px;height:${size[1]}px">`
     + `${detail ? detailMarkup(detail, { ...AT_REST, asking }) : ''}</div>`);
@@ -648,17 +653,18 @@ const AWAY_STATE = { ...HOST_STATE, reach: REACH_STATES.held };
 
 const settingsPages = () => [
   group('Settings · every page, in the Mac app (1100 × 860)', '<div class="gallery__windows">'
-    + SETTINGS_GROUPS.flatMap(each => each.pages).map(page => settingsWindow({ label: page.label, shot: `settings-${page.id}-mac`,
+    + SETTINGS_ENTRIES.map(page => settingsWindow({ label: page.label, shot: `settings-${page.id}-mac`,
       id: `settings/${page.id}` })).join('') + '</div>'),
   group('Settings · in a browser (1440 × 900): the report’s pages alone, each value in words', '<div class="gallery__windows">'
-    + SETTINGS_GROUPS.flatMap(each => each.pages).filter(page => !page.mac).map(page => settingsWindow({ label: page.label,
+    + SETTINGS_ENTRIES.filter(page => !page.host).map(page => settingsWindow({ label: page.label,
       shot: `settings-${page.id}-browser`, id: `settings/${page.id}`, state: null, size: [1440, 900] })).join('') + '</div>'),
   group('Settings · every page, worst case: a 40-character Mac, fourteen phones, the longest sentence, Japanese, paused',
-    '<div class="gallery__windows">' + SETTINGS_GROUPS.flatMap(each => each.pages).map(page => settingsWindow({ label: page.label,
+    '<div class="gallery__windows">' + SETTINGS_ENTRIES.map(page => settingsWindow({ label: page.label,
       shot: `settings-${page.id}-worst`, id: `settings/${page.id}`, state: WORST_STATE, report: WORST_REPORT })).join('') + '</div>'),
   group('Settings · states and sizes', '<div class="gallery__windows">' + [
     settingsWindow({ label: 'Reading: Home before the report', shot: 'settings-home-reading', id: 'settings/home', report: null }),
-    settingsWindow({ label: 'Reading: Advanced before the report', shot: 'settings-advanced-reading', id: 'settings/advanced', report: null }),
+    settingsWindow({ label: 'Reading: Advanced before its answer', shot: 'settings-advanced-reading', id: 'settings/advanced',
+      answers: { ...SETTINGS_ANSWERS, pages: {} } }),
     settingsWindow({ label: 'Reading: AI models before its read', shot: 'settings-models-reading', id: 'settings/models', models: null }),
     settingsWindow({ label: 'The home does not answer: Home, from the host', shot: 'settings-home-away', id: 'settings/home',
       state: AWAY_STATE, report: null, unread: true }),
@@ -698,16 +704,14 @@ const settingsPages = () => [
 
 const storagePages = () => {
   const STORAGE = 'settings/storage';
-  /** @param {import('./types.js').StorageRead} read */
-  const model = read => storageModel(read, { report: REPORT, today: REPORT.day });
-  const year = model(STORAGE_YEAR);
-  const counting = model(STORAGE_COUNTING);
-  /** @param {import('./ui/connectors/settings-storage.js').StorageModel} drawn */
-  const rows = drawn => drawn.rows ?? [];
-  /** @param {import('./ui/connectors/settings-storage.js').Usage | undefined} row */
-  const usage = row => row ? `<ul class="ck-ssection__rows">${usageRow({ ...row, go: row.opens ? {} : null })}</ul>` : '';
-  /** @param {import('./ui/connectors/settings-storage.js').StorageModel} drawn @param {{ bytes: number, name: string }} [room] */
-  const chartOf = (drawn, room) => drawn.chart ? areaChart({ ...drawn.chart, ...room ? { room } : {} }) : '';
+  const year = STORAGE_YEAR;
+  const counting = STORAGE_COUNTING;
+  /** @param {import('./ui/connectors/settings-storage.js').Storage} answer */
+  const barOf = answer => diskBar({ ...answer.bar, time: answer.bar.left });
+  /** @param {import('./ui/connectors/settings-storage.js').Storage['uses'][number] | undefined} row */
+  const usage = row => row ? `<ul class="ck-ssection__rows">${usageRow({ ...row, line: phraseOf(row.line), go: row.opens ? {} : null })}</ul>` : '';
+  /** @param {import('./ui/connectors/settings-storage.js').Storage} answer @param {{ bytes: number, name: string }} [room] */
+  const chartOf = (answer, room) => answer.chart ? areaChart({ ...answer.chart, label: phraseOf(answer.chart.label), ...room ? { room } : {} }) : '';
   const lit = (/** @type {string} */ markup) => `<div class="cn-storage" data-lights>${markup}</div>`;
   return group('Settings · Storage, every state', '<div class="gallery__windows">' + [
     settingsWindow({ label: 'A year in, on T9', shot: 'settings-storage-year', id: STORAGE }),
@@ -726,16 +730,16 @@ const storagePages = () => {
     settingsWindow({ label: 'The smallest window (900 × 600)', shot: 'settings-storage-small', id: STORAGE, size: [900, 600] }),
   ].join('') + '</div>')
   + group('Storage · DiskBar, AreaChart, UsageRow', '<div class="gallery__rows">' + [
-    specimen('DiskBar, counted: five streams by rank, Other streams, Index and AI, other files hatched, free', lit(diskBar(year.bar))),
-    specimen('DiskBar, counting: what is counted, Not yet counted, the time left', lit(diskBar(counting.bar))),
-    specimen('DiskBar, before the first figure', lit(diskBar(model(STORAGE_MAP).bar))),
+    specimen('DiskBar, counted: five streams by rank, Other streams, Index and AI, other files hatched, free', lit(barOf(year))),
+    specimen('DiskBar, counting: what is counted, Not yet counted, the time left', lit(barOf(counting))),
+    specimen('DiskBar, before the first figure', lit(barOf(STORAGE_MAP))),
     specimen('AreaChart: 150 days stacked, the rate a quarter ahead', lit(chartOf(year))),
     specimen('AreaChart: the disk in reach, its line where the rate meets it', lit(chartOf(year,
-      { bytes: STORAGE_YEAR.home.bytes + 60e9, name: 'T9 full' }))),
-    specimen('AreaChart: a home three days old, no rate yet', lit(chartOf(model(STORAGE_NEW)))),
-    specimen('UsageRow: a stream, its week, opening its dialog', lit(usage(rows(year)[0]))),
-    specimen('UsageRow: Index and AI, which opens nothing', lit(usage(rows(year).at(-1)))),
-    specimen('UsageRow: counting, no week', lit(usage(rows(counting)[0]))),
+      { bytes: (STORAGE_YEAR.chart?.parts ?? []).reduce((sum, part) => sum + (part.bytes.at(-1) ?? 0), 60e9), name: 'T9 full' }))),
+    specimen('AreaChart: a home three days old, no rate yet', lit(chartOf(STORAGE_NEW))),
+    specimen('UsageRow: a stream, its week, opening its dialog', lit(usage(year.uses[0]))),
+    specimen('UsageRow: Index and AI, which opens nothing', lit(usage(year.uses.at(-1)))),
+    specimen('UsageRow: counting, no week', lit(usage(counting.uses[0]))),
   ].join('') + '</div>');
 };
 
@@ -1009,7 +1013,7 @@ main.innerHTML = shown(drawn([
     specimen('What it does, over what it is now (LLM processing’s work)', section([
       settingRow({ label: 'Photo descriptions', does: 'A model describes your photos, so they read as text in your days and in search.',
         mark: signalShape('caution'), line: 'Add the key for OpenRouter',
-        end: menuButton({ id: 'g-work', label: 'Photo descriptions', words: 'Gemini 3.8 Flash · OpenRouter', choices: choices(['Off', 'Gemini 3.8 Flash · OpenRouter'], 1, 0) }) }),
+        end: menuButton({ id: 'g-work', label: 'Photo descriptions', words: 'Gemini 3.8 Flash', choices: choices(['Gemini 3.8 Flash', 'Off'], 0, 1) }) }),
     ])),
     specimen('Its line of what it does, and a phone that has not taken the change yet', section([
       settingRow({ label: 'Precision', line: 'Battery saving records where you stay and each move of a few hundred metres, not every street.',

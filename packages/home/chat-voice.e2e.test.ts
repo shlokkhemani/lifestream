@@ -4,16 +4,16 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { openHomeFolder, readTables, sha256, type DaySettings, type JsonObject } from "@lifestreamprotocol/core";
 import { voiceItem } from "@lifestreamprotocol/families";
-import { type RunnerEnded, type RunnerFile } from "@lifestreamprotocol/model";
+import { type Asker, type RunnerEnded } from "@lifestreamprotocol/model";
 import { openStage, stagedFile } from "./ask-files.js";
-import { ChatVoice, NO_VOICE, NOT_WRITTEN, WARM_AGAIN_MS, type ChatVoiceOptions } from "./chat-voice.js";
+import { ChatVoice, NOT_WRITTEN, WARM_AGAIN_MS, type ChatVoiceOptions } from "./chat-voice.js";
 import { sentLevel } from "./copies.js";
 import { serveDoor, type Door } from "./door.js";
 import { startHome, type Home } from "./home.js";
-import { AS_IS_WHERE, MODELS_META, placeOf, routingOf, type ModelRoute, type Routing, type RoutingInput } from "./models.js";
+import { AS_IS_WHERE, MODELS_META, placeOf, routingOf, type ModelRoute, type Routing } from "./models.js";
 import { mintPrincipal } from "./principals.js";
 import { RESERVED_MS } from "./runners.js";
-import { memberWords, readProcessing } from "./processing.js";
+import { memberWords, NO_VOICE, readProcessing, VOICE_OFF } from "./processing.js";
 import { connectors } from "./registry-home.js";
 import { ask } from "./socket.js";
 import { effective } from "./settings.js";
@@ -28,7 +28,7 @@ const RUNNER = "runner-macbook-pro-0001";
 const OTHER = "runner-mac-mini-bb01";
 const PARAKEET = "parakeet-unified-en-0.6b";
 const PARAKEET_ROUTE = `runner:${RUNNER}/${PARAKEET}`;
-const CLOUD_ROUTE = "openrouter-voice:elevenlabs/scribe-v2";
+const CLOUD_ROUTE = "openrouter:elevenlabs/scribe-v2";
 const WORK = "ask/voice";
 const DAY: DaySettings = { zone: "UTC", day_start_hour: 4 };
 const NOW = Date.parse("2026-11-16T10:00:00Z");
@@ -56,11 +56,8 @@ function wav(samples: number): Buffer {
   return Buffer.concat([header, Buffer.alloc(data, 7)]);
 }
 
-const parakeet = (state: RunnerFile["state"]): RunnerFile => ({
-  id: PARAKEET, name: "Parakeet", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], bytes: 700_000_000, languages: ["en"], memory_gb: 2, state, fetched_bytes: 0, failure: null,
-});
 const route = (over: Partial<ModelRoute> & Pick<ModelRoute, "id" | "transport" | "model">): ModelRoute => ({
-  name: over.model, input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, offered: true, runner: null, leaves: null, where: "Stays on this computer", cost: "free",
+  name: over.model, input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, suggested: ["audio"], offered: true, runner: null, leaves: null, where: "Stays on this computer", cost: "free",
   request: { effort: "none", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null, ...over,
 } as ModelRoute);
 const onRunner = (state: ModelRoute["state"] = "ready", unit = RUNNER): ModelRoute => route({
@@ -68,14 +65,14 @@ const onRunner = (state: ModelRoute["state"] = "ready", unit = RUNNER): ModelRou
   ...(state === "ready" ? { state, line: null } : { state, line: "Synthetic Mac's runner is not running" }),
 });
 const cloud = (held: boolean): ModelRoute => route({
-  id: CLOUD_ROUTE, transport: "openrouter-voice", model: "elevenlabs/scribe-v2", leaves: "OpenRouter", where: "Sent to OpenRouter", cost: "priced",
+  id: CLOUD_ROUTE, transport: "openrouter", model: "elevenlabs/scribe-v2", leaves: "OpenRouter", where: "Sent to OpenRouter", cost: "priced",
   ...(held ? { state: "ready", line: null } : { state: "unavailable", line: "Add the key for OpenRouter" }),
 });
 
-function routingWith(routes: ModelRoute[], listed: RoutingInput["listed"] = [], blocks: Record<string, JsonObject> = {}): Routing {
+function routingWith(routes: ModelRoute[], audio: string | null = null, blocks: Record<string, JsonObject> = {}): Routing {
   return routingOf({
-    connectors: connectors(), blocks, defaults: { pictures: null, audio: null, text: null }, runners: {}, now_ms: NOW, day: DAY,
-    routes, chosen: [], sources: [{ id: ASK, connector: "ask-home", options: {}, added_ms: 0 }], since: "2026-10-01", listed,
+    connectors: connectors(), blocks, defaults: { pictures: null, audio, text: null }, runners: {}, now_ms: NOW, day: DAY,
+    routes, chosen: [], sources: [{ id: ASK, connector: "ask-home", options: {}, added_ms: 0 }], since: "2026-10-01",
   });
 }
 
@@ -85,40 +82,49 @@ afterAll(() => {
 });
 
 describe("the voice work's route and level", () => {
-  it("serves an unset voice work by Parakeet wherever installed, ready or not, else the cloud voice route only where its key is held, else none", () => {
-    const listed = (present: boolean, state: RunnerFile["state"] = "ready") => [{ unit: RUNNER, present, files: [parakeet(state)] }];
+  it("serves an unset voice work by the Voice notes default, ready or not, and by none while Voice notes is Off, whatever is downloaded; the stream's own pick wins", () => {
     const routeOf = (routing: Routing) => routing.works[WORK]!.route;
-    expect(routeOf(routingWith([onRunner(), cloud(true)], listed(true)))).toBe(PARAKEET_ROUTE);
-    const away = routingWith([onRunner("waiting"), cloud(true)], listed(false));
+    expect(routeOf(routingWith([onRunner(), cloud(true)]))).toBeNull();
+    expect(routeOf(routingWith([onRunner(), cloud(true)], PARAKEET_ROUTE))).toBe(PARAKEET_ROUTE);
+    const away = routingWith([onRunner("waiting"), cloud(true)], PARAKEET_ROUTE);
     expect(routeOf(away)).toBe(PARAKEET_ROUTE);
     expect(away.routes[PARAKEET_ROUTE]!.state).toBe("waiting");
-    expect(routeOf(routingWith([onRunner("waiting", OTHER), onRunner(), cloud(true)], [{ unit: OTHER, present: false, files: [parakeet("ready")] }, { unit: RUNNER, present: true, files: [parakeet("ready")] }]))).toBe(PARAKEET_ROUTE);
-    expect(routeOf(routingWith([onRunner(), cloud(true)], listed(true, "fetching")))).toBe(CLOUD_ROUTE);
-    expect(routeOf(routingWith([cloud(true)], []))).toBe(CLOUD_ROUTE);
-    expect(routeOf(routingWith([cloud(false)], []))).toBeNull();
-    expect(routeOf(routingWith([onRunner(), cloud(true)], listed(true), { ask: { "llm.voice": CLOUD_ROUTE } }))).toBe(CLOUD_ROUTE);
-    expect(routingWith([onRunner(), cloud(true)], listed(true)).works["ask/chats"]!.route).toBeNull();
+    expect(routeOf(routingWith([onRunner(), cloud(true)], CLOUD_ROUTE))).toBe(CLOUD_ROUTE);
+    const keyless = routingWith([cloud(false)], CLOUD_ROUTE);
+    expect([routeOf(keyless), keyless.routes[CLOUD_ROUTE]!.state]).toEqual([CLOUD_ROUTE, "unavailable"]);
+    expect(routeOf(routingWith([onRunner(), cloud(true)], PARAKEET_ROUTE, { ask: { "llm.voice": CLOUD_ROUTE } }))).toBe(CLOUD_ROUTE);
+    expect(routeOf(routingWith([onRunner(), cloud(true)], null, { ask: { "llm.voice": PARAKEET_ROUTE } }))).toBe(PARAKEET_ROUTE);
+    expect(routingWith([onRunner(), cloud(true)], PARAKEET_ROUTE).works["ask/chats"]!.route).toBeNull();
   });
 
-  it("states the route its member resolves to and each runner's step's runner as data: two runners offering Parakeet, the second's installed, names the second, and its runner away still names it", () => {
+  it("states the route its member resolves to and lists each runner's model, its Mac beside the name the menu holds twice: the Voice notes default on the second of two runners names the second, its runner away leaves it out", () => {
     const work = connectors().find((each) => each.id === "ask")!.processing!.voice!;
     const named = (unit: string, name: string, state: ModelRoute["state"] = "ready"): ModelRoute => ({ ...onRunner(state, unit), runner: { unit, name, battery: false } });
     const routes = [named(RUNNER, "MacBook Pro"), named(OTHER, "Mac mini")];
     const member = (routing: Routing) => {
       const at = routing.works[WORK]!;
-      return memberWords(work, at, at.route === null ? null : routing.routes[at.route]!, Object.values(routing.routes), { pictures: null, audio: null, text: null }, HOME_UNIT);
+      return memberWords({ ...work, id: WORK }, at, at.route === null ? null : routing.routes[at.route]!, Object.values(routing.routes), { pictures: null, audio: null, text: null }, [], new Set());
     };
-    const second = member(routingWith(routes, [{ unit: RUNNER, present: true, files: [] }, { unit: OTHER, present: true, files: [parakeet("ready")] }]));
+    const listed = (said: ReturnType<typeof member>) => [...said.menu.rows, ...said.menu.local?.rows ?? []].map((row) => [row.value, row.name, row.account]);
+    const second = member(routingWith(routes, `runner:${OTHER}/${PARAKEET}`));
     expect(second.route).toBe(`runner:${OTHER}/${PARAKEET}`);
-    expect(second.steps.filter((step) => step.runner !== undefined).map((step) => [step.value, step.words, step.runner])).toEqual([
-      [PARAKEET_ROUTE, PARAKEET, { unit: RUNNER, name: "MacBook Pro", home: true }],
-      [`runner:${OTHER}/${PARAKEET}`, PARAKEET, { unit: OTHER, name: "Mac mini", home: false }],
-    ]);
-    const away = member(routingWith([routes[0]!, named(OTHER, "Mac mini", "waiting")],
-      [{ unit: RUNNER, present: true, files: [] }, { unit: OTHER, present: false, files: [parakeet("ready")] }]));
+    expect(listed(second)).toEqual([[PARAKEET_ROUTE, PARAKEET, "MacBook Pro"], [`runner:${OTHER}/${PARAKEET}`, PARAKEET, "Mac mini"]]);
+    const away = member(routingWith([routes[0]!, named(OTHER, "Mac mini", "waiting")], `runner:${OTHER}/${PARAKEET}`));
     expect(away.route).toBe(`runner:${OTHER}/${PARAKEET}`);
-    expect(away.steps.find((step) => step.value === away.route)!.runner).toEqual({ unit: OTHER, name: "Mac mini", home: false });
-    expect(member(routingWith(routes, [], { ask: { "llm.voice": "off" } })).route).toBeNull();
+    expect(listed(away)).toEqual([[PARAKEET_ROUTE, PARAKEET, null]]);
+    expect(member(routingWith(routes, `runner:${OTHER}/${PARAKEET}`, { ask: { "llm.voice": "off" } })).route).toBeNull();
+  });
+
+  it("words the voice button's line as the home refuses a note: none while a route serves, Choose a model with none, turned off when Chat's voice is Off; no other work has one", () => {
+    const work = connectors().find((each) => each.id === "ask")!.processing!.voice!;
+    const member = (routing: Routing) => {
+      const at = routing.works[WORK]!;
+      return memberWords({ ...work, id: WORK }, at, at.route === null ? null : routing.routes[at.route]!, Object.values(routing.routes), { pictures: null, audio: null, text: null }, [], new Set());
+    };
+    expect(member(routingWith([onRunner()], PARAKEET_ROUTE)).line).toBeNull();
+    expect(member(routingWith([onRunner()], null)).line).toBe(NO_VOICE);
+    expect(member(routingWith([onRunner()], PARAKEET_ROUTE, { ask: { "llm.voice": "off" } })).line).toBe(VOICE_OFF);
+    expect("line" in memberWords({ kind: "audio", id: WORK }, { value: "default" }, null, [], { pictures: null, audio: null, text: null }, [], new Set()), "a work the person does not wait on").toBe(false);
   });
 
   it("sends an as_is work under none whatever its level, says its route that leaves sends it as it is, and every other work under its level", () => {
@@ -140,7 +146,7 @@ describe("a note's hold of its runner", () => {
     roots.push(root);
     const options: ChatVoiceOptions = {
       source: () => ASK, work: () => WORK, routing, folder: openHomeFolder(root),
-      asker: () => { throw new Error("no ask in this test"); },
+      asker: () => ({ answer: () => null }) as unknown as Asker,
       blobs: { has: () => false, bytes: () => Buffer.alloc(0), text: () => "", prefix: () => Buffer.alloc(0), materialise: () => Promise.reject(new Error("none")) },
       epoch: () => 0, copy: () => Promise.resolve({ wait: "none" }), calls: { now: () => true, holds: () => false },
       warm: (runner, model, signal) => {
@@ -154,7 +160,7 @@ describe("a note's hold of its runner", () => {
     return { root, chat: new ChatVoice(options), warmed, step: (ms: number) => { now += ms; } };
   }
   const settled = () => new Promise<void>((resolve) => setImmediate(resolve));
-  const installed = () => routingWith([onRunner(), cloud(true)], [{ unit: RUNNER, present: true, files: [parakeet("ready")] }]);
+  const installed = () => routingWith([onRunner(), cloud(true)], PARAKEET_ROUTE);
 
   it("holds and warms the note's runner from the mic's tap, keeps a three-minute recording held and warm, and lets it go at its words, its cancel or a minute's silence", async () => {
     const { chat, warmed, step } = voice(installed);
@@ -203,7 +209,7 @@ describe("a note's hold of its runner", () => {
     expect(chat.open(NOTE_A)).toEqual({ runner: null });
     await settled();
     expect(warmed).toEqual([]);
-    routing = routingWith([onRunner("waiting"), cloud(true)], [{ unit: RUNNER, present: false, files: [parakeet("ready")] }]);
+    routing = routingWith([onRunner("waiting"), cloud(true)], PARAKEET_ROUTE);
     expect(chat.open(NOTE_B)).toEqual({ runner: RUNNER });
     await settled();
     expect(warmed).toEqual([]);
@@ -211,6 +217,16 @@ describe("a note's hold of its runner", () => {
     slow.chat.open(NOTE_A);
     slow.chat.cancel(NOTE_A);
     expect(slow.warmed.map((each) => each.stopped)).toEqual([true]);
+  });
+
+  it("refuses a note with Parakeet ready and no Voice notes model chosen: it says to choose one, and holds no runner", async () => {
+    const { root, chat, warmed } = voice(() => routingWith([onRunner(), cloud(true)]));
+    const blob = sha256(wav(16));
+    mkdirSync(dirname(stagedFile(openHomeFolder(root), blob).path), { recursive: true });
+    writeFileSync(stagedFile(openHomeFolder(root), blob).path, wav(16));
+    expect(chat.open(NOTE_A)).toEqual({ runner: null });
+    expect(await chat.words(blob, NOTE_A)).toEqual({ failed: NO_VOICE });
+    expect([NO_VOICE, warmed]).toEqual(["Choose a model for Voice notes", []]);
   });
 
   it("an open that reaches the home after the door closed the note (its words asked, its cancel) holds and warms nothing, and ends a hold it finds", async () => {
@@ -270,14 +286,14 @@ describe("a Chat note's words through the home", () => {
       const processing = readHome(at.root, (db) => {
         const { settings } = effective(at.root);
         return readProcessing(readTables(db), null, {
-          connectors: connectors(), families: [], histories: new Map(), blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, day: settings.day, now_ms: Date.now(), privacy: settings.privacy, home: settings.unit,
+          connectors: connectors(), families: [], histories: new Map(), blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, day: settings.day, now_ms: Date.now(), privacy: settings.privacy,
         }).get("ask")!;
       })!;
       report.processing = processing.part.rows;
       const dialog = new Map(processing.part.rows.map((row) => [row.member, row]));
       expect(dialog.get("llm.voice")!.privacy).toMatchObject({ member: "privacy.voice", words: "Sent as it is" });
       expect(processing.members.get("privacy.voice")!.words).toBe("Sent as it is");
-      expect(processing.members.get("llm.voice")!.steps.find((step) => step.value === FAKE_ROUTE)!.note).toBe(AS_IS_WHERE);
+      expect(processing.members.get("llm.voice")!.menu!.rows.map((row) => row.value)).toContain(FAKE_ROUTE);
       expect(processing.members.get("privacy.chats")!.words).toBe("Personal details hidden");
       expect(await at.verb({ open: NOTE_A })).toEqual({ runner: null });
       const words = await at.verb({ words: at.blob, note: NOTE_A });

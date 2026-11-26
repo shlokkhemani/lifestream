@@ -38,9 +38,9 @@ expect, check these in order:
    what they record meanwhile, and send it later.
 4. **A connector is paused or needs you.** Its line on **Connectors** says why.
 5. **A model has not read it yet.** Photo descriptions and summaries of your time at the screen
-   need an AI model. Voice notes need a speech model, such as Parakeet on your Mac: a ChatGPT or
-   Claude plan does not write them out. Until a model is ready, those parts stay out. See
-   [Choose which AI models read your data](./ai-models.md).
+   need an AI model. **Photos** and **Voice notes** are **Off** until you pick a model for them, and
+   a ChatGPT or Claude plan does not write out voice notes. Until a model is ready, those parts stay
+   out. See [Choose which AI models read your data](./ai-models.md#pick-a-model-for-each-use).
 
 A day starts at 4:00 in the morning, so what you did between midnight and 4:00 is on the day
 before. A day with nothing in it says **Nothing recorded this day.**
@@ -94,12 +94,16 @@ others are these.
 |---|---|
 | **Sending** | Lifestream or Chat did not answer when you sent the question. It stays in the thread and goes by itself once they answer. |
 | **Try again** under a question | Chat refused the question before it started, such as while it needed your sign-in. **Try again** sends the same question again. While an answer is being written, it waits for that answer first. |
-| **Chat needs your ChatGPT sign-in on your Mac.** or **Chat needs your Claude sign-in on your Mac.** | The plan is signed out. Click **Sign in with ChatGPT…** or **Sign in with Claude…**, and sign in again. On your iPhone, sign in from Lifestream on your Mac. |
-| **Your pick needs your Claude sign-in on your Mac. Asking GPT-6.1 Terra.** | The plan of the model you picked is signed out, so Chat asks the model named instead. Sign in to that plan in **Settings** › **AI models**, or pick another model. Chat asks your pick again once its plan is signed in. "Your pick needs a paid ChatGPT plan." and "Your pick can't answer now." work the same way. |
-| **Chat needs a model.** | No plan or key is connected. Click **Connect a model…**. |
+| **Sign in to Claude again**, **Chat needs your Claude sign-in on your Mac.**, or the same for ChatGPT | The plan of Chat's model is signed out. Click **Sign in with Claude…** or **Sign in with ChatGPT…**, and sign in again. On your iPhone, sign in from Lifestream on your Mac. |
+| Another line over the box, such as **Add the key for OpenRouter** | The model you picked isn't ready, and the line says what it needs. Chat asks nothing until it is ready, or until you pick another model. Click **Open AI models** to set it up. |
+| *A model* **isn't offered now. Asking** *another model*. | No connection lists the model you picked any more, so Chat asks Chat's model instead. Pick another model. |
+| **Chat needs a model: choose one in Settings › AI models.** | No model that fits Chat is connected. Click **Connect a model…**. |
+| **Chat has no default model: choose one from the menu.** | No model is chosen for **Chat**. Pick one in Chat's model menu, or for **Chat** in **Settings** › **AI models** on your Mac. |
+| **This model's connection changed: ask again.** | Where the model sends your data changed while Chat asked it, so Chat sent nothing. Ask again. |
 | **Chat needs a paid ChatGPT plan.** | A free ChatGPT plan cannot answer in Chat. Use a paid plan, Claude or an OpenRouter key. |
 | **ChatGPT didn't answer: your plan is used up for now.** or the same for Claude | Your plan's limit is reached. Ask again after the time shown, or pick another model. |
-| **OpenRouter didn't answer: your OpenRouter account is out of credits. Add credits on openrouter.ai, then ask again.** | Your OpenRouter key has no money left on it. Add credits on openrouter.ai, then ask again. |
+| *A model* **didn't answer: the account it runs on is out of credits. Add credits, then ask again.** | The account behind the model, such as your OpenRouter key, has no money left on it. Add credits, such as on openrouter.ai, then ask again. |
+| *A model* **holds too little text for this.** | The model's context window cannot hold your question with what Chat must send. Pick another model, or, for a model at a custom address, run it with a larger context window. |
 | **Not saved yet: Chat can't write to your Mac's disk. It keeps trying.** | This shows under an answer. Chat answered, but could not write the answer to your Mac's disk, so Lifestream does not have it yet. Free some space on your Mac. Chat saves the answer once there is room. Asking again would ask the model twice. |
 | **Recent chats are not saved to Lifestream yet.** | An answer has waited an hour for Lifestream to take it. Chat keeps trying, and the line goes once Lifestream has it. |
 | **Chat restarted before it finished.** | Lifestream restarted, such as for an update, during the answer. Click **Try again**. |
@@ -107,7 +111,8 @@ others are these.
 | **Lifestream couldn't prepare your photo for the model. Try again.** | Lifestream could not make the photo ready to send, so Chat did not send it. Click **Try again**. |
 | **Lifestream has too many unsent photos: send or remove some.** | Photos you added but have not sent fill the space Lifestream keeps for them. Send your questions, or remove photos with their **×**. Photos you never send are deleted from Lifestream after a day. |
 | **Too large to send: over 25 MB.** | Pick a smaller photo. |
-| **Voice notes need Parakeet: download it in Settings › AI models.** | Nothing can write out your voice note. Download Parakeet, or add an OpenRouter key. On the iPhone, download it in Lifestream on your Mac. |
+| **Choose a model for Voice notes** | No model writes out your voice notes. Pick one in the **Voice** row of Chat's model menu, or for **Voice notes** in Settings › AI models on your Mac. |
+| **Voice notes are turned off** | Voice notes are **Off** for Chat. Pick a model in the **Voice** row of Chat's model menu. |
 | **Couldn't write out your voice note** | Lifestream kept the note but could not write it out. Click **Try again**. |
 | **Your voice note had no words in it.** | The note held no speech. Record it again. |
 | **Lifestream couldn't take this question in time. Ask it again.** | Lifestream did not take the question within ten minutes. Ask it again. |

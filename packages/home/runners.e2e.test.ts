@@ -316,26 +316,28 @@ const found = (id: string) => ({ id, ok: { text: JSON.stringify({ ...KEY, marks:
 const named = (input: string): string => (JSON.parse(input) as string[])[0]!;
 
 describe("the files wanted on a runner", () => {
-  const off = { meaning: "off", model: EMBEDDER };
-  it("wants the hiding model's file exactly while privacy.detector names the runner, beside the person's files, never asked for apart", () => {
-    const stated = { unit: RUNNER, files: both().files };
+  const at = (unit: string, id: string) => `runner:${unit}/${id}`;
+  const defaults = (over: Record<string, string | null> = {}) => ({ pictures: null, audio: null, text: null, chat: null, search: null, hiding: null, ...over });
+  it("wants a file a default names on the runner, beside the person's files: the hiding model's and meaning's alike, never one of another runner's, and cleared, no longer", () => {
+    const stated = { unit: RUNNER, files: [...both().files, file(EMBEDDER, "absent")] };
     const runners = { [RUNNER]: { files: [MODEL] } };
-    expect(wantedOn({ runners, privacy: { detector: RUNNER }, search: off }, stated)).toEqual([MODEL, DETECTOR]);
-    expect(wantedOn({ runners, privacy: { detector: "off" }, search: off }, stated)).toEqual([MODEL]);
-    expect(wantedOn({ runners, privacy: { detector: "runner-mac-mini-bb01" }, search: off }, stated)).toEqual([MODEL]);
-    expect(wantedOn({ runners: {}, privacy: { detector: RUNNER }, search: off }, stated)).toEqual([DETECTOR]);
-    expect(wantedOn({ runners: { [RUNNER]: { files: [DETECTOR] } }, privacy: { detector: RUNNER }, search: off }, stated)).toEqual([DETECTOR]);
-    expect(wantedOn({ runners, privacy: { detector: RUNNER }, search: off }, { unit: RUNNER, files: [file(MODEL, "ready")] })).toEqual([MODEL]);
+    expect(wantedOn({ runners, defaults: defaults({ hiding: at(RUNNER, DETECTOR) }), connectors: {} }, stated)).toEqual([MODEL, DETECTOR]);
+    expect(wantedOn({ runners, defaults: defaults({ search: at(RUNNER, EMBEDDER) }), connectors: {} }, stated)).toEqual([MODEL, EMBEDDER]);
+    expect(wantedOn({ runners: {}, defaults: defaults({ pictures: at(RUNNER, MODEL), text: at(RUNNER, MODEL) }), connectors: {} }, stated)).toEqual([MODEL]);
+    expect(wantedOn({ runners, defaults: defaults(), connectors: {} }, stated)).toEqual([MODEL]);
+    expect(wantedOn({ runners: {}, defaults: defaults(), connectors: {} }, stated)).toEqual([]);
+    expect(wantedOn({ runners, defaults: defaults({ hiding: at("runner-mac-mini-bb01", DETECTOR), search: "openrouter:example/embed-1" }), connectors: {} }, stated)).toEqual([MODEL]);
+    expect(wantedOn({ runners: { [RUNNER]: { files: [DETECTOR] } }, defaults: defaults({ hiding: at(RUNNER, DETECTOR) }), connectors: {} }, stated)).toEqual([DETECTOR]);
   });
 
-  it("wants meaning's file exactly while search.meaning names the runner, and only one its table lists", () => {
-    const stated = { unit: RUNNER, files: [file(MODEL, "ready"), file(EMBEDDER, "absent")] };
-    const runners = { [RUNNER]: { files: [MODEL] } };
-    const none = { detector: "off" };
-    expect(wantedOn({ runners, privacy: none, search: { meaning: RUNNER, model: EMBEDDER } }, stated)).toEqual([MODEL, EMBEDDER]);
-    expect(wantedOn({ runners, privacy: none, search: off }, stated)).toEqual([MODEL]);
-    expect(wantedOn({ runners, privacy: none, search: { meaning: "runner-mac-mini-bb01", model: EMBEDDER } }, stated)).toEqual([MODEL]);
-    expect(wantedOn({ runners, privacy: none, search: { meaning: RUNNER, model: "no-such-file" } }, stated)).toEqual([MODEL]);
+  it("wants a file a stream's pick names on the runner, and only one the runner's own table lists", () => {
+    const stated = { unit: RUNNER, files: [file(MODEL, "absent"), file(EMBEDDER, "absent")] };
+    const picked = (value: string) => ({ photos: { "llm.captions": value, "llm.range": "all" } });
+    expect(wantedOn({ runners: {}, defaults: defaults(), connectors: picked(at(RUNNER, MODEL)) }, stated)).toEqual([MODEL]);
+    expect(wantedOn({ runners: {}, defaults: defaults(), connectors: picked("default") }, stated)).toEqual([]);
+    expect(wantedOn({ runners: {}, defaults: defaults(), connectors: picked("off") }, stated)).toEqual([]);
+    expect(wantedOn({ runners: {}, defaults: defaults(), connectors: picked(at(RUNNER, "no-such-file")) }, stated)).toEqual([]);
+    expect(wantedOn({ runners: {}, defaults: defaults({ search: at(RUNNER, "no-such-file") }), connectors: {} }, stated)).toEqual([]);
   });
 });
 

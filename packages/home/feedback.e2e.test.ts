@@ -99,7 +99,7 @@ async function running(options: { keyed?: boolean; registry?: string | URL } = {
   mintPrincipal(folder, { unit: "reader-0001", scopes: ["read"], token: passes.reader, now_ms: NOW_MS });
   mintPrincipal(folder, { unit: PHONE_UNIT, kind: "phone", scopes: ["deliver", "read"], sources: [`location:local:${PHONE_UNIT}`], token: passes.phone, now_ms: NOW_MS });
   mintPrincipal(folder, { unit: MAC_UNIT, kind: "mac", scopes: ["deliver", "read"], sources: [`machine:local:${MAC_UNIT}`], token: passes.mac, now_ms: NOW_MS });
-  editSettings(root, { "privacy.detector": "off" });
+  editSettings(root, { "model.defaults.hiding": null });
   writePrepared(folder, peopleFileOf(root, at.dir), PEOPLE, {
     rows: new Map([["names", new Map([["table", { owner: { who: "p-owner", shown: "Owner Example" }, people: [{ who: "p-owner", is: "human", shown: "Owner Example", names: ["Owner Example"], accounts: [] }] } as unknown as JsonObject]])]]),
     position: "p1",

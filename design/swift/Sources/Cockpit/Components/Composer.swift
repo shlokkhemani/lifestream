@@ -472,8 +472,10 @@ struct PickChip: View, Equatable {
             face(pressed: false).reading(true)
         } else {
             Menu {
-                Section("Thinking") {
-                    MenuChoices(options: pick.levels, selection: pick.level, default: pick.defaultLevel)
+                if !pick.levels.isEmpty {
+                    Section("Thinking") {
+                        MenuChoices(options: pick.levels, selection: pick.level, default: pick.defaultLevel)
+                    }
                 }
                 Menu {
                     MenuChoices(options: pick.models, selection: pick.model, default: nil)

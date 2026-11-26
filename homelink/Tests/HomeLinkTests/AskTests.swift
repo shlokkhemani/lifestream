@@ -7,8 +7,9 @@ final class AskTests: XCTestCase {
     private var folder: URL!
     private let phone = HomeLink.Device(kind: .phone, version: "1.4.0", model: "iPhone", serial4: nil)
 
-    private static let ready = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/ask-ready.json")
+    private static func fixture(_ name: String) -> URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/" + name)
+    }
 
     override func setUpWithError() throws {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("homelink-\(UUID().uuidString)")
@@ -171,53 +172,91 @@ final class AskTests: XCTestCase {
         }
     }
 
-    func testWhetherAskCanBeAskedIsWhatTheServerSaysOfThePick() async throws {
-        let answer = try String(contentsOf: Self.ready, encoding: .utf8)
-        let named = #""model":"gpt-6-luna","name":"GPT-6 Luna","thinking":"high","models":[],"starters":[],"#
-            + #""voice":{"ready":true,"words":"Parakeet · your Mac","line":null,"caution":null,"value":"default","choices":[]},"#
-            + #""limits":{"photos":10,"photo_bytes":26214400,"voice_ms":600000}"#
+    func testTheReadyAnswerSaysWhichModelsCanAnswerAndDrawsTheirMenu() async throws {
+        let withDefault = try String(contentsOf: Self.fixture("ask-ready-default.json"), encoding: .utf8)
+        let withNone = try String(contentsOf: Self.fixture("ask-ready-no-default.json"), encoding: .utf8)
+        var unnamed = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(withDefault.utf8)) as? [String: Any])
+        unnamed["default"] = nil
         let transport = ScriptedTransport([
-            .reply(200, answer),
-            .reply(200, "{" + named + #","login":"missing","gone":true}"#),
-            .reply(200, "{" + named + #","login":"refused"}"#),
-            .reply(200, "{" + named + "}"),
-            .reply(200, "{" + named + #","login":"pending"}"#),
+            .reply(200, withDefault), .reply(200, withNone),
+            .reply(200, String(decoding: try JSONSerialization.data(withJSONObject: unnamed), as: UTF8.self)),
         ])
         let (link, pass) = try await paired("https://lifestream.example.ts.net", transport)
+
         let ready = try await link.askReady(pick: nil)
-        XCTAssertEqual(ready.model, "gpt-6.1-terra")
-        XCTAssertEqual(ready.name, "GPT-6.1 Terra")
-        XCTAssertEqual(ready.thinking, "high")
-        XCTAssertEqual(ready.login, .ready)
-        XCTAssertEqual(ready.said, "Your pick needs your Claude sign-in on your Mac. Asking GPT-6.1 Terra.")
+        XCTAssertEqual(ready.default, .init(model: "openrouter:openai/gpt-6-luna", thinking: "medium", shown: "openrouter:openai/gpt-6-luna", choose: nil))
+        XCTAssertNil(ready.said)
         XCTAssertNil(ready.gone)
-        XCTAssertEqual(ready.models.map(\.id), ["gpt-6.1-terra", "gpt-6-luna", "gpt-6-sol"])
-        XCTAssertEqual(ready.models[2].name, "GPT-6 Sol")
-        XCTAssertEqual(ready.models[2].thinking, ["low", "medium"])
-        XCTAssertEqual(ready.models[2].default, "medium")
-        XCTAssertEqual(ready.models[2].group, "ChatGPT")
-        XCTAssertEqual(ready.starters.map(\.kind), ["places", "walking", "photos"])
-        XCTAssertEqual(ready.starters[1].question, "How far did I walk today?")
-        let gone = try await link.askReady(pick: nil)
-        XCTAssertEqual(gone.login, .missing)
-        XCTAssertEqual(gone.gone, true)
-        XCTAssertNil(gone.said)
-        let refused = try await link.askReady(pick: nil)
-        XCTAssertEqual(refused.login, .refused)
-        for wrong in ["no sign-in named", "a sign-in no release knows"] {
-            do {
-                _ = try await link.askReady(pick: nil)
-                XCTFail("\(wrong) read as an answer")
-            } catch let failure as LinkFailure {
-                XCTAssertEqual(failure, .unreadable(200))
-            }
+        let luna = try XCTUnwrap(ready.models.first { $0.id == "openrouter:openai/gpt-6-luna" })
+        XCTAssertTrue(luna.ready)
+        XCTAssertEqual(luna.thinking, ["low", "medium", "high"])
+        XCTAssertEqual(luna.default, "medium")
+        XCTAssertNil(luna.photosOff)
+        XCTAssertTrue(luna.hides)
+        let local = try XCTUnwrap(ready.models.first { $0.id == "fake:fake-chat" })
+        XCTAssertEqual(local.photosOff, "Fake chat can't see photos.", "text alone: no photos, in the home's words")
+        XCTAssertFalse(local.hides, "a model that stays: its turns are not hidden")
+        let small = try XCTUnwrap(ready.models.first { $0.id == "fake:fake-small" })
+        XCTAssertEqual(small.thinking, [])
+        XCTAssertEqual(small.default, "")
+        XCTAssertEqual(ready.menu.rows.map(\.name), ["GPT-6 Luna", "Fake chat", "Fake small"], "the menu's rows: names, the home's order")
+        XCTAssertEqual(ready.menu.rows.map(\.chosen), [true, false, false])
+        XCTAssertEqual(ready.menu.more.words, "More")
+        XCTAssertEqual(ready.menu.more.use, .chat)
+        XCTAssertNil(ready.menu.off, "Chat has no Off")
+
+        let none = try await link.askReady(pick: nil)
+        XCTAssertEqual(none.default, .init(model: nil, thinking: "medium", shown: nil, choose: "Choose a model"),
+                       "no model to answer: the home says none, names no model for the chip, and gives its words")
+        XCTAssertEqual(none.said, "Chat has no default model: choose one from the menu.")
+        XCTAssertEqual(none.models.map(\.id), ready.models.map(\.id))
+        XCTAssertFalse(none.menu.rows.contains { $0.chosen }, "no default: no row is chosen")
+
+        do {
+            _ = try await link.askReady(pick: nil)
+            XCTFail("an answer with no default read as an answer")
+        } catch let failure as LinkFailure {
+            XCTAssertEqual(failure, .unreadable(200))
         }
-        XCTAssertEqual(transport.requests.map { "\($0.method) \($0.url.path)" }, Array(repeating: "GET /v1/ask", count: 5))
+        XCTAssertEqual(transport.requests.map { "\($0.method) \($0.url.path)" }, Array(repeating: "GET /v1/ask", count: 3))
         XCTAssertTrue(transport.requests.allSatisfy { $0.headers["Authorization"] == "Bearer \(pass)" })
     }
 
+    func testTheReadyAnswerNeedsNoneOfTheMembersAShippedPhoneReads() throws {
+        for name in ["ask-ready-default.json", "ask-ready-no-default.json"] {
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: Self.fixture(name))) as? [String: Any])
+            for member in ["login", "model", "name", "thinking"] { object[member] = nil }
+            let ready = try JSONDecoder().decode(HomeLink.Ask.Ready.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertEqual(ready.models.count, 3, name)
+            XCTAssertNil(ready.login, name)
+        }
+    }
+
+    func testAPhoneAtTheFloorStillReadsTheNewAnswer() throws {
+        let withDefault = try JSONDecoder().decode(ShippedReady.self, from: Data(contentsOf: Self.fixture("ask-ready-default.json")))
+        XCTAssertEqual([withDefault.model, withDefault.name, withDefault.thinking], ["openrouter:openai/gpt-6-luna", "GPT-6 Luna", "medium"])
+        XCTAssertEqual(withDefault.login, .ready)
+        XCTAssertNil(withDefault.said)
+        XCTAssertEqual(withDefault.models.first { $0.id == "fake:fake-chat" }?.photos, false)
+        XCTAssertEqual(withDefault.models.first { $0.id == "fake:fake-small" }?.photos, true)
+        XCTAssertEqual(withDefault.limits, .init(photos: 10, photoBytes: 26_214_400, voiceMs: 600_000))
+
+        let withNone = try JSONDecoder().decode(ShippedReady.self, from: Data(contentsOf: Self.fixture("ask-ready-no-default.json")))
+        XCTAssertEqual([withNone.model, withNone.name, withNone.thinking], ["openrouter:openai/gpt-6-luna", "GPT-6 Luna", "low"],
+                       "no default: the first row, at its first level")
+        XCTAssertEqual(withNone.login, .missing)
+        XCTAssertEqual(withNone.said, "Chat has no default model: choose one from the menu.")
+
+        let readyFirst = try JSONDecoder().decode(ShippedReady.self, from: Data(contentsOf: Self.fixture("ask-ready-no-default-ready.json")))
+        XCTAssertEqual(readyFirst.model, "openrouter:openai/gpt-6-luna", "no default: still the first row's strings")
+        XCTAssertEqual(readyFirst.login, .missing, "no default, a ready first row: nothing to ask with, so not ready")
+        XCTAssertEqual(readyFirst.said, "Chat has no default model: choose one from the menu.")
+        let read = try JSONDecoder().decode(HomeLink.Ask.Ready.self, from: Data(contentsOf: Self.fixture("ask-ready-no-default-ready.json")))
+        XCTAssertEqual(read.default, .init(model: nil, thinking: "medium", shown: nil, choose: "Choose a model"))
+    }
+
     func testThePickGoesWithEveryQuestionAndEveryReadinessRead() async throws {
-        let answer = try String(contentsOf: Self.ready, encoding: .utf8)
+        let answer = try String(contentsOf: Self.fixture("ask-ready-default.json"), encoding: .utf8)
         let transport = ScriptedTransport([
             .reply(200, AskLines.turn), .reply(200, AskLines.turn), .reply(200, AskLines.turn),
             .reply(200, answer), .reply(200, answer), .reply(200, answer),

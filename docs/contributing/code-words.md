@@ -93,7 +93,8 @@ Lifestream use the words in the docs' word list instead.
 | enrichment | A model's description of one item, kept by its exact input. | a photo caption |
 | work | One kind of model work a connector declares on its items, named `<connector>/<work>`. Each connector sets it with `llm.<work>`, and the level its items leave at with `privacy.<work>`. | `camera/photos` |
 | route | One model as one transport reaches it, named `<transport>:<model>`. In code it is a `ModelRoute`, never a bare `Route`, which is a connector's sign-in. What serves an ask is the one answer of `serving`: the model the person chose for that item (a row of `item_routes`), else the setting of the ask's work, within its range. | `openrouter:openai/gpt-6-luna` |
-| transport | One way the home reaches a model. | `claude`, `codex`, `openrouter`, `runner` |
+| transport | One way the home reaches a model. A person reads it as a connection: an account or an address that lists its models, each with its abilities (what it takes in and gives back, whether it calls tools, how much it holds, its thinking levels). | `claude`, `codex`, `openrouter`, `runner`, `address` |
+| use | One place Lifestream uses a model, with the need a model must meet for it (`MODEL_USES`, `packages/model/uses.ts`): the three a work declares and three of the home's own. `unfit` (`fit.ts`) says whether a model fits a use, and if not, why. Each use has one default, `model.defaults.<use>`. | `pictures`, `audio`, `text`, `chat`, `search`, `hiding` |
 | range | How far back a connector's model work reaches (`llm.range`). Its start is the first day an ask is sent for. | thirty days before the connector was set up |
 | call | One process that sends one model request and writes the ledger. The home starts one for each request. | |
 | ledger | The file `replies/replies.db`: every model request, attempt and reply. It is never rebuilt. | |

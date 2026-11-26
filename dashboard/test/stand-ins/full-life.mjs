@@ -7,7 +7,7 @@ import { crc32, deflateSync } from 'node:zlib';
 import { scene } from '../../public/kit-gallery-scenes.js';
 import { answerPicture, PICTURE_ROUTE } from './pictures.mjs';
 import { clockFor } from './clock.mjs';
-import { ASK_FILES } from './ask-ready.mjs';
+import { askReady } from './ask-ready.mjs';
 
 export const FULL_DAY = '2026-10-17';
 export const FULL_WORDS = 'river';
@@ -409,7 +409,7 @@ export async function fullLife({ door, people: shapePeople = list => list }) {
         { unit: 'macbook-pro-0001', name: 'MacBook Pro', kind: 'mac', retired: false, health: well('Recording'), streams: [] },
         { unit: 'iphone-aa01', name: 'iPhone', kind: 'phone', retired: false, health: well('Sent 2 minutes ago'), streams: [] }] });
     }
-    if (path === '/v1/ask') return json({ ...ASK_FILES, login: 'ready', model: 'synthetic-terra', group: 'ChatGPT' });
+    if (path === '/v1/ask') return json(askReady([{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['high'], default: 'high', group: 'ChatGPT' }]));
     if (path === '/v1/ask/chats') return json({ chats: [] });
     if (path === '/v1/where' && url.searchParams.get('from') === FULL_DAY && url.searchParams.get('to') === FULL_DAY) {
       return json({ position, zone: ZONE, day_start_hour: 4, from_ms: window.start_ms, to_ms: window.end_ms, pieces });

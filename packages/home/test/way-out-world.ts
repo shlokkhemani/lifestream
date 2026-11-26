@@ -19,7 +19,7 @@ export const PEOPLE: NameTable = {
   ],
 };
 
-const PRIVACY: PrivacySettings = { level: "all", chat: "all", detector: "runner-macbook-pro-0001", links: "tokens", always: [], never: [] };
+const PRIVACY: PrivacySettings = { level: "all", chat: "all", links: "tokens", always: [], never: [] };
 
 export const WORDS: Readonly<Record<string, DetailType>> = { "Example Street": "address", "Example Cafe": "place", "4111 1111 1111 1111": "number" };
 

@@ -5,15 +5,17 @@ import { HOST_STATE, REPORT } from '../public/kit-gallery-report.js';
 import { MODELS } from '../public/kit-gallery-llm.js';
 import { detailOf, OPENED } from '../public/ui/connectors/dialog.js';
 import { detailMarkup } from '../public/ui/connectors/detail.js';
-import { GROUPS, NOTES, savedAct, settingsAt, settingsDetail, TYPED } from '../public/ui/connectors/settings.js';
+import { ENTRIES, NO_SETTINGS, NOTES, savedAct, settingsAt, settingsDetail, TYPED } from '../public/ui/connectors/settings.js';
+import { SETTINGS_INDEX } from '../public/settings-index.js';
+import { SETTINGS_ANSWERS } from '../public/kit-gallery-settings.js';
 import { STATUS_UNREAD } from '../public/ui/connectors/settings-pages.js';
 import { STATES as REACH_STATES } from '../public/kit-gallery-reach.js';
 import { AT_REST } from '../public/ui/connectors/view.js';
 import { FLOWS } from '../public/lib/hash.js';
-import { meaningAct, meaningOn, meaningParts, MEANING_BUSY, MEANING_COST, MEANING_EXAMPLE } from '../public/ui/connectors/settings-search.js';
+import { meaningParts, MEANING_BUSY, MEANING_LINE } from '../public/ui/connectors/settings-search.js';
 import { LACKS, SCREEN_EVERY, workShown } from '../public/ui/connectors/changes.js';
 import { keyOf, movesMeaning, movesPrivacy } from '../public/ui/connectors/pending.js';
-import { SETTINGS_MEANING } from '../public/ui/connectors/settings.js';
+import { SETTINGS_MEANING, SETTINGS_MODELS } from '../public/ui/connectors/settings.js';
 import { NO_CHANGES, partsOf } from '../public/ui/onboarding/view.js';
 import { sessionOf } from '../public/ui/flows/model.js';
 import { STATE_OFF, STATE_ON } from './fixtures/screen.mjs';
@@ -21,17 +23,27 @@ import { STATE_OFF, STATE_ON } from './fixtures/screen.mjs';
 /** @typedef {import('../public/ui/connectors/dialog.js').Detail} Detail */
 /** @typedef {import('../public/lib/host.js').HostState} HostState */
 
-const PAGES = GROUPS.flatMap(group => group.pages);
-const OWN = PAGES.filter(page => page.mac).map(page => page.id);
+const PAGES = ENTRIES;
+const OWN = PAGES.filter(page => page.host).map(page => page.id);
 const ELSEWHERE = { ...HOST_STATE, folder: null };
 const AWAY = { ...HOST_STATE, reach: REACH_STATES.held };
 
 /**
  * @param {string} id
- * @param {{ state?: HostState | null, report?: import('../public/types.js').StreamsReport | null, opened?: Partial<typeof OPENED>, query?: string, unread?: boolean, screen?: { read: any, failed: string } }} [read]
+ * @param {{ state?: HostState | null, report?: import('../public/types.js').StreamsReport | null, opened?: Partial<typeof OPENED>, query?: string, unread?: boolean, screen?: { read: any, failed: string }, answers?: import('../public/ui/connectors/settings.js').SettingsReads, models?: typeof MODELS }} [read]
  */
-const at = (id, { state = HOST_STATE, report = REPORT, opened = {}, query = '', unread = false, screen = undefined } = {}) => settingsDetail({ report,
-  models: MODELS, failed: '', state, id, opened: { ...OPENED, ...opened }, subscriptions: null, query, unread, screen });
+const at = (id, { state = HOST_STATE, report = REPORT, opened = {}, query = '', unread = false, screen = undefined, answers = SETTINGS_ANSWERS, models = MODELS } = {}) => settingsDetail({ report,
+  models, failed: null, state, id, opened: { ...OPENED, ...opened }, subscriptions: null, query, unread, screen, answers });
+const SEARCH_OFF = { ...MODELS, uses: MODELS.uses.map(use => use.use !== 'search' ? use
+  : { ...use, value: null, words: 'Off', line: null, menu: { ...use.menu, rows: use.menu.rows.map(row => ({ ...row, chosen: false })),
+    local: use.menu.local && { ...use.menu.local, rows: use.menu.local.rows.map(row => ({ ...row, chosen: false })) },
+    off: use.menu.off && { ...use.menu.off, chosen: true } } }) };
+/**
+ * @param {import('../public/pages.js').SettingsEnd | null} end
+ * @returns {import('../public/ui/connectors/settings.js').SettingsReads}
+ */
+const advancedWith = end => ({ ...SETTINGS_ANSWERS, pages: { advanced: { drawn: null, read: { position: '1:0', today: REPORT.day, id: 'advanced',
+  title: 'Advanced', line: null, parts: [{ label: null, line: null, rows: [{ id: 'model-cap', label: 'Model calls at once', line: null, end }] }] } } } });
 /** @param {Detail} detail */
 const rowsOf = detail => detail.parts.flatMap(part => part.panel?.rows ?? []);
 /**
@@ -62,6 +74,28 @@ test('P1: every page draws; the Mac\'s own neither listed nor drawn in a browser
   assert.deepEqual(listed(at('settings')), PAGES.map(page => page.id));
   assert.deepEqual(listed(at('settings', { state: null })), PAGES.map(page => page.id).filter(id => !OWN.includes(id)));
   assert.ok(PAGES.some(page => page.id === 'privacy'), 'Privacy is listed, under Models');
+  assert.deepEqual(SETTINGS_INDEX.mac.map(group => [group.label, group.entries.map(entry => entry.label)]), [
+    ['Lifestream', ['General', 'Storage', 'Day and time', 'Recovery key']], ['Devices', ['This Mac', 'iPhone', 'Chrome extension']],
+    ['Models', ['AI models', 'Privacy', 'Search by meaning']], ['App', ['Appearance', 'Updates', 'Advanced']]]);
+});
+
+test('P1: with no home, the list is the skeleton whole, and Recovery key, This Mac and Updates open', () => {
+  const away = { state: { ...HOST_STATE, reach: REACH_STATES.unreachable }, report: null, unread: true, answers: NO_SETTINGS };
+  const listed = at('settings', away)?.nav?.groups.flatMap(group => group.items.map(item => [item.id, item.label]));
+  assert.deepEqual(listed, PAGES.map(page => [page.id, page.label]), 'each entry by its own label, none named by the home');
+  for (const page of PAGES) assert.doesNotThrow(() => detailMarkup(/** @type {Detail} */ (at(`settings/${page.id}`, away)), AT_REST), page.id);
+  for (const page of ['recovery', 'mac', 'updates']) assert.ok(rowsOf(/** @type {Detail} */ (at(`settings/${page}`, away))).length > 0, page);
+});
+
+test('P1: the live answer names an entry and lights its dot; an id the skeleton lacks is left out', () => {
+  const live = { ...SETTINGS_ANSWERS.live, position: '1:0', today: REPORT.day, you: null, devices: [], removed: '0 removed',
+    values: [{ id: 'iphone', label: 'iPhones', value: null, signal: /** @type {const} */ ('needs-you') },
+      { id: 'nowhere', label: 'Nowhere', value: null, signal: /** @type {const} */ ('needs-you') }] };
+  const items = at('settings/iphone', { answers: { ...SETTINGS_ANSWERS, live } })?.nav?.groups.flatMap(group => group.items) ?? [];
+  assert.deepEqual(items.filter(item => item.id === 'iphone').map(item => [item.label, item.dot]), [['iPhones', true]]);
+  assert.equal(at('settings/iphone', { answers: { ...SETTINGS_ANSWERS, live } })?.name, 'iPhones');
+  assert.equal(items.some(item => item.label === 'Nowhere'), false);
+  assert.deepEqual(items.filter(item => item.id === 'mac').map(item => item.label), ['This Mac']);
 });
 
 test('P2: the route opens its page at its row; the old ids open nothing', () => {
@@ -77,7 +111,7 @@ test('P2: the route opens its page at its row; the old ids open nothing', () => 
 
 test('P3: reading, a browser, a home that does not answer, a Mac that does not hold it', () => {
   for (const page of ['home', 'time', 'iphone', 'chrome', 'advanced']) {
-    const reading = /** @type {Detail} */ (at(`settings/${page}`, { report: null }));
+    const reading = /** @type {Detail} */ (at(`settings/${page}`, { report: null, answers: NO_SETTINGS }));
     assert.equal(reading.reading, true, page);
     assert.deepEqual(reading.parts, [], page);
     assert.equal(reading.note, '', page);
@@ -126,17 +160,26 @@ test('P4: each control sends its act', () => {
   assert.deepEqual(/** @type {any} */ (rowOf(paused, 'Pause Lifestream')?.end)?.toggle.do, { host: { act: 'resume', target: 'home' } });
   assert.ok(actsOf(home).some(each => each.host?.act === 'resume' && each.host.target === REPORT.paused[0].target));
   const cap = /** @type {any} */ (rowOf(/** @type {Detail} */ (at('settings/advanced')), 'Model calls at once')?.end).menu;
-  const { model_cap_default: fallback } = REPORT.home.settings;
   for (const choice of cap.choices) {
-    assert.deepEqual(choice.do, { host: { act: 'home-setting', key: 'model.cap', value: Number(choice.words) === fallback ? null : Number(choice.words) } });
-    assert.equal(choice.default, Number(choice.words) === fallback);
+    assert.deepEqual(choice.do, { host: { act: 'home-setting', key: 'model.cap', value: Number(choice.words) } }, 'the value as picked');
   }
-  assert.ok(cap.choices.some((/** @type {any} */ each) => each.chosen && Number(each.words) === REPORT.home.settings.model_cap));
+  const eight = cap.choices.find((/** @type {any} */ each) => each.words === '8');
+  assert.ok(eight.default && eight.chosen, 'the gallery holds 8, the default');
+  assert.deepEqual(eight.do, { host: { act: 'home-setting', key: 'model.cap', value: 8 } }, 'picking the default sends it, never null');
+  assert.equal(cap.words, '8');
   assert.equal(cap.busy, 'home-setting:model.cap');
-  const odd = { ...REPORT, home: { ...REPORT.home, settings: { ...REPORT.home.settings, model_cap: 3, model_cap_default: 12 } } };
-  const offered = /** @type {any} */ (rowOf(/** @type {Detail} */ (at('settings/advanced', { report: odd })), 'Model calls at once')?.end).menu.choices;
-  assert.ok(offered.some((/** @type {any} */ each) => each.words === '3' && each.chosen));
-  assert.ok(offered.some((/** @type {any} */ each) => each.words === '12' && each.default));
+  const choices = [3, 12].map(value => ({ words: String(value), value, chosen: value === 3, default: value === 12 }));
+  const odd = /** @type {any} */ (rowOf(/** @type {Detail} */ (at('settings/advanced', { answers: advancedWith({ kind: 'choice', key: 'model.cap', choices }) })),
+    'Model calls at once')?.end).menu;
+  assert.deepEqual(odd.choices.map((/** @type {any} */ each) => [each.words, each.chosen, each.default]), [['3', true, false], ['12', false, true]]);
+  const elsewhere = rowOf(/** @type {Detail} */ (at('settings/advanced', { answers: advancedWith({ kind: 'choice', key: 'door.port', choices }) })),
+    'Model calls at once');
+  assert.deepEqual(elsewhere?.end, { words: '3' }, 'a key the host cannot set: its chosen value in words');
+  assert.deepEqual(rowOf(/** @type {Detail} */ (at('settings/advanced', { state: null })), 'Model calls at once')?.end, { words: '8' },
+    'in a browser: the value in words');
+  const unknown = rowOf(/** @type {Detail} */ (at('settings/advanced', { answers: advancedWith(/** @type {any} */ ({ kind: 'slider', key: 'model.cap' })) })),
+    'Model calls at once');
+  assert.deepEqual([unknown?.label, unknown?.end], ['Model calls at once', null], 'an end of a kind it does not know: label and line alone');
   const macs = REPORT.devices.filter(each => each.kind === 'mac' && !each.retired);
   assert.ok(macs.length > 1, 'the gallery holds another Mac');
   for (const mac of macs) {
@@ -163,24 +206,28 @@ test('P4: each control sends its act', () => {
   assert.ok(rowsOf(/** @type {Detail} */ (at('settings/updates'))).length > 1);
 });
 
-test('P5: Day and time and Advanced say the home\'s settings', () => {
-  const settings = { ...REPORT.home.settings, zone: 'Asia/Kolkata', day_start_hour: 5, helpers: /** @type {const} */ ('auto'),
-    helpers_resolved: 8, port: 4680, lan_port: 4682 };
-  const report = { ...REPORT, home: { ...REPORT.home, settings } };
-  const time = /** @type {Detail} */ (at('settings/time', { report }));
-  assert.match(/** @type {any} */ (rowOf(time, 'Time zone')?.end).words, /^Asia\/Kolkata · GMT\+5:30$/u);
+test('P5: Day and time and Advanced say the home\'s answers, a clock in the Mac\'s words', () => {
+  const start = new Date(2026, 9, 28, 5, 0).getTime();
+  const time = /** @type {Detail} */ (at('settings/time', { answers: { ...SETTINGS_ANSWERS, pages: { time: { drawn: null, read: {
+    position: '1:0', today: REPORT.day, id: 'time', title: 'Day and time', line: null, parts: [{ label: null, line: null, rows: [
+      { id: 'zone', label: 'Time zone', line: null, end: { kind: 'value', value: [{ kind: 'words', words: 'Asia/Kolkata · GMT+5:30' }], signal: null } },
+      { id: 'day-start', label: 'A day starts at', line: null, end: { kind: 'value', value: [{ kind: 'time', time: { kind: 'clock', at_ms: start } }],
+        signal: null } }] }] } } } } }));
+  assert.equal(/** @type {any} */ (rowOf(time, 'Time zone')?.end).words, 'Asia/Kolkata · GMT+5:30');
   assert.equal(/** @type {any} */ (rowOf(time, 'A day starts at')?.end).words, '5:00 AM');
-  const advanced = /** @type {Detail} */ (at('settings/advanced', { report }));
-  assert.equal(/** @type {any} */ (rowOf(advanced, 'Background work')?.end).words, 'Automatic · 8');
+  const advanced = /** @type {Detail} */ (at('settings/advanced'));
+  assert.deepEqual(advanced.parts.map(part => part.label), ['', 'Network']);
+  assert.equal(/** @type {any} */ (rowOf(advanced, 'Background work')?.end).words, 'Automatic · 6');
   assert.equal(/** @type {any} */ (rowOf(advanced, 'Port')?.end).words, '4680');
   assert.equal(/** @type {any} */ (rowOf(advanced, 'Local network port')?.end).words, '4682');
-  assert.equal(/** @type {any} */ (rowOf(/** @type {Detail} */ (at('settings/advanced')), 'Background work')?.end).words,
-    String(REPORT.home.settings.helpers));
-  const { settings: _, ...older } = REPORT.home;
   for (const page of ['time', 'advanced']) {
-    const detail = /** @type {Detail} */ (at(`settings/${page}`, { report: /** @type {any} */ ({ ...REPORT, home: older }) }));
+    const detail = /** @type {Detail} */ (at(`settings/${page}`, { answers: NO_SETTINGS }));
     assert.equal(detail.reading, true, page);
     assert.doesNotThrow(() => detailMarkup(detail, AT_REST), page);
+    const failed = /** @type {Detail} */ (at(`settings/${page}`, { answers: { live: null, pages: { [page]: { read: null,
+      drawn: { kind: 'lack', words: null, retry: true } } } } }));
+    assert.equal(failed.reading, false, page);
+    assert.ok(actsOf(failed).some(act => act.reread === 'settings'), `${page}: Try again reads the settings again`);
   }
 });
 
@@ -217,10 +264,9 @@ test('P8: every dialog hash the Mac app sends draws its page', () => {
   }
 });
 
-test('P9: Search by meaning: off by default, every part a setting, turning off asked once more while it holds data', () => {
-  const RUNNER = `runner-${HOST_STATE.unit}`;
+test('P9: Search by meaning: its model is AI models\' Search by meaning, its power a setting, its index\'s state as the home reads it', () => {
   const meaning = (/** @type {any} */ read, more = {}) => /** @type {Detail} */ (at(SETTINGS_MEANING, { screen: { read, drawn: null }, ...more }));
-  assert.ok(GROUPS.find(group => group.label === 'Models')?.pages.some(page => page.id === 'meaning'));
+  assert.ok(SETTINGS_INDEX.mac.find(group => group.label === 'Models')?.entries.some(page => page.id === 'meaning'));
   assert.deepEqual(settingsAt(SETTINGS_MEANING), { page: 'meaning', row: '' });
   assert.equal(at(SETTINGS_MEANING)?.reading, true);
   assert.deepEqual(at(SETTINGS_MEANING)?.parts, []);
@@ -229,21 +275,25 @@ test('P9: Search by meaning: off by default, every part a setting, turning off a
   assert.deepEqual(failed.parts, []);
   assert.ok(detailMarkup(failed, AT_REST).includes(LACKS.screen));
   assert.ok(actsOf(failed).some(act => act.reread === 'screen'), 'Try again reads the screen search\'s state again');
-  const off = meaning(STATE_OFF);
-  const toggle = /** @type {any} */ (rowOf(off, 'Search by meaning')?.end).toggle;
-  assert.equal(toggle.on, false);
-  assert.deepEqual(toggle.do, { host: { act: 'home-setting', settings: { 'search.meaning': RUNNER } } });
-  assert.equal(/** @type {any} */ (rowOf(off, 'Model')?.end).menu.words, 'EmbeddingGemma 2');
-  assert.match(rowOf(off, 'Model')?.line ?? '', /303 MB/u);
-  assert.equal(rowOf(off, 'Model')?.tag, 'Runs on this Mac only');
+  const search = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'search'));
+  const model = /** @type {any} */ (rowOf(meaning(STATE_ON), 'Model'));
+  assert.deepEqual([model.end.words, model.line, model.tag], [search.words, MEANING_LINE, 'Runs on a Mac only'], 'the home\'s words of the pick');
+  assert.deepEqual(model.end.acts.map((/** @type {any} */ act) => [act.label, act.do]), [['Change', { open: SETTINGS_MODELS }]],
+    'the pick is made on AI models');
+  const off = meaning(STATE_OFF, { models: SEARCH_OFF });
+  const none = /** @type {any} */ (rowOf(off, 'Model'));
+  assert.deepEqual([none.end.words, none.end.acts.map((/** @type {any} */ act) => act.label)], ['Off', ['Choose']], 'on or off as AI models\' Search by meaning holds it');
+  assert.equal(rowOf(off, 'Search by meaning'), undefined, 'no toggle of its own');
   assert.equal(/** @type {any} */ (rowOf(off, 'When it runs')?.end).menu.words, 'Only when plugged in and idle');
-  assert.equal(rowOf(off, 'Delete meaning data'), undefined);
   assert.equal(rowOf(off, 'Searchable'), undefined);
-  assert.deepEqual(actsOf(off).flatMap(each => 'host' in each ? [each.host] : []),
-    [{ act: 'home-setting', settings: { 'search.meaning': RUNNER } }]);
+  assert.deepEqual(actsOf(off).flatMap(each => 'host' in each ? [each.host] : []), [], 'no write but the power choice');
   const choices = (/** @type {string} */ label) => /** @type {any} */ (rowOf(off, label)?.end).menu.choices.map((/** @type {any} */ each) => each.do.host);
-  assert.deepEqual(choices('Model'), [{ act: 'home-setting', settings: { 'search.meaning.model': 'embeddinggemma-2-q8-512' } }]);
   assert.deepEqual(choices('When it runs'), [{ act: 'home-setting', settings: { 'search.meaning.power': 'plugged-idle' } }]);
+  assert.equal(/** @type {any} */ (rowOf(off, 'When it runs')?.end).menu.busy, MEANING_BUSY);
+  const bare = meaningParts({ state: STATE_OFF, failed: false, acts: true, model: null, choose: { open: SETTINGS_MODELS } });
+  const unread = /** @type {any} */ (bare.parts[0].panel?.rows.find(row => row.label === 'Model'));
+  assert.deepEqual([unread.end.words, unread.end.acts[0].label], ['Off', 'Choose'], 'before AI models is read: off, to choose');
+  assert.equal(bare.reading, false);
   const on = meaning(STATE_ON);
   const searchable = /** @type {any} */ (rowOf(on, 'Searchable'));
   assert.deepEqual(searchable.progress, { label: 'Searchable so far', share: 0.62, words: '62% of your screen, newest first' });
@@ -266,30 +316,17 @@ test('P9: Search by meaning: off by default, every part a setting, turning off a
     'Waiting for macbook-pro-0001 to be idle. 3 could not be read.');
   assert.equal(rowOf(meaning({ ...STATE_ON, embedded: 0, named: 0, queued: 0, waits: null, waits_line: null }), 'Searchable')?.line,
     'It starts once this Mac has recorded your screen.');
-  const flip = /** @type {any} */ (rowOf(on, 'Search by meaning'));
-  assert.deepEqual(flip.end.toggle.do, { ask: 'meaning-off' });
-  assert.equal(flip.confirm.question, 'Turn off meaning search?');
-  assert.match(flip.confirm.detail, /46 MB/u);
-  assert.deepEqual(flip.confirm.yes.do, { host: { act: 'home-setting', settings: { 'search.meaning': 'off' } } });
-  assert.doesNotMatch(detailMarkup(on, AT_REST), /Turn off meaning search\?/u, 'the question waits for the press');
-  assert.match(detailMarkup(on, { ...AT_REST, asking: 'meaning-off' }), /Turn off meaning search\?/u);
-  assert.equal(rowOf(on, 'Delete meaning data'), undefined);
-  const empty = /** @type {any} */ (rowOf(meaning({ ...STATE_ON, vectors_bytes: 0 }), 'Search by meaning'));
-  assert.deepEqual(empty.end.toggle.do, { host: { act: 'home-setting', settings: { 'search.meaning': 'off' } } });
-  assert.equal(empty.confirm, null);
-  assert.equal(rowOf(meaning({ ...STATE_OFF, vectors_bytes: 1_000_000 }), 'On disk'), undefined);
+  assert.equal(rowOf(meaning({ ...STATE_OFF, vectors_bytes: 1_000_000 }, { models: SEARCH_OFF }), 'On disk'), undefined);
   for (const state of [null, AWAY, ELSEWHERE]) {
     const away = meaning(STATE_ON, { state });
-    assert.deepEqual(actsOf(away).filter(each => 'host' in each || 'ask' in each), [], String(state?.unit));
-    assert.equal(/** @type {any} */ (rowOf(away, 'Search by meaning')?.end).words, 'On');
+    assert.deepEqual(actsOf(away).filter(each => 'host' in each), [], String(state?.unit));
+    assert.deepEqual([/** @type {any} */ (rowOf(away, 'Model')?.end).words, /** @type {any} */ (rowOf(away, 'Model')?.end).acts],
+      [search.words, []]);
   }
-  const write = /** @type {any} */ (meaningAct(true, RUNNER));
-  assert.equal(keyOf(write), MEANING_BUSY);
-  assert.equal(keyOf(/** @type {any} */ (meaningAct(false, null))), MEANING_BUSY);
-  assert.equal(meaningAct(true, null), null, 'no runner, no turning on');
-  assert.equal(movesMeaning(write), true);
-  assert.equal(movesPrivacy(write, null), false);
-  assert.equal(meaningParts({ state: STATE_OFF, failed: false, acts: true, runner: RUNNER }).reading, false);
+  const pick = { act: /** @type {const} */ ('models'), do: /** @type {const} */ ('default'), use: /** @type {const} */ ('search'), model: 'none' };
+  assert.equal(movesMeaning(pick), true, 'AI models\' pick reads the screen\'s state again');
+  assert.equal(movesPrivacy(pick, null), false);
+  assert.equal(movesMeaning({ ...pick, use: 'text' }), false);
   assert.equal(SCREEN_EVERY, 10_000);
   assert.equal(workShown({ ...STATE_OFF, vectors_bytes: 1_000_000 }, true), false);
   assert.equal(workShown(STATE_OFF, true), true);
@@ -299,7 +336,7 @@ test('P9: Search by meaning: off by default, every part a setting, turning off a
   assert.equal(workShown(STATE_OFF, false), false);
 });
 
-test('P10: the setup’s record screen never offers Search by meaning, which stays in Settings with its act', () => {
+test('P10: the setup’s record screen never offers Search by meaning, which stays in Settings', () => {
   const session = /** @type {any} */ ({ ...sessionOf(true, 'dialog'), picked: new Map(), dialog: null,
     how: false, changes: { ...NO_CHANGES, busy: new Set(), screen: { read: STATE_ON, drawn: null, failed: '' } }, nameTyped: null,
     span: null, cost: { read: null, failed: '' }, saved: false, recovery: null,
@@ -308,25 +345,19 @@ test('P10: the setup’s record screen never offers Search by meaning, which sta
   const body = partsOf('record', seen, session, null).body ?? '';
   assert.match(body, /Screen/u);
   assert.doesNotMatch(body, /Search by meaning|data-ob="meaning"/u);
-  assert.match(MEANING_EXAMPLE, /^Ask for /u);
-  assert.match(MEANING_COST, /303 MB/u);
-  assert.deepEqual(meaningAct(true, `runner-${HOST_STATE.unit}`), { act: 'home-setting', settings: { 'search.meaning': `runner-${HOST_STATE.unit}` } });
-  assert.deepEqual(meaningAct(false, null), { act: 'home-setting', settings: { 'search.meaning': 'off' } });
 });
 
 test('P11: the door\'s own screen states draw Search by meaning, on and off', () => {
   const door = JSON.parse(readFileSync(new URL('./fixtures/screen-door.json', import.meta.url), 'utf8'));
-  const meaning = (/** @type {any} */ read) => /** @type {Detail} */ (at(SETTINGS_MEANING, { screen: { read, drawn: null } }));
+  const meaning = (/** @type {any} */ read, models = MODELS) => /** @type {Detail} */ (at(SETTINGS_MEANING, { screen: { read, drawn: null }, models }));
   const on = meaning(door.state);
-  assert.equal(meaningOn(door.state), true);
-  assert.equal(/** @type {any} */ (rowOf(on, 'Search by meaning')?.end).toggle.on, true);
+  assert.equal(workShown(door.state, false), true, 'the door\'s answer once on shows its work');
   assert.equal(rowOf(on, 'Searchable')?.line, 'Caught up with your screen.');
   assert.deepEqual(/** @type {any} */ (rowOf(on, 'Searchable')?.end), { words: 'All of your screen', done: true });
   assert.ok(rowOf(on, 'On disk'));
-  assert.deepEqual(/** @type {any} */ (rowOf(on, 'Search by meaning')?.end).toggle.do, { ask: 'meaning-off' });
-  const off = meaning(door.state_off);
-  assert.equal(meaningOn(door.state_off), false);
-  assert.equal(/** @type {any} */ (rowOf(off, 'Search by meaning')?.end).toggle.on, false);
+  const off = meaning(door.state_off, SEARCH_OFF);
+  assert.equal(workShown(door.state_off, true), true, 'the door\'s answer once off kept nothing');
+  assert.ok(rowOf(off, 'Model'));
   assert.equal(rowOf(off, 'Searchable'), undefined);
   assert.equal(rowOf(off, 'On disk'), undefined);
 });

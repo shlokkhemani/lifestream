@@ -9,7 +9,8 @@ import { createViewer } from '../server.mjs';
 import { openDoor } from '../lib/door.mjs';
 import { parseRoute, routeHash } from '../public/lib/hash.js';
 import { SECTIONS } from '../public/ui/sections.js';
-import { asking, chatGroups, citedSources, failedSentence, modelSections, momentOf, seenOf, shownRefs, turnStamp, turnsOf, withEvent } from '../public/ui/ask/turns.js';
+import { asking, chatGroups, citedSources, failedSentence, momentOf, seenOf, shownRefs, turnStamp, turnsOf, withEvent } from '../public/ui/ask/turns.js';
+import { menuLines } from '../public/lib/model-menu.js';
 import { askAnswer, askQuestion, askTurn, setIcons } from '../public/ui/kit/index.js';
 import { esc } from '../public/lib/html.js';
 import { Marked } from 'marked';
@@ -127,7 +128,7 @@ test('A2, A3, A5, A7: stop, what a pick asks, the list, a conversation and its e
     if (request.url?.endsWith('/events')) return void response.writeHead(204).end();
     response.writeHead(200, { 'content-type': 'application/json' });
     if (request.url === '/v1/ask/stop') return void response.end(JSON.stringify({ stopped: true }));
-    if (request.url?.startsWith('/v1/ask?') || request.url === '/v1/ask') return void response.end(JSON.stringify({ model: 'synthetic-terra', login: 'ready' }));
+    if (request.url?.startsWith('/v1/ask?') || request.url === '/v1/ask') return void response.end(JSON.stringify({ default: { model: 'synthetic-terra', thinking: 'low' } }));
     if (request.url?.startsWith('/v1/ask/chats?')) {
       return void response.end(JSON.stringify({ chats: [{ chat: CHAT, title: 'The beach', first_ms: 1, last_ms: 2, messages: 2 }] }));
     }
@@ -135,7 +136,7 @@ test('A2, A3, A5, A7: stop, what a pick asks, the list, a conversation and its e
   });
   const at = await dashboard(t, door.url);
   assert.deepEqual(await (await post(at, '/api/ask/stop', { chat: CHAT })).json(), { stopped: true });
-  assert.equal((await (await fetch(`${at}/api/ask?model=synthetic-luna&thinking=low`)).json()).login, 'ready');
+  assert.deepEqual((await (await fetch(`${at}/api/ask?model=synthetic-luna&thinking=low`)).json()).default, { model: 'synthetic-terra', thinking: 'low' });
   assert.equal((await fetch(`${at}/api/ask`)).status, 200);
   assert.equal((await (await fetch(`${at}/api/ask/chats?after=next-page`)).json()).chats[0].title, 'The beach');
   assert.equal((await (await fetch(`${at}/api/ask/chat?chat=${CHAT}`)).json()).chat, CHAT);
@@ -316,11 +317,15 @@ test('A10: a turn folds its events; a conversation reads into turns; citations n
   const claudeOut = 'Chat needs your Claude sign-in on your Mac.';
   assert.equal(failedSentence({ ...failed, error: claudeOut, failed: 'login' }), claudeOut);
   assert.equal(failedSentence({ ...failed, failed: 'other' }), 'Lost the connection to Chat.');
-  const picker = [{ id: 'claude/opus', name: 'Opus', group: 'Claude' }, { id: 'claude/haiku', name: 'Haiku', group: 'Claude' },
-    { id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra', group: 'ChatGPT' }];
-  assert.deepEqual(modelSections(picker), [{ group: 'Claude', choices: [{ id: 'claude/opus', name: 'Opus' }, { id: 'claude/haiku', name: 'Haiku' }] },
-    { group: 'ChatGPT', choices: [{ id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra' }] }]);
-  assert.deepEqual(modelSections([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]), [{ group: '', choices: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }] }]);
+  const row = (/** @type {string} */ value, /** @type {string} */ name, account = /** @type {string | null} */ (null), chosen = false) => ({ value, name, account, chosen });
+  const menu = { default: null, rows: [row('claude:opus', 'Opus', 'Claude', true), row('openrouter:opus', 'Opus', 'OpenRouter')],
+    local: { label: 'Local', rows: [row('runner:mac/qwen', 'Qwen')] }, more: { words: 'More', use: /** @type {const} */ ('chat'), work: null }, off: null };
+  /** @param {import('../public/lib/model-menu.js').MenuLine[]} lines */
+  const drawn = lines => lines.map(line => 'more' in line ? ['more', line.more, line.parted] : [line.row.value, line.head, line.parted]);
+  assert.deepEqual(drawn(menuLines(menu)), [['claude:opus', '', false], ['openrouter:opus', '', false], ['runner:mac/qwen', 'Local', true], ['more', 'More', false]]);
+  assert.deepEqual(drawn(menuLines({ ...menu, local: null, default: row('default', 'Default · Opus', null, true), off: row('off', 'Off') })),
+    [['default', '', false], ['claude:opus', '', false], ['openrouter:opus', '', true], ['more', 'More', false], ['off', '', false]]);
+  assert.deepEqual(drawn(menuLines({ rows: [row('claude:opus', 'Opus')], local: null })), [['claude:opus', '', false]]);
   const [restarted] = turnsOf({ chat: CHAT, title: 'Tickets', messages: [
     { chat: CHAT, n: 1, at_ms: 1, role: 'user', text: 'Who got the tickets?' },
     { ...kept, n: 2, text: 'Part', end: 'failed', error: 'Chat restarted before this answer finished.', failed: 'restart' },

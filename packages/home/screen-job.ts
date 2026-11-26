@@ -9,6 +9,7 @@ import { screenQueue } from "./marking.js";
 import { meaningSettingsOf, ScreenIndex, screenFileOf, screenProgress, screenStanding, SEGMENT_MS, type EmbedWaits, type ScreenStanding } from "./screen-index.js";
 import { bucketOf, erasedStretches, erasedTexts, frameSources, screenRoles, ViewScreenSource, withoutRecords } from "./screen-source.js";
 import { searchFileOf, statementName } from "./search-index.js";
+import { meaningModel } from "./search-route.js";
 
 
 export const SCREEN_READS = "1";
@@ -78,8 +79,8 @@ async function* screenRun(env: HelperEnv, from: IndexCursor): AsyncGenerator<Ind
       const stated = look.statementAt(at.seq);
       return stated !== undefined && statementName(stated) === at.statement;
     };
-    const meaning = env.settings.search.meaning === "off" ? false : env.settings.search.model;
-    index = ScreenIndex.write(env.folder, screenFileOf(searchFileOf(env.folder.root, env.machine)), { days, meaning, settings: meaningSettingsOf(env.settings.search) }, fits);
+    const chosen = meaningModel(env.settings);
+    index = ScreenIndex.write(env.folder, screenFileOf(searchFileOf(env.folder.root, env.machine)), { days, meaning: chosen?.file ?? false, settings: meaningSettingsOf(chosen) }, fits);
   } finally {
     look.close();
   }
@@ -180,7 +181,7 @@ async function* screenRun(env: HelperEnv, from: IndexCursor): AsyncGenerator<Ind
       result.more = embeds;
     } else if (!result.more && index.meaning) {
       const model = index.vectorModel()!;
-      const embedder = openEmbedder({ runner: () => env.settings.search.meaning, model: () => model, drive: env.drive() });
+      const embedder = openEmbedder({ meaning: () => { const chosen = meaningModel(env.settings); return chosen === null ? null : { unit: chosen.unit, file: model }; }, drive: env.drive() });
       Object.assign(result, await embedPass(index, embedder, () => !late(), env.signal));
       result.compacted = index.compact().length;
       result.queued = index.queueLength();

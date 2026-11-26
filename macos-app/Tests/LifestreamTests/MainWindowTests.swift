@@ -922,7 +922,7 @@ import XCTest
 
         try await put("streams") { $0.general = General.State(login: true, autoUpdate: false, version: "2026.11.10", update: nil) }
         controller.web.show(hash: "view=days&dialog=\(AppSection.thisMac)")
-        try await standsWhole(page, "settings · this mac", title: "Macs",
+        try await standsWhole(page, "settings · this mac", title: "This Mac",
                               shows: "text.includes('Open at login') && text.includes('Uninstall Lifestream')", scrolls: true)
         try await draw(controller, to: "window-settings-mac-dark.png", appearance: .darkAqua)
         controller.web.show(hash: "view=days&dialog=\(AppSection.settings)/updates")

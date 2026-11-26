@@ -9,7 +9,7 @@ import {
   bool, contractText, day, int, list, month, named, nullable, num, object, oneOf, PAGES, tagged, text, When, type Move, type PageContract, type PageShape, type Settled,
 } from "../packages/home/pages.js";
 import { againstReleases, FILES, generated, phoneFloor, releasesOf, settingsScriptOf, settingsSwiftOf, shrinks, type Release } from "./pages.js";
-import { SETTINGS_INDEX } from "../packages/home/page-settings.js";
+import { SETTINGS_ANSWERS, SETTINGS_INDEX } from "../packages/home/page-settings.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const roots: string[] = [];
@@ -66,6 +66,16 @@ describe("tools/pages.ts writes", () => {
         at = next;
       }
     }
+  });
+
+  it("the answers' cases into both apps from SETTINGS_ANSWERS, one each", () => {
+    const swift = settingsSwiftOf();
+    const script = settingsScriptOf();
+    for (const answer of SETTINGS_ANSWERS) {
+      expect(swift.split("\n").filter((line) => line.trim() === `case ${answer}`), answer).toHaveLength(1);
+      expect(script, answer).toContain(`'${answer}'`);
+    }
+    expect(script.split("\n")[0]).toBe(`/** @typedef {${SETTINGS_ANSWERS.map((each) => `'${each}'`).join(" | ")}} SettingsAnswer */`);
   });
 
   it("each page's schema in the contract as its parser's own, the hiding leaves left out", () => {

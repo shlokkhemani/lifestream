@@ -2,7 +2,8 @@
 /** @import { Screen, Seen } from './model.js' */
 /** @import { HostAct } from '../../lib/host.js' */
 /** @import { Flow, FlowItem, FlowSession } from '../flows/model.js' */
-/** @import { ModelKind, ModelsRead, StartCost } from '../../types.js' */
+/** @import { ModelKind, StartCost } from '../../types.js' */
+/** @import { Models } from '../../pages.js' */
 import { attributes, esc } from '../../lib/html.js';
 import { sizeWords } from '../../lib/words.js';
 import {
@@ -14,7 +15,7 @@ import { standIn } from '../kit/seen.js';
 import { APP_FINDS, withMode } from '../connectors/dialog.js';
 import { settingKey } from '../connectors/view.js';
 import { keyOf, thingKey } from '../connectors/pending.js';
-import { actState, ELSEWHERE, modelOf, planName, planOfRoute, planWanted, refused } from '../flows/model.js';
+import { actState, ELSEWHERE, modelOf, refused } from '../flows/model.js';
 import { flowAction } from '../flows/view.js';
 import {
   accountName, backOf, macOf, NAME_LIMIT, nameHolds, neverOf, recordOf, whereOf,
@@ -327,16 +328,15 @@ const PARTS = {
   },
 
   media(seen, session) {
-    const models = session.changes.models.read;
-    const pictures = mediaOf(seen, models, 'pictures');
-    const audio = mediaOf(seen, models, 'audio');
-    const cloud = pictures.chosen?.cloud ?? false;
+    const pictures = mediaPlaces(session.changes.models.read, 'pictures');
+    const audio = mediaPlaces(session.changes.models.read, 'audio');
+    const cloud = pictures.chosen?.leaves ?? false;
     const images = settingRow({ label: 'Describe photos and screenshots', lead: settingTile('photos'),
       line: 'So you can find a picture by what’s in it.', end: mediaMenu('pictures', 'Describe photos and screenshots', pictures, session) });
     const covered = cloud ? setupUnder(facesPicture(pictures.chosen?.words ?? ''), { className: 'is-quiet ob-faces' }) : '';
     const sound = settingRow({ label: 'Turn voice into text', lead: settingTile('voice-note'),
       line: 'Voice notes, memos and calls become text you can search.', end: mediaMenu('audio', 'Turn voice into text', audio, session) });
-    const line = (/** @type {MediaPick} */ pick) => pick.chosen?.line ? setupUnder(fine(pick.chosen.line)) : '';
+    const line = (/** @type {MediaPick} */ pick) => pick.line ? setupUnder(fine(pick.line)) : '';
     const failed = session.changes.models.failed || refused('media', session);
     return {
       look: '',
@@ -432,37 +432,22 @@ const facesPicture = who => '<span class="ob-pair" aria-hidden="true">'
   + `<span class="ob-shot__cap">${esc(who ? `Sent to ${who}` : 'Sent to a model')}</span></span></span>`
   + '<span class="ob-pair__words">Faces and personal details are covered before a photo leaves this Mac.</span>';
 
-/** @typedef {{ value: string, words: string, note: string, disabled: boolean, cloud: boolean, here: boolean, line: string }} MediaChoice */
-/** @typedef {{ choices: MediaChoice[], chosen: MediaChoice | null, read: boolean }} MediaPick */
+/** @typedef {{ value: string, words: string, note: string, disabled: boolean, leaves: boolean }} MediaChoice */
+/** @typedef {{ choices: MediaChoice[], chosen: MediaChoice | null, words: string, off: boolean, line: string }} MediaPick */
 
 /**
- * @param {Seen} seen
- * @param {ModelsRead | null} models
+ * @param {Models | null} models
  * @param {ModelKind} kind
  * @returns {MediaPick}
  */
-export function mediaOf(seen, models, kind) {
-  if (!models) return { choices: [], chosen: null, read: false };
-  const login = seen.state?.ask_login ?? null;
-  const choice = models.defaults[kind];
-  const choices = choice.steps.map(step => {
-    const plan = planOfRoute(step.value);
-    const at = step.value.slice(step.value.indexOf(':') + 1);
-    const cut = at.indexOf('/');
-    const runner = cut < 0 ? null : models.runners.find(each => each.unit === at.slice(0, cut)) ?? null;
-    const file = runner?.files.find(each => each.id === at.slice(cut + 1)) ?? null;
-    const wanted = planWanted(step.value, login);
-    const small = file !== null && !file.fits;
-    const here = runner !== null && runner.unit === `runner-${seen.state?.unit}`;
-    const words = plan ? planName(plan) : file && kind === 'pictures' ? here ? 'On this Mac' : `On ${runner?.name ?? ''}` : step.words;
-    const note = wanted ? `Connect ${planName(wanted)} first`
-      : file ? kind === 'pictures' ? `${file.name} · ${file.about}` : file.about
-        : plan ? step.words : step.note ?? '';
-    return { value: step.value, words, note, disabled: wanted !== null || small, cloud: plan !== null, here: file !== null && here,
-      line: !file ? '' : file.state === 'ready' ? 'Downloaded' : file.state === 'absent' ? '' : file.line ?? '' };
-  }).filter(each => each.cloud || each.here);
-  const chosen = choices.find(each => each.value === choice.value) ?? null;
-  return { choices, chosen, read: true };
+export function mediaPlaces(models, kind) {
+  const use = models?.uses.find(each => each.use === kind);
+  if (!use) return { choices: [], chosen: null, words: 'Off', off: true, line: '' };
+  const names = new Map([...use.menu.rows, ...use.menu.local?.rows ?? []].map(each => [each.value, each.name]));
+  const choices = use.places.flatMap(place => place.value === null ? [] : [{ value: place.value, words: place.place,
+    note: place.line ?? names.get(place.value) ?? '', disabled: !place.ready, leaves: place.leaves }]);
+  const chosen = choices.find(each => each.value === use.value) ?? null;
+  return { choices, chosen, words: chosen?.words ?? use.words, off: use.value === null, line: use.line ?? '' };
 }
 
 /**
@@ -473,9 +458,9 @@ export function mediaOf(seen, models, kind) {
  */
 function mediaMenu(kind, label, pick, session) {
   const busy = session.changes.busy.has(thingKey({ kind: 'default', of: kind }));
-  return menuButton({ id: `ob-${kind}`, label, words: pick.chosen?.words ?? 'Off', busy,
+  return menuButton({ id: `ob-${kind}`, label, words: pick.words, busy,
     attrs: { class: 'ob-menu', 'data-ob-menu': kind },
-    choices: [{ value: 'none', words: 'Off', chosen: pick.chosen === null, default: false },
+    choices: [{ value: 'none', words: 'Off', chosen: pick.off, default: false },
       ...pick.choices.map(each => ({ value: each.value, words: each.words, note: each.note, chosen: each === pick.chosen,
         default: false, disabled: each.disabled }))] });
 }

@@ -20,8 +20,16 @@ export interface ListedModel extends Abilities {
   name: string;
   ready: boolean;
   suggested?: readonly UseId[];
+  request?: Pick<RequestDefaults, "effort" | "sampling">;
   runner?: { unit: string; name: string; battery: boolean };
 }
+
+export function withListed(declared: readonly ListedModel[], listed: readonly ListedModel[]): ListedModel[] {
+  const named = new Set(declared.map((row) => row.model));
+  return [...declared, ...listed.filter((row) => !named.has(row.model))];
+}
+
+export const LIST_MS = 30_000;
 
 export type ChatEffort = "reasoning_effort" | "reasoning";
 
@@ -35,6 +43,7 @@ export interface Transport {
   readonly chat: "door" | "program" | null;
   readonly defaults: RequestDefaults;
   models(): Promise<ListedModel[]>;
+  list?(): Promise<ListedModel[]>;
   available(): Promise<{ ok: true } | { ok: false; reason: Unavailable; detail: string; until_ms?: number }>;
   send(request: SendRequest, attachments: SendAttachment[]): Promise<Sent>;
   reach?(model: string, runner?: string): ChatReach;

@@ -221,6 +221,7 @@ async function print() {
         return result({ is_error: true, api_error_status: step.by === 'event' ? null : 429, result: 'Claude AI usage limit reached', terminal_reason: 'api_error' });
       }
       if (step.signedOut) {
+        rmSync(join(fake, 'auth.json'), { force: true });
         say({ type: 'assistant', message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text: 'Not logged in · Please run /login' }] }, error: 'authentication_failed', is_api_error_message: true, session_id: session });
         return result({ is_error: true, result: 'Not logged in · Please run /login', modelUsage: {}, terminal_reason: 'api_error' });
       }

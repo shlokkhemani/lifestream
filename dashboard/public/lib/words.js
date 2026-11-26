@@ -177,6 +177,13 @@ export const listWords = (names, most = Infinity) => names.length > most
   ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
   : names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 
+const LEVEL_WORDS = /** @type {Record<string, string>} */ ({
+  off: 'No thinking', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
+});
+
+/** @param {string} level */
+export const levelWords = level => LEVEL_WORDS[level] ?? level;
+
 /** @param {string} words */
 export const capital = words => words.replace(/^./u, letter => letter.toUpperCase());
 
@@ -387,3 +394,19 @@ export function whenWords(when, today, { grouped = false } = {}) {
 
 /** @param {import('../pages.js').When} when */
 export const sinceWords = when => when.kind === 'day' ? dayMonth(when.day) : when.kind === 'month' ? dayMonth(when.month) : monthYear(when.at_ms);
+
+/** @param {number} ms */
+const clockWords = ms => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: dayAt(ms).zone }).format(ms);
+
+/**
+ * @param {import('../pages.js').When} when
+ * @param {number} now
+ */
+const settingWhen = (when, now) => when.kind === 'clock' ? clockWords(when.at_ms) : lineWhen(when, now);
+
+/**
+ * @param {import('../pages.js').PhrasePart[] | null} phrase
+ * @param {(when: import('../pages.js').When) => string} [worded]
+ */
+export const phraseOf = (phrase, worded = when => settingWhen(when, Date.now())) => (phrase ?? [])
+  .map(each => each.kind === 'words' ? each.words : worded(each.time)).join('');

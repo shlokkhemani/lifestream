@@ -5,13 +5,13 @@ import { setImmediate as yieldTurn, setTimeout as delay } from "node:timers/prom
 import { pathToFileURL } from "node:url";
 import { chromeSites, googlePlaces, routeOf, secretFieldOf, stationsOver, survey, verdictOf, type Accounts } from "@lifestreamprotocol/connect";
 import {
-  civilDay, damaged, HOME_DB, isObject, LEDGER_DB, makeUnder, writeDurably, openHome, openHomeFolder, outOfRoom, RELEASE, roomAt, SecretError, tryLock, type AttemptRow, type BlobStore, type FileLock, type Form, type HandedFolder, type HomeDb, type HomeFolder, type JobRow, type Json, type JsonObject, type Room, type SourceRow, type Tx, walkPlace,
+  civilDay, damaged, HOME_DB, isObject, LEDGER_DB, makeUnder, writeDurably, openHome, openHomeFolder, outOfRoom, RELEASE, roomAt, SecretError, SETTINGS_MOVE, tryLock, type AttemptRow, type BlobStore, type FileLock, type Form, type HandedFolder, type HomeDb, type HomeFolder, type JobRow, type Json, type JsonObject, type Room, type SourceRow, type Tx, walkPlace,
 } from "@lifestreamprotocol/core";
 import type { Family } from "@lifestreamprotocol/families";
-import { CALL_PASS, callCopiesOf, LEDGER_DAMAGED_EXIT, listRunners, openAsker, openLedger, OPENROUTER_SECRET, readRouteId, transportSecret, warmRunner, WORK_KINDS, type Ledger, type ProgramAt } from "@lifestreamprotocol/model";
+import { CALL_PASS, callCopiesOf, LEDGER_DAMAGED_EXIT, listRunners, MODEL_USES, openAsker, openLedger, OPENROUTER_SECRET, readRouteId, transportSecret, USE_IDS, warmRunner, WORK_KINDS, type Ledger, type ProgramAt, type UseId } from "@lifestreamprotocol/model";
 import { openHider, openMarks, type Hider, type MarksStore } from "@lifestreamprotocol/privacy";
 import { HIDING_META, hidingWaits, openCopies, sentLevel, type CopyAnswer, type Copies } from "./copies.js";
-import { driveHalf, openDetector } from "./detector.js";
+import { driveHalf, hidingPick, openDetector } from "./detector.js";
 import { restingOf } from "./embedder.js";
 import { findingsDirOf, openEnginePictures, scannedFaces } from "./engine-pictures.js";
 import { markingQueues } from "./index-job.js";
@@ -19,8 +19,9 @@ import { SCREEN_INDEX } from "./screen-job.js";
 import { marksFileOf, openMarking, type Marking } from "./marking.js";
 import { meaningSettingsOf, ScreenIndex, screenFileOf } from "./screen-index.js";
 import { searchFileOf } from "./search-index.js";
+import { meaningModel } from "./search-route.js";
 import { peopleFileOf, readNameTable } from "./people.js";
-import { Models, type ModelReach, type Routing } from "./models.js";
+import { Models, MODELS_META, unfilled, type ModelReach, type Routing } from "./models.js";
 import { NO_MODEL_WORDS } from "./chat-route.js";
 import { promptsOf, startPrompts } from "./prompts.js";
 import { stagedFile } from "./ask-files.js";
@@ -52,7 +53,7 @@ import { Pool, READ_QUIET_MS } from "./pool.js";
 import { DOOR_AWAY, LOCKED, LOCKED_WORDS, notNow, Refusal, RETRY_S, RETRY_SOON_S } from "./refusal.js";
 import { CUT_MOST, type Removed } from "./erasable-streams.js";
 import { checkFiles } from "./home-file.js";
-import { awayWords, closeFolders, copyRefusal, ensureStartPasses, HomeRoot, LifecycleError, LOOK_MS, LOOSE_META, ownUnit, realPath, passesAtStart, rememberRevoked, retire, standing, STOP_LOCK, type LooseFolder } from "./lifecycle.js";
+import { awayWords, closeFolders, copyRefusal, ensureStartPasses, HomeRoot, LifecycleError, LOOK_MS, LOOSE_META, ownUnit, realPath, passesAtStart, rememberRevoked, retire, standing, startingSettings, STOP_LOCK, type LooseFolder } from "./lifecycle.js";
 import { hold, holdLine, readHold, type HomeDatabase } from "./hold.js";
 import { due as checkDue, run as runCheck, stale, stopped } from "./hold-check.js";
 import { machine, pointedAt, type Machine } from "./machine.js";
@@ -67,7 +68,8 @@ import { homeOf, loadRegistry, type Loaded } from "./registry.js";
 import { connectorsFolder, FOLDER_UNLOADED, hand, handed, homeLeft, loadGeneration, READ_FOLDER } from "./folders.js";
 import { guidePath } from "./verbs/connectors-folder.js";
 import { facesRun, lookupRow } from "./registry-home.js";
-import { checkConnectors, connectorOf, connectorSettings, effective, personal, planned, runsAt, sealStrays, type Settings } from "./settings.js";
+import { checkConnectors, chosenFor, connectorOf, connectorSettings, effective, effectiveOf, personal, planned, replaced, runsAt, sealStrays, settingsPath, type Settings } from "./settings.js";
+import { movedSettings } from "./models-move.js";
 import { CATCH_UP, FREE_BYTES, keepDay, LOG_BEHIND, POLL_STARTED, readDisk, type FreeDay, type LogBehind } from "./status.js";
 import { relayConnectors, sitesTurned } from "./verbs/connectors.js";
 import { relayStatus } from "./verbs/status.js";
@@ -163,7 +165,7 @@ export async function startHome(root: string | null, options: HomeOptions): Prom
     const sealed = sealStrays(handle);
     if (sealed.length > 0) say(JSON.stringify({ at: new Date(clock()).toISOString(), settings: "sealed", keys: sealed }));
     ownUnit(handle, at);
-    const settings = effective(handle).settings;
+    const settings = effectiveOf(startingSettings(handle, at), settingsPath(handle.root)).settings;
     const module = options.registry instanceof URL ? options.registry.href : options.registry.startsWith("file:") ? options.registry : pathToFileURL(resolve(options.registry)).href;
     hand(await loadGeneration({ root: home, machineDir: at.dir }));
     const registry = await loadRegistry(module, settings, homeOf(handle));
@@ -798,6 +800,7 @@ class HomeProcess implements Main {
     }
     checkFiles(this.folder);
     this.#db = this.#open();
+    this.#settingsMoved();
     this.#copier = this.#openCopier();
     const passes = passesAtStart(this.machine, this.folder, this.now());
     if (passes.revoked.length > 0) this.log({ home: "revoked again", passes: passes.revoked });
@@ -829,10 +832,7 @@ class HomeProcess implements Main {
       found: () => ({ programs: this.#programsAt(), door: this.#door, held: (name) => this.#vault.held(name) }),
       runners: () => listRunners(this.#door, this.#drive, this.#doorFetch),
       paired: () => heldRunners(this.folder),
-      unset: () => {
-        const held = personal(this.folder);
-        return WORK_KINDS.filter((kind) => !Object.hasOwn(held, `model.defaults.${kind}`));
-      },
+      unset: () => unfilled(personal(this.folder)),
       fill: (taken) => this.#fillDefaults(taken),
     });
     this.#calls = new Calls({
@@ -1032,6 +1032,25 @@ class HomeProcess implements Main {
     } catch (error) {
       this.log({ close: what, failed: errorText(error) });
     }
+  }
+
+  #settingsMoved(): void {
+    const view = this.#db.view();
+    let stored: string | null;
+    try {
+      if (view.tables.meta.get(SETTINGS_MOVE.key) === undefined) return;
+      stored = view.tables.meta.get(MODELS_META) ?? null;
+    } finally {
+      view.close();
+    }
+    const held = personal(this.folder);
+    const move = movedSettings(held, stored);
+    const keys = [...new Set([...Object.keys(held), ...Object.keys(move)])].filter((key) => JSON.stringify([Object.hasOwn(held, key), held[key]]) !== JSON.stringify([Object.hasOwn(move, key), move[key]])).sort();
+    if (keys.length > 0) {
+      replaced(this.folder, move);
+      this.log({ settings: "moved", keys });
+    }
+    this.#db.commit((tx) => { tx.tables.meta.delete(SETTINGS_MOVE.key); });
   }
 
   #open(): HomeDb {
@@ -1329,8 +1348,8 @@ class HomeProcess implements Main {
     this.#commit((tx) => {
       this.#due.watch(tx);
       const routing = this.#models.tick(tx);
-      const { meaning, model } = this.settings.search;
-      const ready = meaning !== "off" && this.#models.fileReady(meaning, model);
+      const meaning = meaningModel(this.settings);
+      const ready = meaning !== null && this.#models.fileReady(meaning.unit, meaning.file);
       if (ready && !this.#meaningReady) this.#due.queueNow(tx, "index", SCREEN_INDEX.name, LANE.backfill);
       this.#meaningReady = ready;
       if (this.#hider !== undefined) {
@@ -1455,7 +1474,8 @@ class HomeProcess implements Main {
     const privacy = () => this.settings.privacy;
     this.#marks = openMarks(this.folder, marksFileOf(this.root, this.machine.dir));
     const drive = driveHalf(this.#door, { call: () => this.#call, drive: () => this.#drive }, this.#doorFetch);
-    const detector = openDetector({ runner: () => privacy().detector, line: "send", drive });
+    const chosen = () => chosenFor(this.settings, "hiding");
+    const detector = openDetector({ chosen, line: "send", drive });
     const pictures = openEnginePictures({
       engine: this.registry.faceEngine ?? faceEngine(), blobs: this.#blobs, findings: findingsDirOf(this.folder, this.machine.dir),
       faces: (blob) => {
@@ -1470,9 +1490,10 @@ class HomeProcess implements Main {
     this.#hider = openHider({ people: () => readNameTable(this.folder, peopleFileOf(this.root, this.machine.dir)), settings: privacy, detector, pictures, marks: this.#marks });
     this.#copies = openCopies({ ledger: this.#ledger, hider: () => this.#hider!, clock: this.now });
     this.#marking = openMarking({
-      queues: markingQueues(this.folder, this.machine.dir), hider: this.#hider, detector, marks: this.#marks, chosen: () => privacy().detector !== "off", log: (line) => this.log(line),
+      queues: markingQueues(this.folder, this.machine.dir), hider: this.#hider, detector, marks: this.#marks, chosen: () => detector.state().state !== "off", log: (line) => this.log(line),
       resting: async () => {
-        const unit = privacy().detector;
+        const id = chosen();
+        const unit = id === null ? null : hidingPick(id)?.unit;
         const runner = (await drive.list().catch(() => [])).find((each) => each.unit === unit);
         return runner !== undefined && restingOf(runner).go;
       },
@@ -1840,7 +1861,7 @@ class HomeProcess implements Main {
   }
 
   #stateMeaning(waitMs: number): void {
-    const settings = meaningSettingsOf(this.settings.search);
+    const settings = meaningSettingsOf(meaningModel(this.settings));
     if (settings === this.#meaningStated) return;
     if (ScreenIndex.stateMeaning(this.folder, screenFileOf(searchFileOf(this.root, this.machine.dir)), settings, waitMs)) this.#meaningStated = settings;
   }
@@ -2036,22 +2057,22 @@ class HomeProcess implements Main {
     return { ...(codex === null ? {} : { codex }), ...(claude === null ? {} : { claude }) };
   }
 
-  #fillDefaults(taken: Partial<Record<string, string>>): void {
-    const ids = Object.fromEntries(Object.entries(taken).flatMap(([kind, id]) => id === undefined ? [] : [[kind, id]])) as Record<string, string>;
+  #fillDefaults(taken: Partial<Record<UseId, string>>): void {
+    const ids = Object.fromEntries(Object.entries(taken).flatMap(([use, id]) => id === undefined ? [] : [[use, id]])) as Partial<Record<UseId, string>>;
+    const members: JsonObject = {};
+    for (const [use, id] of Object.entries(ids) as [UseId, string][]) {
+      members[`model.defaults.${use}`] = id;
+      const thinking = MODEL_USES[use].fill?.thinking ?? null;
+      if (thinking !== null) members[`model.thinking.${use}`] = thinking;
+    }
     try {
-      planned(this.folder, Object.fromEntries(Object.entries(ids).map(([kind, id]) => [`model.defaults.${kind}`, id]))).write();
-      this.settings = { ...this.settings, defaults: effective(this.folder).settings.defaults };
+      planned(this.folder, members).write();
+      const { defaults, thinking } = effective(this.folder).settings;
+      this.settings = { ...this.settings, defaults, thinking };
       this.log({ models: "defaults", taken: ids });
     } catch (error) {
       this.log({ models: "defaults not written", error: errorText(error) });
     }
-  }
-
-  #askKey(): { key: string } {
-    const value = this.#vaultRead(OPENROUTER_SECRET);
-    this.#record({ at_ms: this.now(), secret: OPENROUTER_SECRET, op: "get", lane: "door", task: "ask", ok: value !== undefined });
-    if (value === undefined) throw new Refusal(404, "NOT_SET", `the home's vault holds no ${OPENROUTER_SECRET} key it can read`);
-    return { key: value };
   }
 
   #modelReach(model: unknown): Extract<ModelReach, { url: string }> {
@@ -2314,12 +2335,13 @@ class HomeProcess implements Main {
         const transports = JSON.stringify(written.model.transports ?? {}) !== JSON.stringify(this.settings.model.transports ?? {});
         const runners = JSON.stringify(written.runners) !== JSON.stringify(this.settings.runners);
         const privacy = JSON.stringify(written.privacy) !== JSON.stringify(this.settings.privacy);
-        const search = JSON.stringify(written.search) !== JSON.stringify(this.settings.search);
-        const meaningMoved = written.search.meaning !== this.settings.search.meaning || written.search.model !== this.settings.search.model;
+        const [meaningWritten, meaningRunning] = [meaningModel(written), meaningModel(this.settings)];
+        const search = JSON.stringify(meaningWritten) !== JSON.stringify(meaningRunning);
+        const meaningMoved = meaningWritten?.unit !== meaningRunning?.unit || meaningWritten?.file !== meaningRunning?.file;
         const started = written.history.start !== this.settings.history.start;
         this.settings = {
           ...this.settings, sources: written.sources, sites: written.sites, connectors: written.connectors, clients: written.clients, model: written.model,
-          defaults: written.defaults, runners: written.runners, privacy: written.privacy, search: written.search, history: written.history,
+          defaults: written.defaults, thinking: written.thinking, runners: written.runners, privacy: written.privacy, search: written.search, history: written.history,
         };
         if (transports || runners) this.#models.poke();
         if (moved || search || started) {
@@ -2492,8 +2514,13 @@ class HomeProcess implements Main {
         this.#poke();
       }
     }
-    if (verb === "ask-key") return this.#askKey();
     if (verb === "model-reach") return this.#modelReach(request.model);
+    if (verb === "models-list") return { listing: this.#models.listStale() };
+    if (verb === "models-read") {
+      await this.#models.readAgain();
+      this.#commit((tx) => { this.#models.tick(tx); });
+      return { read: true };
+    }
     if (verb === "subscriptions") {
       const name = request.choose;
       if (name === undefined) return { programs: this.#programs!.state() };

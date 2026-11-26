@@ -176,15 +176,21 @@ final class ChatMediaTests: XCTestCase {
     }
 
     func testReadinessTellsPhotosTheVoiceRowAndTheLimits() throws {
-        let body = #"{"model":"gpt-6.1-terra","name":"GPT-6.1 Terra","thinking":"high","login":"ready","starters":[],"#
-            + #""models":[{"id":"gpt-6.1-terra","name":"GPT-6.1 Terra","thinking":["high"],"default":"high","group":"ChatGPT","photos":true},"#
-            + #"{"id":"text-only","name":"Text Only","thinking":["low"],"default":"low","photos":false}],"#
+        let body = #"{"default":{"model":"codex:gpt-6.1-terra","thinking":"high","shown":"codex:gpt-6.1-terra"},"starters":[],"#
+            + #""models":[{"id":"codex:gpt-6.1-terra","name":"GPT-6.1 Terra","thinking":["high"],"default":"high","#
+            + #""state":"ready","photos_off":null,"hides":true},"#
+            + #"{"id":"runner:macbook-pro-0001/text-only","name":"Text Only","thinking":[],"default":"","#
+            + #""state":"ready","photos_off":"Text Only can't see photos.","hides":false}],"#
+            + #""menu":{"default":null,"rows":[{"value":"codex:gpt-6.1-terra","name":"GPT-6.1 Terra","account":null,"chosen":true}],"#
+            + #""local":{"label":"Local","rows":[{"value":"runner:macbook-pro-0001/text-only","name":"Text Only","account":null,"chosen":false}]},"#
+            + #""more":{"words":"More","use":"chat","work":null},"off":null},"#
             + #""voice":{"ready":true,"words":"Parakeet · your Mac","line":null,"caution":"Voice notes go to OpenRouter as they are: sound can't be hidden.","value":"default","#
             + #""choices":[{"value":"runner:macbook-pro-0001/parakeet-unified-en-0.6b","words":"Parakeet · your Mac","sent":false},"#
             + #"{"value":"openrouter:scribe-v2","words":"Scribe v2 · Sent as it is","sent":true}]},"#
             + #""limits":{"photos":10,"photo_bytes":26214400,"voice_ms":600000}}"#
         let ready = try JSONDecoder().decode(HomeLink.Ask.Ready.self, from: Data(body.utf8))
-        XCTAssertEqual(ready.models.map(\.photos), [true, false])
+        XCTAssertEqual(ready.models.map(\.photosOff), [nil, "Text Only can't see photos."])
+        XCTAssertEqual(ready.models.map(\.hides), [true, false], "a model that stays hides nothing: the home says so")
         XCTAssertEqual(ready.voice.words, "Parakeet · your Mac")
         XCTAssertEqual(ready.voice.ready, true)
         XCTAssertEqual(ready.voice.caution, "Voice notes go to OpenRouter as they are: sound can't be hidden.")
@@ -193,17 +199,18 @@ final class ChatMediaTests: XCTestCase {
         XCTAssertEqual(ready.limits, .init(photos: 10, photoBytes: 26_214_400, voiceMs: 600_000))
 
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
-        for member in ["voice", "limits"] {
+        XCTAssertEqual(ready.menu.local?.rows.map(\.name), ["Text Only"])
+        for member in ["voice", "limits", "menu"] {
             var without = object
             without[member] = nil
             XCTAssertThrowsError(try JSONDecoder().decode(HomeLink.Ask.Ready.self, from: JSONSerialization.data(withJSONObject: without)),
                                  "an answer with no \(member) is no answer of this home's")
         }
         var models = try XCTUnwrap(object["models"] as? [[String: Any]])
-        models[0]["photos"] = nil
+        models[0]["hides"] = nil
         object["models"] = models
         XCTAssertThrowsError(try JSONDecoder().decode(HomeLink.Ask.Ready.self, from: JSONSerialization.data(withJSONObject: object)),
-                             "a model that says nothing of photos is no answer of this home's")
+                             "a model that says nothing of whether its turns are hidden is no answer of this home's")
     }
 
     func testPrivacyTellsWhereVoiceNotesGoAndAnOutboundRowWhatItWasAbout() throws {

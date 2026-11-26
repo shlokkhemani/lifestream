@@ -616,6 +616,127 @@ export interface Mail {
   day: string | null;
 }
 
+export interface ModelBattery {
+  on: boolean;
+  line: string;
+}
+
+export type ModelConnection =
+  | {
+    kind: "plan";
+    id: string;
+    name: string;
+    line: string | null;
+    signed: boolean;
+  }
+  | {
+    kind: "key";
+    id: string;
+    name: string;
+    line: string | null;
+    held: boolean;
+  }
+  | {
+    kind: "runner";
+    id: string;
+    unit: string;
+    place: string;
+    name: string;
+    line: string | null;
+    files: ModelFile[];
+    found: ModelFound[];
+    battery: ModelBattery | null;
+    paused: boolean;
+  }
+  | {
+    kind: "address";
+    id: string;
+    url: string | null;
+    line: string | null;
+  };
+
+export interface ModelFile {
+  id: string;
+  name: string;
+  about: string;
+  size: string;
+  state: ModelFileState;
+  line: string | null;
+  suggested: boolean;
+  fits: boolean;
+  acts: ModelFileAct[];
+}
+
+export type ModelFileAct = "fetch" | "remove" | "cancel";
+
+export type ModelFileState = "absent" | "fetching" | "ready" | "failed";
+
+export interface ModelFound {
+  name: string;
+  size: string;
+  from: string;
+}
+
+export interface ModelLevel {
+  value: string;
+  name: string;
+  chosen: boolean;
+  suggested: boolean;
+}
+
+export interface ModelLocal {
+  label: string;
+  rows: ModelRow[];
+}
+
+export interface ModelMenu {
+  default: ModelRow | null;
+  rows: ModelRow[];
+  local: ModelLocal | null;
+  more: ModelMore;
+  off: ModelRow | null;
+}
+
+export interface ModelMore {
+  words: string;
+  use: ModelUseId;
+  work: string | null;
+}
+
+export interface ModelPlace {
+  place: string;
+  value: string | null;
+  line: string | null;
+  ready: boolean;
+  leaves: boolean;
+}
+
+export interface ModelRow {
+  value: string;
+  name: string;
+  account: string | null;
+  chosen: boolean;
+}
+
+export interface ModelThinking {
+  value: string;
+  words: string;
+  levels: ModelLevel[];
+}
+
+export interface ModelUse {
+  use: ModelUseId;
+  label: string;
+  line: string | null;
+  words: string;
+  value: string | null;
+  thinking: ModelThinking | null;
+  menu: ModelMenu;
+  places: ModelPlace[];
+}
+
+export type ModelUseId = "pictures" | "audio" | "text" | "chat" | "search" | "hiding";
+
 export interface MomentAction {
   at_ms: number;
   what: string;
@@ -1893,6 +2014,22 @@ export interface Storage {
   };
 }
 
+export interface Models {
+  position: string;
+  today: string;
+  uses: ModelUse[];
+  connections: ModelConnection[];
+}
+
+export interface ModelsFind {
+  position: string;
+  today: string;
+  placeholder: string;
+  rows: ModelRow[];
+  local: ModelLocal | null;
+  none: string | null;
+}
+
 export interface Pages {
   people: People;
   person: Person;
@@ -1915,4 +2052,6 @@ export interface Pages {
   settings: Settings;
   settingsPage: SettingsPage;
   storage: Storage;
+  models: Models;
+  modelsFind: ModelsFind;
 }

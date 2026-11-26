@@ -10,6 +10,7 @@ import {
 import { ASK_READER, noAccess } from "./access.js";
 import { accessAt, parsedOr, type CallEnd, type HeldReader } from "./access-ledger.js";
 import type { KeptOut } from "./call.js";
+import { hidingPick } from "./detector.js";
 import { valueMarks, type MarkingProgress } from "./marking.js";
 import type { HiddenReader } from "./principals.js";
 import { refuse, Refusal, RETRY_SOON_S, starting } from "./refusal.js";
@@ -26,6 +27,7 @@ export interface HidingInputs {
   settings: () => PrivacySettings;
   names: (known: string | null) => Promise<NameTable | "same" | undefined>;
   detector: Detector;
+  chosen: () => string | null;
   hidingFile: () => string | null;
   pictures: Pictures;
   marks: MarksStore;
@@ -34,6 +36,7 @@ export interface HidingInputs {
   progress: () => Promise<MarkingProgress | null> | MarkingProgress | null;
   day: () => DaySettings;
   clock: () => number;
+  leavesOf: (model: string) => Promise<string | null | undefined>;
   bound?: () => Bound;
   log: (line: JsonObject) => void;
   voice?: () => string | null | Promise<string | null>;
@@ -83,7 +86,6 @@ export function within(ms: number): () => Bound {
   };
 }
 const AT_ONCE = 4;
-const RECEIVERS: Readonly<Record<string, string>> = { codex: "OpenAI", claude: "Anthropic", openrouter: "OpenRouter" };
 const BLOB = /^sha256:[0-9a-f]{64}$/u;
 const CHAT_TABLE = /^chat:\S{1,200}$/u;
 const refOf = (detail: string): string => continuationOf(detail)?.of ?? detail;
@@ -197,12 +199,12 @@ export function openHiding(inputs: HidingInputs): Hiding {
     return { table, level: reader.turn.level };
   };
 
-  const receiverOf = (reader: HiddenReader, body: JsonObject): { receiver: string; route: string | null } => {
+  const receiverOf = async (reader: HiddenReader, body: JsonObject): Promise<{ receiver: string | null; route: string | null }> => {
     if (reader.agent !== null) return { receiver: reader.agent.name, route: null };
-    const to = typeof body.to === "string" ? /^([a-z]+):(\S+)$/u.exec(body.to) : null;
-    const receiver = to === null ? undefined : RECEIVERS[to[1]!];
-    if (receiver === undefined) bad(`to names Chat's transport and model: ${Object.keys(RECEIVERS).map((name) => `${name}:<model>`).join(", ")}`);
-    return { receiver, route: body.to as string };
+    const to = typeof body.to === "string" && body.to !== "" ? body.to : bad("to is the id of the model Chat sends this to");
+    const leaves = await inputs.leavesOf(to);
+    if (leaves === undefined) bad(`${to}: no connection lists this model`);
+    return { receiver: leaves, route: to };
   };
 
   const partAt = async (scope: string, wanted: Wanted, epoch: number): Promise<TablePart> => {
@@ -235,8 +237,9 @@ export function openHiding(inputs: HidingInputs): Hiding {
     async hide(reader, body) {
       const bound = boundOf();
       const privacy = await fresh();
-      const { table: scope, level } = await under(reader, body, privacy);
-      const { receiver, route } = receiverOf(reader, body);
+      const { table: scope, level: chatAt } = await under(reader, body, privacy);
+      const { receiver, route } = await receiverOf(reader, body);
+      const level: Level = receiver === null ? "none" : chatAt;
       const epoch = epochOf(body.epoch);
       const what: OutboundWhat = reader.agent !== null ? "read" : body.what === "read" || body.what === "text" ? body.what : bad("what is read (a tool's answer) or text (Chat's own words)");
       const tool = what === "read" ? (typeof body.tool === "string" && body.tool !== "" ? body.tool : bad("a read names its tool")) : null;
@@ -278,7 +281,7 @@ export function openHiding(inputs: HidingInputs): Hiding {
         } catch (error) {
           return failed(error);
         }
-        const row: NewOutbound = {
+        const row: NewOutbound | undefined = receiver === null ? undefined : {
           at_ms: inputs.clock(), receiver, route, by: reader.pass, what, tool, level, counts: served.counts, detector: served.detector,
           chars: served.chars, pictures: served.pictures, key: null, attempt: null, refs: [],
         };
@@ -381,9 +384,9 @@ export function openHiding(inputs: HidingInputs): Hiding {
       const ended = (end: Omit<CallEnd, "id" | "ms">): CallEnd => ({ id: begun.id, ms: inputs.clock() - at_ms, ...end });
       try {
         const { table: scope } = reader.agent ?? reader.turn!;
-        const level = reader.agent === null ? reader.turn!.level : access.hide;
         const call = argsOf(ROUTES[path].call as Shape<{ args: unknown; to?: string; shown?: string[] }>, body);
-        const { receiver, route } = receiverOf(reader, call as unknown as JsonObject);
+        const { receiver, route } = await receiverOf(reader, call as unknown as JsonObject);
+        const level: Level = reader.agent !== null ? access.hide : receiver === null ? "none" : reader.turn!.level;
         const shown = new Set(reader.agent === null ? call.shown ?? [] : []);
         const run = inputs.route ?? (() => refuse(404, "NO_ROUTE", "This door reads no route for a model"));
         const sealing = sealsAny(reader.sealed);
@@ -482,8 +485,8 @@ export function openHiding(inputs: HidingInputs): Hiding {
               const route = await routed(path, asked, {
                 engine, look, hide, current: () => current, passed: () => bound.passed(),
                 marked: (values) => {
-                  const state = settings.detector === "off" ? undefined : inputs.detector.state();
-                  return state?.state === "ready" ? valueMarks(inputs.marks, state.model, values) : null;
+                  const state = inputs.detector.state();
+                  return state.state === "ready" ? valueMarks(inputs.marks, state.model, values) : null;
                 },
               });
               if ("wait" in route) return notReady(route.wait);
@@ -497,7 +500,7 @@ export function openHiding(inputs: HidingInputs): Hiding {
             if ("wait" in out) return notReady(out.wait);
             const value = out.answer as JsonObject;
             if (GUARDED) answerOf(path, answered.status, value);
-            const row: NewOutbound = {
+            const row: NewOutbound | undefined = receiver === null ? undefined : {
               at_ms: inputs.clock(), receiver, route, by: reader.pass, what: "read", tool: TOOLS[path], level, counts, detector: detector ?? null,
               chars: JSON.stringify(value).length, pictures: out.pictures, key: null, attempt: null, refs: out.refs,
             };
@@ -509,7 +512,7 @@ export function openHiding(inputs: HidingInputs): Hiding {
               read: restored,
               ...(answered.status === 200 ? { items: itemsOf(TOOLS[path], answered.value, existing) } : {}),
             });
-            const saved = await inputs.writer.save(read!, current, { ...row, call: end.id }, end);
+            const saved = await inputs.writer.save(read!, current, row === undefined ? undefined : { ...row, call: end.id }, end);
             if ("saved" in saved) return { status: answered.status, value };
             if ("dropped" in saved) gone();
             if ("erased" in saved) throw new Erased(epoch);
@@ -531,17 +534,17 @@ export function openHiding(inputs: HidingInputs): Hiding {
       const today = civilDay(inputs.clock(), day);
       const { totals } = await inputs.writer.list({ from: today, to: today, day });
       const ready = erasing ? { wait: ERASING } : hider.ready("all");
-      const detected = privacy.detector === "off" ? { state: "off" as const } : inputs.detector.state();
+      const detected = inputs.detector.state();
+      const chosen = inputs.chosen();
       const progress = await inputs.progress();
       return {
         epoch,
         ready: ready === true,
         line: ready === true ? null : ready.wait,
         detector: {
-          runner: privacy.detector, file: inputs.hidingFile(), state: detected.state,
+          model: chosen, runner: (chosen === null ? null : hidingPick(chosen)?.unit) ?? "off", file: inputs.hidingFile(), state: detected.state,
           line: detected.state === "absent" ? detected.why : null,
           ...(detected.state === "downloading" ? { bytes: detected.bytes, total: detected.total } : {}),
-          ...(detected.state === "ready" ? { model: detected.model.id } : {}),
         },
         marking: progress === null ? null : { ...progress },
         level: privacy.level,
@@ -569,7 +572,7 @@ export function openHiding(inputs: HidingInputs): Hiding {
     async warm(blob) {
       try {
         settings = inputs.settings();
-        if (settings.detector === "off") return;
+        if (inputs.detector.state().state === "off") return;
         const epoch = inputs.marks.epoch;
         const findings = await inputs.pictures.read(blob);
         if ("cannot" in findings) return;

@@ -15,7 +15,7 @@ import { askOn, createHandler } from '../server.mjs';
 import { ERASED, pendingFolder } from '../lib/ask/conversations.mjs';
 import { EARLIER_PHOTO, VOICE_LINE } from '../lib/ask/prompt.mjs';
 import { modelText } from '../lib/ask/seen.mjs';
-import { command, home, homeClock, machineWith, minted, named, note, startHome, stopHome } from './asking.mjs';
+import { command, home, homeClock, listedIn, minted, modelsOf, named, note, PLAN_ROWS, plansOn, rowReady, startHome, stopHome } from './asking.mjs';
 import { fakeClaude, fakeCodex, openDoorway } from './programs.mjs';
 import { until } from './until.mjs';
 
@@ -27,7 +27,7 @@ const FACE = { lines: [], faces: [{ box: [600, 300, 700, 420], confidence: 0.9 }
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const ASK_SERVER = fileURLToPath(new URL('./fake/ask-server.mjs', import.meta.url));
 const OUTCOMES = fileURLToPath(new URL('../../homelink/Tests/Fixtures/ask-outcomes.json', import.meta.url));
-const faux = fauxProvider({ models: [{ id: 'faux-1', reasoning: true }, { id: 'faux-blind', input: ['text'] }, { id: 'faux-small', contextWindow: 30_000 }] });
+const faux = fauxProvider({ models: [{ id: 'faux-1', reasoning: true }] });
 const models = createModels();
 models.setProvider(faux.provider);
 /** @type {import('node:http').RequestListener} */
@@ -205,14 +205,14 @@ async function serverChild(machine, at, env) {
  * @param {(line: Record<string, unknown>) => void} [log]
  * @param {string} [at]
  */
-const ownServer = (machine, log = () => undefined, at = home.url) => listen(createHandler({ door: at, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine, now: homeClock }, log }));
+const ownServer = (machine, log = () => undefined, at = home.url) => listen(createHandler({ door: at, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine, now: homeClock }, log }));
 
 before(async () => {
   url = await listen((request, response) => serve(request, response));
   await startHome(url, { LIFESTREAM_MCP_MEDIA: '1' });
   await command({ cmd: 'key', value: 'sk-or-v1-synthetic' });
-  await until('the models read saying the key is held', async () => /** @type {any} */ ((await door('GET', '/v1/models')).body)?.openrouter?.connected === true);
-  serve = createHandler({ door: home.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: home.ask.machine, now: homeClock }, log: () => undefined });
+  await rowReady(home, home.chat.cloud, true);
+  serve = createHandler({ door: home.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: home.ask.machine, now: homeClock }, log: () => undefined });
 });
 
 after(async () => {
@@ -292,7 +292,7 @@ test('1–4: a photo and a voice note through the real door: the question on dis
   });
   const kept = /** @type {any} */ (await (await fetch(`${home.url}/v1/ask/chats/${chat}`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());
   assert.equal(kept.messages[0].voice.words, told.words);
-  const fresh = await listen(createHandler({ door: home.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: home.ask.machine, now: homeClock }, log: () => undefined }));
+  const fresh = await listen(createHandler({ door: home.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: home.ask.machine, now: homeClock }, log: () => undefined }));
   const read = /** @type {any} */ (await (await fetch(`${fresh}/ask/chats/${chat}`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());
   assert.equal(read.messages.find((/** @type {any} */ message) => message.n === n - 1)?.voice.words, told.words);
   const again = await asking({ submission, voice: { note: voiceNote, seconds: 2 }, photos: [file] });
@@ -327,11 +327,14 @@ test('6: readiness states the voice row, the limits and each model\'s photos', a
   const ready = /** @type {any} */ (await (await fetch(`${home.url}/v1/ask`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());
   note({ ready });
   assert.deepEqual(ready.limits, { photos: 10, photo_bytes: 26_214_400, voice_ms: 600_000 });
-  assert.deepEqual(ready.models.map((/** @type {any} */ model) => [model.id, model.photos]), [['faux-1', true], ['faux-blind', false], ['faux-small', true]]);
+  const read = await modelsOf(home);
+  assert.deepEqual(new Map(ready.models.map((/** @type {any} */ model) => [model.id, model.photos_off === null])),
+    new Map(listedIn(read.uses.chat.menu).map(id => [id, read.models[id].input.includes('image')])));
+  assert.deepEqual([home.chat.cloud, home.chat.local, home.chat.small].map(id => ready.models.find((/** @type {any} */ model) => model.id === id)?.photos_off === null), [true, false, true]);
   const listed = /** @type {any} */ ((await door('GET', '/v1/connectors')).body).connectors?.find((/** @type {any} */ each) => each.id === 'ask-home');
-  assert.equal(ready.voice.ready, true, JSON.stringify({ voice: ready.voice, members: listed?.members?.map((/** @type {any} */ member) => [member.key, member.value, member.words, member.steps]) ?? listed ?? null }));
-  assert.equal(ready.voice.words, 'Parakeet · this Mac');
-  assert.ok(ready.voice.choices.some((/** @type {any} */ choice) => choice.words === 'Parakeet · this Mac' && choice.sent === false), JSON.stringify(ready.voice.choices));
+  assert.equal(ready.voice.ready, true, JSON.stringify({ voice: ready.voice, members: listed?.members?.map((/** @type {any} */ member) => [member.key, member.value, member.words, member.menu]) ?? listed ?? null }));
+  assert.equal(ready.voice.words, 'Parakeet');
+  assert.ok(ready.voice.choices.some((/** @type {any} */ choice) => choice.words === 'Parakeet' && choice.sent === false), JSON.stringify(ready.voice.choices));
 });
 
 test('7: each photo\'s facts line, the server\'s words: when its EXIF says it was taken, at the offset it states, else in the home\'s zone, and where, the point hidden as every place is; none for a photo whose EXIF states no time; the model\'s images hold no EXIF', async () => {
@@ -392,23 +395,16 @@ test('8: a replay while its turn still runs is answered by that turn: its `chat`
   assert.equal(asked, 1);
 });
 
-test('9: a question with photos asked of a pick that takes none is answered by the default, its line after `chat`', async () => {
+test('9: a question with photos asked of a pick that takes none: refused in the pick\'s words before any `chat`, asking no model and moving to no other', async () => {
   named('no photos');
   const files = await uploaded([jpeg('a synthetic photo for a model that cannot see')]);
-  /** @type {string | null} */
-  let answering = null;
-  faux.setResponses([
-    (_context, _options, _state, model) => {
-      answering = model.id;
-      return fauxAssistantMessage('Seen by the default.');
-    },
-    fauxAssistantMessage('Seen'),
-  ]);
-  const turn = await asking({ question: 'What is in it?', photos: files, model: 'faux-blind' });
-  assert.deepEqual(turn.events.slice(0, 2).map(event => event.type), ['chat', 'waiting'], JSON.stringify(turn.events));
-  assert.equal(turn.events[1].words, 'faux-blind can\'t see photos. Asking faux-1.');
-  assert.equal(answering, 'faux-1');
-  assert.equal(turn.events.find(event => event.type === 'done')?.message.model, 'faux-1');
+  const ready = /** @type {any} */ (await (await fetch(`${home.url}/v1/ask`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());
+  const blind = ready.models.find((/** @type {any} */ model) => model.id === home.chat.local);
+  assert.equal(blind?.photos_off, `${blind?.name} can't see photos.`, 'the photo button\'s answer: this model takes no photo, in the words the refusal says');
+  const calls = faux.state.callCount;
+  const turn = await asking({ question: 'What is in it?', photos: files, model: home.chat.local });
+  assert.deepEqual(turn.events, [{ type: 'error', error: 'model', message: blind.photos_off }], JSON.stringify(turn.events));
+  assert.equal(faux.state.callCount, calls, 'no model asked, the default neither');
 });
 
 test('10: a rebuilt context restates the earlier photos within what the model takes, its own photos counted first, and says the rest', async () => {
@@ -423,7 +419,7 @@ test('10: a rebuilt context restates the earlier photos within what the model ta
     seen = context.messages;
     return fauxAssistantMessage('And a third.');
   }]);
-  const next = await asking({ question: 'And this one?', photos: [files[2]], chat, model: 'faux-small' });
+  const next = await asking({ question: 'And this one?', photos: [files[2]], chat, model: home.chat.small });
   assert.equal(next.events.find(event => event.type === 'done')?.message.end, 'done', JSON.stringify(next.events));
   const asked = seen.filter(message => message.role === 'user');
   const imagesOf = (/** @type {any} */ message) => Array.isArray(message.content) ? message.content.filter((/** @type {any} */ part) => part.type === 'image') : [];
@@ -507,7 +503,7 @@ test('12: a server killed mid-turn: its next start lands the turn\'s marker, `fa
 async function erasedWhileAnswering() {
   const own = await ownMachine('erased');
   const doorway = await openDoorway(home.url);
-  const at = await listen(createHandler({ door: doorway.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: own, now: homeClock }, log: () => undefined }));
+  const at = await listen(createHandler({ door: doorway.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: own, now: homeClock }, log: () => undefined }));
   /** @type {() => void} */
   let open = () => undefined;
   const gate = new Promise(done => { open = () => done(undefined); });
@@ -570,19 +566,16 @@ test('13: a question pending while its conversation is erased, its model still a
 
 test('14: Codex and Claude Code are handed the question\'s photos after its words, each the made JPEG', async () => {
   named('codex and claude');
-  const machine = await machineWith(['codex', 'claude']);
-  machines.push(machine);
-  await writeFile(join(machine, 'codex', 'fake', 'auth.json'), JSON.stringify({ email: 'person-a@example.com', plan: 'plus' }));
+  const machine = await plansOn({ codex: 'in', claude: 'in' });
   const codex = fakeCodex(machine);
   const claude = fakeClaude(machine);
-  await claude.signIn();
   const handler = createHandler({ door: home.url, ask: askOn(machine, { door: home.url, now: homeClock, log: () => undefined }), log: () => undefined });
   const at = await listen(handler);
   try {
     const photos = [jpeg('a synthetic photo for ChatGPT'), jpeg('a synthetic photo for Claude')];
     const files = await uploaded(photos);
     await codex.script([[{ say: 'From ChatGPT.' }], [{ say: 'Synthetic' }]]);
-    const viaCodex = await asking({ question: 'What is this?', photos: [files[0]], model: 'gpt-6.1-terra' }, { at: `${at}/ask` });
+    const viaCodex = await asking({ question: 'What is this?', photos: [files[0]], model: PLAN_ROWS.codex.listed }, { at: `${at}/ask` });
     assert.equal(viaCodex.events.find(event => event.type === 'done')?.message.text, 'From ChatGPT.', JSON.stringify(viaCodex.events));
     const started = (await codex.asked('turn/start')).find(params => JSON.stringify(params.input).includes('What is this?'));
     const [said, image, ...more] = started.input;
@@ -590,7 +583,7 @@ test('14: Codex and Claude Code are handed the question\'s photos after its word
     assert.ok(image.url.startsWith('data:image/jpeg;base64,'), image.url.slice(0, 40));
     assert.ok(Buffer.from(image.url.slice('data:image/jpeg;base64,'.length), 'base64').toString('latin1').includes(`made ${sha(/** @type {Buffer} */ (photos[0]))}`));
     await claude.script([[{ say: 'From Claude.' }]]);
-    const viaClaude = await asking({ question: 'And this?', photos: [files[1]], model: 'claude/opus' }, { at: `${at}/ask` });
+    const viaClaude = await asking({ question: 'And this?', photos: [files[1]], model: PLAN_ROWS.claude.chat }, { at: `${at}/ask` });
     assert.equal(viaClaude.events.find(event => event.type === 'done')?.message.text, 'From Claude.', JSON.stringify(viaClaude.events));
     const heard = (await claude.seen()).find(line => typeof line.asked === 'string' && line.asked.includes('And this?'));
     note({ codex: started.input.map((/** @type {any} */ part) => part.type), claude: heard.images.map((/** @type {any} */ each) => each.media_type) });
@@ -599,6 +592,7 @@ test('14: Codex and Claude Code are handed the question\'s photos after its word
     assert.ok(Buffer.from(heard.images[0].data, 'base64').toString('latin1').includes(`made ${sha(/** @type {Buffer} */ (photos[1]))}`));
   } finally {
     await handler.close(5_000);
+    await plansOn({});
   }
 });
 
@@ -662,8 +656,9 @@ test('15: every answer of the outcome table the server can give, given as the ta
   await slow;
   faux.setResponses([fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'A synthetic failure.' })]);
   given['failed after it began'] = outcomeOf(await asking({ question: 'Does this fail?' }), 'named');
-  const keyless = await frontDoor(request => request.method === 'GET' && request.url?.startsWith('/v1/models') === true
-    ? { status: 200, body: { openrouter: { connected: false }, runners: [] } } : false);
+  const held = await modelsOf(home);
+  const unkeyed = { ...held, models: { ...held.models, [home.chat.cloud]: { ...held.models[home.chat.cloud], state: 'unavailable', line: 'Add the key for OpenRouter' } } };
+  const keyless = await frontDoor(request => request.method === 'GET' && request.url?.startsWith('/v1/models') === true ? { status: 200, body: unkeyed } : false);
   const refusing = await ownServer(await ownMachine('keyless'), () => undefined, keyless);
   given['refused before it began'] = outcomeOf(await asking({ question: 'Who answers?' }, { at: `${refusing}/ask` }), 'sending');
   let lose = true;
@@ -676,7 +671,7 @@ test('15: every answer of the outcome table the server can give, given as the ta
   const [awayFile] = await uploaded([jpeg(`a synthetic photo whose seal's answer is lost ${minted()}`)]);
   given['home away'] = outcomeOf(await asking({ question: 'Anyone home?', photos: [awayFile] }, { at: `${await ownServer(away, () => undefined, losing)}/ask` }), 'sending');
   assert.equal(pendingIn(away).length, 1, 'the envelope kept on an end unknown');
-  const closing = createHandler({ door: home.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: await ownMachine('closing'), now: homeClock }, log: () => undefined });
+  const closing = createHandler({ door: home.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: await ownMachine('closing'), now: homeClock }, log: () => undefined });
   const closed = await listen(closing);
   await closing.close(0);
   assert.deepEqual(outcomeOf(await asking({ question: 'Anyone home?' }, { at: `${closed}/ask` }), 'sending'), given['home away'], 'a server closing answers as the seal\'s end unknown');
@@ -744,7 +739,7 @@ test('20: Send is resumable: a seal answered 503 once, or not answered past its 
     return { status: 503, body: { code: 'NOT_NOW', message: 'Synthetic: an answer past the deadline.' } };
   });
   const own = await ownMachine('silent');
-  const silentServer = await listen(createHandler({ door: silent, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: own, now: homeClock, putMs: 2_000 }, log: () => undefined }));
+  const silentServer = await listen(createHandler({ door: silent, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: own, now: homeClock, putMs: 2_000 }, log: () => undefined }));
   /** @type {Record<string, unknown>} */
   const given = {};
   for (const [name, at] of /** @type {const} */ ([['answered 503', await ownServer(await ownMachine('refused-once'), () => undefined, refusing)], ['no answer', silentServer]])) {

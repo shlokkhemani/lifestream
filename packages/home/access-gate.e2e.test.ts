@@ -35,7 +35,7 @@ const UTC: DaySettings = { zone: "UTC", day_start_hour: 0 };
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const NOW = Date.parse("2026-11-14T12:00:00Z");
-const OFF = { meaning: "off", model: "embeddinggemma-2-q8-512", power: "plugged-idle" } as const;
+const OFF = null;
 
 const WORK = "gmail:person-a@example.com";
 const HOME = "gmail:person-b@example.com";
@@ -397,7 +397,7 @@ async function screenOf(file: string, more: Partial<CallOf>): Promise<{ list: Sc
   const query = new URLSearchParams({ lists: "screen", query: "invoice" });
   return onCall({ now_ms: NOW, epoch: 1, screen: file, index: indexOf([], []), screenAccounts: new Map([[MACHINE, [SCREEN]]]), category, ...more }, async (call) => {
     const asked = searchAskedOf(paramsOf(searchParams, query));
-    const part = await screenAnswerOf(asked, call, { search: OFF, file });
+    const part = await screenAnswerOf(asked, call, { meaningModel: OFF, file });
     const answer = answerOf("/v1/search", 200, JSON.parse(JSON.stringify(searchAnswerOf(asked, call, undefined, part)))) as SearchAnswer;
     return { list: answer.screen as ScreenList, answer };
   });

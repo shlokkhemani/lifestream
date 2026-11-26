@@ -23,7 +23,7 @@ import { askHome, serveSocket } from "./socket.js";
 import { requests } from "./test/erasures.js";
 import { editSettings, TEST_UNIT, testSocket } from "./test/folder.js";
 import { FAKE_ROUTE, LOOK_MS, makeRoot, readHome, removeRoot, TICK_MS, until } from "./test/harness-root.js";
-import { acquisitionBundle, makeHome, makeHomeDb, NOW_MS, REPO, type Home } from "./test/support.js";
+import { acquisitionBundle, holdModels, LUNA_ROUTE, makeHome, makeHomeDb, NOW_MS, REPO, type Home } from "./test/support.js";
 import { inboxLane, UPLOAD } from "./inbox.js";
 
 const ASK = `ask:local:${TEST_UNIT}`;
@@ -386,7 +386,9 @@ async function doorOf(more: DoorOptions = {}, voice: { readonly runner: string |
     reader: { scopes: ["read"] }, ask: { scopes: ["deliver"], sources: [ASK], unit: "ask" },
     runner: { scopes: ["run"], kind: "runner", unit: RUNNER }, call: { scopes: ["call"], unit: "home" }, admit: { scopes: ["admit"] },
   }, roots);
-  makeHomeDb(join(at.root, "home.db")).close();
+  const db = makeHomeDb(join(at.root, "home.db"));
+  holdModels(db, [LUNA_ROUTE]);
+  db.close();
   mkdirSync(join(machine().dir, "ask"), { recursive: true });
   writeFileSync(join(machine().dir, "ask", "door-token"), `${at.tokens.ask}\n`);
   const heard: JsonObject[] = [];
@@ -421,7 +423,7 @@ async function doorOf(more: DoorOptions = {}, voice: { readonly runner: string |
 function hidingReady(root: string): void {
   mkdirSync(join(root, "replies"), { recursive: true });
   openLedger(openHomeFolder(root), { mode: "migrate" }).close();
-  editSettings(root, { "privacy.detector": "off" });
+  editSettings(root, { "model.defaults.hiding": null });
   writePrepared(openHomeFolder(root), peopleFileOf(root, machine().dir), PEOPLE, { rows: new Map([["names", new Map([["table", {
     owner: { who: "p-owner", shown: "Owner Example" },
     people: [{ who: "p-owner", is: "human", shown: "Owner Example", names: ["Owner Example"], accounts: [] }],
@@ -857,7 +859,7 @@ async function erasureHome(options: { fake?: string; engine?: string; ahead?: ()
   editSettings(root, { "door.port": door.port });
   const home = await startHome(root, { stopGraceMs: 50, tickMs: TICK_MS, lookMs: LOOK_MS, registry, log: () => undefined });
   onTestFinished(() => home.stop());
-  if (options.fake !== undefined) await until("the home read its routes", () => readHome(root, (db) => String(db.prepare("SELECT value FROM meta WHERE key = ?").pluck().get(MODELS_META) ?? "")).includes(`"id":"${FAKE_ROUTE}"`));
+  await until("the home read its routes", () => readHome(root, (db) => String(db.prepare("SELECT value FROM meta WHERE key = ?").pluck().get(MODELS_META) ?? "")).includes(`"id":"${FAKE_ROUTE}"`));
   const url = `http://127.0.0.1:${door.port}`;
   const sock = testSocket(root);
   const askToken = readFileSync(join(machine().dir, "ask", "door-token"), "utf8").trim();
@@ -1033,7 +1035,7 @@ describe("an erasure reaches Chat's stage", () => {
     expect(stagedBlobs(root)).toEqual([file]);
 
     hidingReady(root);
-    const hide = (epoch: number) => call("POST", "/v1/hide-details", reader, { table: "chat:c1", to: "codex:gpt-6-luna", what: "text", epoch, texts: [{ picture: file, tags: true }] });
+    const hide = (epoch: number) => call("POST", "/v1/hide-details", reader, { table: "chat:c1", to: FAKE_ROUTE, what: "text", epoch, texts: [{ picture: file, tags: true }] });
     const moved = await hide(0);
     expect(moved).toMatchObject({ status: 409, body: { code: "ERASED" } });
     const hidden = await hide(moved.body.epoch as number);

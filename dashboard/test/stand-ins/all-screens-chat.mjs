@@ -75,7 +75,9 @@ export function chatScreens({ day, FULL_DAY, ago, ready }) {
     { kind: 'places', question: 'Where have I been today?' }, { kind: 'sleep', question: 'How did I sleep last night?' },
     { kind: 'people', question: 'Who did I talk to most this week?' }] } }];
   const askDown = [{ url: 'api/ask$', method: 'GET', status: 503, json: { error: 'Chat isn’t answering on your Mac', code: 'ASK_DOWN' } }];
-  const signedOut = [{ url: 'api/ask$', method: 'GET', json: { ...ready, login: 'missing', said: 'Chat needs your Claude sign-in on your Mac.' } }];
+  const out = ready.models.find((/** @type {{ state: string }} */ each) => each.state !== 'ready');
+  const signedOut = [{ url: 'api/ask$', method: 'GET', json: { ...ready, default: { model: out.id, thinking: out.default, shown: out.id }, said: out.line,
+    act: `Sign in with ${out.group}…` } }];
   return [
     S('chat-home', 'Chat, home with past conversations', '#view=ask', base),
     S('chat-home-min', 'Chat, home with past conversations, the window at its smallest', '#view=ask', base, { width: 900, height: 600 }),
@@ -84,7 +86,7 @@ export function chatScreens({ day, FULL_DAY, ago, ready }) {
     S('chat-conversations', 'Chat, the conversations drawer open over a conversation', open(CHAT), base, { run: `await S.click('.ak-bar [data-ask-action="chats"]');` }),
     S('chat-home-typed', 'Chat, home with a long question typed', '#view=ask', base, { run: `await S.type('.ak textarea', 'Tell me everything about the weekend in Porto, who I saw, where we ate and what it cost, and whether I told anyone about it afterwards. Then compare it with the weekend before, and list anything I said I would follow up on.');` }),
     S('chat-pick-menu', 'Chat, the pick chip’s menu open', '#view=ask', base, { run: `await S.click('.ck-pick .ck-fmenu__btn');` }),
-    S('chat-model-menu', 'Chat, the pick chip’s models', '#view=ask', base, { run: `await S.click('.ck-pick .ck-fmenu__btn'); await S.click('.ck-pick .ck-pick__more');` }),
+    S('chat-model-menu', 'Chat, the pick chip’s models', '#view=ask', base, { run: `await S.click('.ck-pick .ck-fmenu__btn'); await S.click('.ck-pick .ck-flist__more');` }),
     S('chat-thread', 'Chat, a conversation of several turns with citations', open(CHAT), base),
     S('chat-thread-top', 'Chat, the same conversation from its first turn', open(CHAT), base, { run: `await S.scroll('.ak-stage', 0);` }),
     S('chat-steps-open', 'Chat, an answer’s steps opened', open(CHAT), base, { run: `await S.click('[data-ask-steps="3"]');` }),

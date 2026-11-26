@@ -74,7 +74,7 @@ const dateSaid = (said, view) => !said ? '' : `<p class="ck-fmenu__said-note mac
  * @returns {import('../kit/menu-button.js').MenuChoice[]}
  */
 const menuChoices = menu => menu.choices.map(choice => ({ value: choice.do ? JSON.stringify(choice.do) : '', words: choice.words,
-  note: choice.note, chosen: choice.chosen, default: choice.default, disabled: choice.do === null, parted: choice.parted }));
+  note: choice.note, tag: choice.tag, head: choice.head, more: choice.more, chosen: choice.chosen, default: choice.default, disabled: choice.do === null, parted: choice.parted }));
 
 /**
  * @param {End | null} end
@@ -396,7 +396,7 @@ function settingsMarkup(detail, view, flow = '') {
     : `<h2 class="cn-set__title">${esc(detail.name)}</h2>`;
   const said = !detail.line ? '' : (detail.back ? `<h2 class="cn-set__title">${esc(detail.name)}</h2>` : '')
     + `<p class="cn-set__line">${esc(detail.line)}</p>`;
-  const body = (detail.storage ? storageMarkup(detail.storage) : '') + detail.parts.map(part => settingsPart(part, view)).join('');
+  const body = (detail.storage ? storageMarkup(detail.storage.answer, detail.storage.more) : '') + detail.parts.map(part => settingsPart(part, view)).join('');
   const failed = detail.readFailed ? readFailure(detail.readFailed.drawn, { notHere: detail.readFailed.notHere,
     unread: detail.readFailed.unread, lacking: detail.readFailed.lacking,
     retry: doAttrs({ label: TRY_AGAIN, do: { reread: detail.readFailed.reread } }) }) : '';

@@ -5,17 +5,18 @@ import { createHash } from 'node:crypto';
 import { createServer, request as ask } from 'node:http';
 import { deflateSync } from 'node:zlib';
 import { wavOf } from '../public/lib/ask-media.js';
+import { askReady } from './stand-ins/ask-ready.mjs';
 import { pageHarness } from './stand-ins/page-harness.mjs';
 import { until } from './until.mjs';
 
 const WINDOW = { width: 1440, height: 900 };
 const KEPT = '1792396851000-7de3a6';
 const MODELS = [
-  { id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT', photos: true },
-  { id: 'synthetic-blind', name: 'Synthetic Blind', thinking: ['low'], default: 'low', group: 'ChatGPT', photos: false },
+  { id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT' },
+  { id: 'synthetic-blind', name: 'Synthetic Blind', thinking: ['low'], default: 'low', group: 'ChatGPT', input: ['text'] },
 ];
 const CAUTION = 'Voice notes go to Synthetic Cloud as they are: sound can’t be hidden.';
-const NO_VOICE = 'Voice notes need Parakeet: download it in Settings › AI models.';
+const NO_VOICE = 'Choose a model for Voice notes';
 const WORDS = 'How far did I walk on the synthetic beach?';
 const UNREADABLE = 'Lifestream can\'t read this picture.';
 const REFUSED = 'Synthetic: the home couldn’t read your record for this question.';
@@ -269,8 +270,7 @@ async function mediaHome(home) {
         return answer();
       }
       if (url.pathname === '/v1/ask') {
-        return send({ login: 'ready', model: 'synthetic-terra', name: 'Synthetic Terra', group: 'ChatGPT', thinking: 'high', models: MODELS,
-          default: { model: 'synthetic-terra' }, starters: [], limits: { photos: 10, photo_bytes: 26_214_400, voice_ms: 600_000 },
+        return send({ ...askReady(MODELS),
           voice: voiceReady
             ? { ready: true, words: 'Synthetic Cloud · Sent as it is', line: null, caution: CAUTION, value: 'default',
               choices: [{ value: 'runner:macbook-pro-0001/parakeet', words: 'Parakeet · this Mac', sent: false },
@@ -676,7 +676,7 @@ describe('ask-media: photos and voice notes in Chat on the Mac', () => {
     await press('.ck-pick .ck-fmenu__btn');
   });
 
-  test('P7: a model that sees no photos greys the + menu and says why', async () => {
+  test('P7: a model whose input holds no image greys the + menu and says why', async () => {
     await press('.ck-pick .ck-fmenu__btn');
     await chrome.until(`document.querySelector('.ck-pick [data-value="models"]')?.hidden === false`);
     await press('.ck-pick [data-value="models"]');
@@ -685,13 +685,13 @@ describe('ask-media: photos and voice notes in Chat on the Mac', () => {
     await chrome.until(`document.querySelector('.ck-pick__words')?.textContent.startsWith('Synthetic Blind')`);
     await press('.ck-composer__attach .ck-fmenu__btn');
     await chrome.until(`document.querySelector('#ck-attach-menu')?.hidden === false`);
-    assert.match(await page.words('#ck-attach-menu'), /Synthetic Blind can’t see photos\./u);
+    assert.match(await page.words('#ck-attach-menu'), /Synthetic Blind can't see photos\./u);
     assert.equal(await page.count('#ck-attach-menu [aria-disabled="true"]'), 3);
     await page.shot('photos-off', `document.querySelector('#ck-attach-menu')?.hidden === false`);
     await press('.ck-composer__attach .ck-fmenu__btn');
   });
 
-  test('P6: no voice model: the tap says the one fix and records nothing', async () => {
+  test('P6: no voice model: the tap says the home\'s line and records nothing', async () => {
     front.voiceReady(false);
     const opened = front.staged.filter(each => each.method === 'POST' && each.path.startsWith('/v1/ask/notes/')).length;
     await chrome.evaluate(`window.dispatchEvent(new Event('focus'))`);

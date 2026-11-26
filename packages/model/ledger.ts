@@ -174,6 +174,11 @@ const MIGRATIONS: readonly Migration[] = [
     CREATE INDEX call_items_day ON call_items(day) WHERE day IS NOT NULL;
     CREATE TRIGGER call_items_go AFTER DELETE ON calls BEGIN DELETE FROM call_items WHERE call = old.seq; END`),
   (db) => widenCheck(db, "outbound", "CHECK(what IN ('ask','read','text','link','lookup'))", "CHECK(what IN ('ask','read','text','link','lookup','feedback'))"),
+  (db) => db.exec(`UPDATE requests SET transport = 'openrouter' WHERE transport = 'openrouter-voice';
+    UPDATE attempts SET transport = 'openrouter' WHERE transport = 'openrouter-voice';
+    UPDATE outbound SET route = 'openrouter:' || substr(route, 18) WHERE substr(route, 1, 17) = 'openrouter-voice:';
+    UPDATE sent_copies SET route = 'openrouter:' || substr(route, 18) WHERE substr(route, 1, 17) = 'openrouter-voice:';
+    DELETE FROM meta WHERE key = 'rest:openrouter-voice'`),
 ];
 
 function widenCheck(db: Database.Database, table: string, was: string, now: string): void {

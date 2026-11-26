@@ -1,127 +1,285 @@
 {
-  "defaults": {
+  "connections": [
+    {
+      "id": "runner:runner-macbook-pro-0001",
+      "kind": "runner",
+      "name": "MacBook Pro",
+      "line": null
+    },
+    {
+      "id": "openrouter",
+      "kind": "key",
+      "name": "OpenRouter",
+      "line": null
+    },
+    {
+      "id": "claude",
+      "kind": "plan",
+      "name": "Claude",
+      "line": "Your Claude plan is used up · resets 14:00"
+    },
+    {
+      "id": "address",
+      "kind": "address",
+      "name": "Custom address",
+      "line": "Chat needs the server to run a context window of 32,000 tokens or more"
+    }
+  ],
+  "uses": {
     "pictures": {
       "value": "openrouter:vendor-a/vision-1",
-      "words": "Vision One · OpenRouter",
-      "steps": [
-        {
+      "thinking": null,
+      "fits": [
+        "runner:runner-macbook-pro-0001/qwen3.5-4b",
+        "openrouter:vendor-a/vision-1",
+        "claude:plan-model-1"
+      ],
+      "menu": {
+        "default": null,
+        "rows": [
+          {
+            "value": "openrouter:vendor-a/vision-1",
+            "name": "Vision One",
+            "account": null,
+            "chosen": true
+          }
+        ],
+        "local": {
+          "label": "Local",
+          "rows": [
+            {
+              "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+              "name": "Qwen 3.5",
+              "account": null,
+              "chosen": false
+            }
+          ]
+        },
+        "more": {
+          "words": "More",
+          "use": "pictures",
+          "work": null
+        },
+        "off": {
           "value": "none",
-          "words": "Off",
-          "note": null
-        },
-        {
-          "value": "openrouter:vendor-a/vision-1",
-          "words": "Vision One",
-          "note": "Sent to OpenRouter"
-        },
-        {
-          "value": "claude:plan-model-1",
-          "words": "Plan Model One",
-          "note": "Your Claude plan is used up · resets 14:00"
-        },
-        {
-          "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
-          "words": "Qwen 3.5",
-          "note": "Stays on MacBook Pro"
+          "name": "Off",
+          "account": null,
+          "chosen": false
         }
-      ]
+      }
     },
     "audio": {
-      "value": "none",
-      "words": "Off",
-      "steps": [
-        {
+      "value": null,
+      "thinking": null,
+      "fits": [
+        "claude:plan-model-1",
+        "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+        "runner:runner-macbook-pro-0001/nemotron-3.5-asr-0.6b"
+      ],
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "audio",
+          "work": null
+        },
+        "off": {
           "value": "none",
-          "words": "Off",
-          "note": null
-        },
-        {
-          "value": "claude:plan-model-1",
-          "words": "Plan Model One",
-          "note": "Your Claude plan is used up · resets 14:00"
-        },
-        {
-          "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
-          "words": "Parakeet",
-          "note": "Downloading, 0.3 of 0.7 GB"
-        },
-        {
-          "value": "runner:runner-macbook-pro-0001/nemotron-3.5-asr-0.6b",
-          "words": "Nemotron Speech",
-          "note": "Not downloaded"
+          "name": "Off",
+          "account": null,
+          "chosen": true
         }
-      ]
+      }
     },
     "text": {
       "value": null,
-      "words": "No model yet",
-      "steps": [
-        {
-          "value": "openrouter:vendor-a/vision-1",
-          "words": "Vision One",
-          "note": "Sent to OpenRouter"
+      "thinking": null,
+      "fits": [
+        "openrouter:vendor-a/vision-1",
+        "claude:plan-model-1",
+        "runner:runner-macbook-pro-0001/qwen3.5-4b"
+      ],
+      "menu": {
+        "default": null,
+        "rows": [
+          {
+            "value": "openrouter:vendor-a/vision-1",
+            "name": "Vision One",
+            "account": null,
+            "chosen": false
+          }
+        ],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "text",
+          "work": null
         },
-        {
-          "value": "claude:plan-model-1",
-          "words": "Plan Model One",
-          "note": "Your Claude plan is used up · resets 14:00"
-        },
-        {
-          "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
-          "words": "Qwen 3.5",
-          "note": "Stays on MacBook Pro"
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
         }
-      ]
+      }
+    },
+    "chat": {
+      "value": null,
+      "thinking": null,
+      "fits": [],
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "chat",
+          "work": null
+        },
+        "off": null
+      }
+    },
+    "search": {
+      "value": null,
+      "thinking": null,
+      "fits": [],
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "search",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      }
+    },
+    "hiding": {
+      "value": null,
+      "thinking": null,
+      "fits": [],
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "hiding",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": true
+        }
+      }
     }
   },
-  "runners": [
-    {
-      "unit": "runner-macbook-pro-0001",
-      "name": "MacBook Pro",
-      "line": null,
-      "paused": null,
-      "battery": {
-        "on": true,
-        "held": null
-      },
-      "files": [
-        {
-          "id": "qwen3.5-4b",
-          "name": "Qwen 3.5",
-          "about": "Describes photos and sums up text · 4 GB",
-          "state": "ready",
-          "line": null,
-          "suggested": false,
-          "fits": true
-        },
-        {
-          "id": "parakeet-unified-en-0.6b",
-          "name": "Parakeet",
-          "about": "Transcribes voice notes in English · 0.7 GB",
-          "state": "fetching",
-          "line": "Downloading, 0.3 of 0.7 GB",
-          "suggested": true,
-          "fits": true
-        },
-        {
-          "id": "nemotron-3.5-asr-0.6b",
-          "name": "Nemotron Speech",
-          "about": "Transcribes voice notes in English, Hindi and 26 more languages · 0.8 GB",
-          "state": "absent",
-          "line": "Not downloaded",
-          "suggested": false,
-          "fits": true
-        }
-      ]
+  "models": {
+    "openrouter:vendor-a/vision-1": {
+      "id": "openrouter:vendor-a/vision-1",
+      "connection": "openrouter",
+      "model": "vendor-a/vision-1",
+      "name": "Vision One",
+      "input": [
+        "text",
+        "image"
+      ],
+      "tools": false,
+      "thinking": [],
+      "context_tokens": null,
+      "chat": "door",
+      "suggested": [],
+      "group": "OpenRouter",
+      "leaves": "OpenRouter",
+      "state": "ready",
+      "line": null
+    },
+    "claude:plan-model-1": {
+      "id": "claude:plan-model-1",
+      "connection": "claude",
+      "model": "plan-model-1",
+      "name": "Plan Model One",
+      "input": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "tools": false,
+      "thinking": [],
+      "context_tokens": null,
+      "chat": "program",
+      "suggested": [],
+      "group": "Claude",
+      "leaves": "Anthropic",
+      "state": "waiting",
+      "line": "Your Claude plan is used up · resets 14:00"
+    },
+    "runner:runner-macbook-pro-0001/qwen3.5-4b": {
+      "id": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+      "connection": "runner:runner-macbook-pro-0001",
+      "model": "qwen3.5-4b",
+      "name": "Qwen 3.5",
+      "input": [
+        "text",
+        "image"
+      ],
+      "tools": false,
+      "thinking": [],
+      "context_tokens": 4000,
+      "chat": "door",
+      "suggested": [
+        "pictures"
+      ],
+      "group": "MacBook Pro",
+      "leaves": null,
+      "state": "ready",
+      "line": null
+    },
+    "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b": {
+      "id": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+      "connection": "runner:runner-macbook-pro-0001",
+      "model": "parakeet-unified-en-0.6b",
+      "name": "Parakeet",
+      "input": [
+        "audio"
+      ],
+      "tools": false,
+      "thinking": [],
+      "context_tokens": null,
+      "chat": "door",
+      "suggested": [],
+      "group": "MacBook Pro",
+      "leaves": null,
+      "state": "unavailable",
+      "line": "Downloading, 0.3 of 0.7 GB"
+    },
+    "runner:runner-macbook-pro-0001/nemotron-3.5-asr-0.6b": {
+      "id": "runner:runner-macbook-pro-0001/nemotron-3.5-asr-0.6b",
+      "connection": "runner:runner-macbook-pro-0001",
+      "model": "nemotron-3.5-asr-0.6b",
+      "name": "Nemotron Speech",
+      "input": [
+        "audio"
+      ],
+      "tools": false,
+      "thinking": [],
+      "context_tokens": null,
+      "chat": "door",
+      "suggested": [],
+      "group": "MacBook Pro",
+      "leaves": null,
+      "state": "unavailable",
+      "line": "Not downloaded"
     }
-  ],
-  "openrouter": {
-    "connected": true
-  },
-  "address": {
-    "url": "http://127.0.0.1:8080/v1",
-    "model": "local-model-1",
-    "words": "local-model-1 at http://127.0.0.1:8080/v1",
-    "takes": "Takes pictures and text"
   }
 }

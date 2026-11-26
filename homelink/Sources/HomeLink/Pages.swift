@@ -1673,6 +1673,60 @@ extension HomeLink {
             }
         }
 
+        public struct Models: Decodable, Sendable, Equatable {
+            public static let route = "/v1/page/models"
+
+            public let position: String
+            public let today: String
+            public let uses: [ModelUse]
+            public let connections: [ModelConnection]
+
+            private enum Keys: String, CodingKey {
+                case position
+                case today
+                case uses
+                case connections
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.position = try container.decode(String.self, forKey: .position)
+                self.today = try container.decode(String.self, forKey: .today)
+                self.uses = try container.decode([ModelUse].self, forKey: .uses)
+                self.connections = try container.decode([ModelConnection].self, forKey: .connections)
+            }
+        }
+
+        public struct ModelsFind: Decodable, Sendable, Equatable {
+            public static let route = "/v1/page/models/find"
+
+            public let position: String
+            public let today: String
+            public let placeholder: String
+            public let rows: [ModelRow]
+            public let local: ModelLocal?
+            public let none: String?
+
+            private enum Keys: String, CodingKey {
+                case position
+                case today
+                case placeholder
+                case rows
+                case local
+                case none
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.position = try container.decode(String.self, forKey: .position)
+                self.today = try container.decode(String.self, forKey: .today)
+                self.placeholder = try container.decode(String.self, forKey: .placeholder)
+                self.rows = try container.decode([ModelRow].self, forKey: .rows)
+                self.local = try container.decodeNil(forKey: .local) ? nil : container.decode(ModelLocal.self, forKey: .local)
+                self.none = try container.decodeNil(forKey: .none) ? nil : container.decode(String.self, forKey: .none)
+            }
+        }
+
         public struct AccountStep: Decodable, Sendable, Equatable {
             public let startMs: Int
             public let endMs: Int
@@ -3513,6 +3567,361 @@ extension HomeLink {
                 public init(from decoder: Decoder) throws {
                     self = try Self(rawValue: decoder.singleValueContainer().decode(String.self)) ?? .unknown
                 }
+            }
+        }
+
+        public struct ModelBattery: Decodable, Sendable, Equatable {
+            public let on: Bool
+            public let line: String
+
+            private enum Keys: String, CodingKey {
+                case on
+                case line
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.on = try container.decode(Bool.self, forKey: .on)
+                self.line = try container.decode(String.self, forKey: .line)
+            }
+        }
+
+        public enum ModelConnection: Decodable, Sendable, Equatable {
+            case plan(id: String, name: String, line: String?, signed: Bool)
+            case key(id: String, name: String, line: String?, held: Bool)
+            case runner(id: String, unit: String, place: String, name: String, line: String?, files: [ModelFile], found: [ModelFound], battery: ModelBattery?, paused: Bool)
+            case address(id: String, url: String?, line: String?)
+            case unknown
+
+            private enum Keys: String, CodingKey {
+                case kind
+                case id
+                case name
+                case line
+                case signed
+                case held
+                case unit
+                case place
+                case files
+                case found
+                case battery
+                case paused
+                case url
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                switch try container.decode(String.self, forKey: .kind) {
+                case "plan":
+                    self = .plan(
+                        id: try container.decode(String.self, forKey: .id),
+                        name: try container.decode(String.self, forKey: .name),
+                        line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
+                        signed: try container.decode(Bool.self, forKey: .signed)
+                    )
+                case "key":
+                    self = .key(
+                        id: try container.decode(String.self, forKey: .id),
+                        name: try container.decode(String.self, forKey: .name),
+                        line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
+                        held: try container.decode(Bool.self, forKey: .held)
+                    )
+                case "runner":
+                    self = .runner(
+                        id: try container.decode(String.self, forKey: .id),
+                        unit: try container.decode(String.self, forKey: .unit),
+                        place: try container.decode(String.self, forKey: .place),
+                        name: try container.decode(String.self, forKey: .name),
+                        line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
+                        files: try container.decode([ModelFile].self, forKey: .files),
+                        found: try container.decode([ModelFound].self, forKey: .found),
+                        battery: try container.decodeNil(forKey: .battery) ? nil : container.decode(ModelBattery.self, forKey: .battery),
+                        paused: try container.decode(Bool.self, forKey: .paused)
+                    )
+                case "address":
+                    self = .address(
+                        id: try container.decode(String.self, forKey: .id),
+                        url: try container.decodeNil(forKey: .url) ? nil : container.decode(String.self, forKey: .url),
+                        line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                    )
+                default:
+                    self = .unknown
+                }
+            }
+        }
+
+        public struct ModelFile: Decodable, Sendable, Equatable {
+            public let id: String
+            public let name: String
+            public let about: String
+            public let size: String
+            public let state: ModelFileState
+            public let line: String?
+            public let suggested: Bool
+            public let fits: Bool
+            public let acts: [ModelFileAct]
+
+            private enum Keys: String, CodingKey {
+                case id
+                case name
+                case about
+                case size
+                case state
+                case line
+                case suggested
+                case fits
+                case acts
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.id = try container.decode(String.self, forKey: .id)
+                self.name = try container.decode(String.self, forKey: .name)
+                self.about = try container.decode(String.self, forKey: .about)
+                self.size = try container.decode(String.self, forKey: .size)
+                self.state = try container.decode(ModelFileState.self, forKey: .state)
+                self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                self.suggested = try container.decode(Bool.self, forKey: .suggested)
+                self.fits = try container.decode(Bool.self, forKey: .fits)
+                self.acts = try container.decode([ModelFileAct].self, forKey: .acts)
+            }
+        }
+
+        public enum ModelFileAct: String, Decodable, Sendable, Equatable {
+            case fetch
+            case remove
+            case cancel
+            case unknown
+
+            public init(from decoder: Decoder) throws {
+                self = try Self(rawValue: decoder.singleValueContainer().decode(String.self)) ?? .unknown
+            }
+        }
+
+        public enum ModelFileState: String, Decodable, Sendable, Equatable {
+            case absent
+            case fetching
+            case ready
+            case failed
+            case unknown
+
+            public init(from decoder: Decoder) throws {
+                self = try Self(rawValue: decoder.singleValueContainer().decode(String.self)) ?? .unknown
+            }
+        }
+
+        public struct ModelFound: Decodable, Sendable, Equatable {
+            public let name: String
+            public let size: String
+            public let from: String
+
+            private enum Keys: String, CodingKey {
+                case name
+                case size
+                case from
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.name = try container.decode(String.self, forKey: .name)
+                self.size = try container.decode(String.self, forKey: .size)
+                self.from = try container.decode(String.self, forKey: .from)
+            }
+        }
+
+        public struct ModelLevel: Decodable, Sendable, Equatable {
+            public let value: String
+            public let name: String
+            public let chosen: Bool
+            public let suggested: Bool
+
+            private enum Keys: String, CodingKey {
+                case value
+                case name
+                case chosen
+                case suggested
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.value = try container.decode(String.self, forKey: .value)
+                self.name = try container.decode(String.self, forKey: .name)
+                self.chosen = try container.decode(Bool.self, forKey: .chosen)
+                self.suggested = try container.decode(Bool.self, forKey: .suggested)
+            }
+        }
+
+        public struct ModelLocal: Decodable, Sendable, Equatable {
+            public let label: String
+            public let rows: [ModelRow]
+
+            private enum Keys: String, CodingKey {
+                case label
+                case rows
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.label = try container.decode(String.self, forKey: .label)
+                self.rows = try container.decode([ModelRow].self, forKey: .rows)
+            }
+        }
+
+        public struct ModelMenu: Decodable, Sendable, Equatable {
+            public let `default`: ModelRow?
+            public let rows: [ModelRow]
+            public let local: ModelLocal?
+            public let more: ModelMore
+            public let off: ModelRow?
+
+            private enum Keys: String, CodingKey {
+                case `default`
+                case rows
+                case local
+                case more
+                case off
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.`default` = try container.decodeNil(forKey: .`default`) ? nil : container.decode(ModelRow.self, forKey: .`default`)
+                self.rows = try container.decode([ModelRow].self, forKey: .rows)
+                self.local = try container.decodeNil(forKey: .local) ? nil : container.decode(ModelLocal.self, forKey: .local)
+                self.more = try container.decode(ModelMore.self, forKey: .more)
+                self.off = try container.decodeNil(forKey: .off) ? nil : container.decode(ModelRow.self, forKey: .off)
+            }
+        }
+
+        public struct ModelMore: Decodable, Sendable, Equatable {
+            public let words: String
+            public let use: ModelUseId
+            public let work: String?
+
+            private enum Keys: String, CodingKey {
+                case words
+                case use
+                case work
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.words = try container.decode(String.self, forKey: .words)
+                self.use = try container.decode(ModelUseId.self, forKey: .use)
+                self.work = try container.decodeNil(forKey: .work) ? nil : container.decode(String.self, forKey: .work)
+            }
+        }
+
+        public struct ModelPlace: Decodable, Sendable, Equatable {
+            public let place: String
+            public let value: String?
+            public let line: String?
+            public let ready: Bool
+            public let leaves: Bool
+
+            private enum Keys: String, CodingKey {
+                case place
+                case value
+                case line
+                case ready
+                case leaves
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.place = try container.decode(String.self, forKey: .place)
+                self.value = try container.decodeNil(forKey: .value) ? nil : container.decode(String.self, forKey: .value)
+                self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                self.ready = try container.decode(Bool.self, forKey: .ready)
+                self.leaves = try container.decode(Bool.self, forKey: .leaves)
+            }
+        }
+
+        public struct ModelRow: Decodable, Sendable, Equatable {
+            public let value: String
+            public let name: String
+            public let account: String?
+            public let chosen: Bool
+
+            private enum Keys: String, CodingKey {
+                case value
+                case name
+                case account
+                case chosen
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.value = try container.decode(String.self, forKey: .value)
+                self.name = try container.decode(String.self, forKey: .name)
+                self.account = try container.decodeNil(forKey: .account) ? nil : container.decode(String.self, forKey: .account)
+                self.chosen = try container.decode(Bool.self, forKey: .chosen)
+            }
+        }
+
+        public struct ModelThinking: Decodable, Sendable, Equatable {
+            public let value: String
+            public let words: String
+            public let levels: [ModelLevel]
+
+            private enum Keys: String, CodingKey {
+                case value
+                case words
+                case levels
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.value = try container.decode(String.self, forKey: .value)
+                self.words = try container.decode(String.self, forKey: .words)
+                self.levels = try container.decode([ModelLevel].self, forKey: .levels)
+            }
+        }
+
+        public struct ModelUse: Decodable, Sendable, Equatable {
+            public let use: ModelUseId
+            public let label: String
+            public let line: String?
+            public let words: String
+            public let value: String?
+            public let thinking: ModelThinking?
+            public let menu: ModelMenu
+            public let places: [ModelPlace]
+
+            private enum Keys: String, CodingKey {
+                case use
+                case label
+                case line
+                case words
+                case value
+                case thinking
+                case menu
+                case places
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.use = try container.decode(ModelUseId.self, forKey: .use)
+                self.label = try container.decode(String.self, forKey: .label)
+                self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                self.words = try container.decode(String.self, forKey: .words)
+                self.value = try container.decodeNil(forKey: .value) ? nil : container.decode(String.self, forKey: .value)
+                self.thinking = try container.decodeNil(forKey: .thinking) ? nil : container.decode(ModelThinking.self, forKey: .thinking)
+                self.menu = try container.decode(ModelMenu.self, forKey: .menu)
+                self.places = try container.decode([ModelPlace].self, forKey: .places)
+            }
+        }
+
+        public enum ModelUseId: String, Decodable, Sendable, Equatable {
+            case pictures
+            case audio
+            case text
+            case chat
+            case search
+            case hiding
+            case unknown
+
+            public init(from decoder: Decoder) throws {
+                self = try Self(rawValue: decoder.singleValueContainer().decode(String.self)) ?? .unknown
             }
         }
 

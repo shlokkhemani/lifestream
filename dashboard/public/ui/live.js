@@ -60,7 +60,7 @@ export function homeChange(messages) {
   for (const message of messages) {
     const kind = message.data.kind ?? '';
     if (message.event !== 'reset' && (kind === 'import' || kind === 'erase' || kind === 'stored')) storage = true;
-    if (kind.startsWith('device-') || kind.startsWith('source-') || kind === 'pass-revoked') streams = true;
+    if (kind.startsWith('device-') || kind.startsWith('source-') || kind === 'pass-revoked' || kind === 'settings') streams = true;
     if (message.event === 'reset' || message.event === 'reopen') reset = true;
     else if (message.data.kind === 'people') {
       people = true;

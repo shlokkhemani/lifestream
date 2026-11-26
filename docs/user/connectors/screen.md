@@ -55,7 +55,7 @@ whether you were at the Mac.
   clicked, from [Keyboard and mouse](./input.md); and the text on your screen.
 - **Never sends:** the pictures, or the keys of a password field.
 - **Hidden first:** the personal details in each part, as
-  [What leaves your Mac](../what-leaves-your-mac.md#what-is-hidden-before-sending) says. A model whose note starts with **Stays on** runs on your own computer, and nothing leaves.
+  [What leaves your Mac](../what-leaves-your-mac.md#what-is-hidden-before-sending) says. A model under **Local** runs on your own machines, and nothing leaves.
 - **By default:** the **Default** model, like every other connector's. If that model is your
   ChatGPT or Claude plan, the text on your screen and what you typed go to OpenAI or Anthropic.
 - **To stop it:** set **Screen summaries** to **Off**.
@@ -124,6 +124,6 @@ tell apart, as [Choose what is recorded](../choose-what-is-recorded.md#private-w
 **Needs a model for long text**\
 The model set for **Screen summaries** cannot take a whole part of a sitting. The model Lifestream
 downloads for you, Qwen 3.5, is too small for it, so the **Screen summaries** menu does not offer
-it. Choose your ChatGPT or Claude plan, a model through a key, or a model you run yourself through
-**Custom server** (see [Choose which AI models read your data](../ai-models.md)). Or set **Screen
+it. Choose your ChatGPT or Claude plan, a model through a key, or a model you run yourself at a
+**Custom address** (see [Choose which AI models read your data](../ai-models.md)). Or set **Screen
 summaries** to **Off**.

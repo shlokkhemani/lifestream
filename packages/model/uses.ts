@@ -6,13 +6,19 @@ export const WORK_KINDS: readonly WorkKind[] = ["pictures", "audio", "text"];
 
 export type UseId = WorkKind | "chat" | "search" | "hiding";
 
-export const MODEL_USES: Readonly<Record<UseId, { label: string; need: UseNeed }>> = {
-  pictures: { label: "Photos", need: { input: ["text", "image"], output: "text" } },
-  audio: { label: "Voice notes", need: { input: ["audio"], output: "text" } },
-  text: { label: "Text", need: { input: ["text"], output: "text" } },
-  chat: { label: "Chat", need: { input: ["text"], output: "text", tools: true, context_tokens: 32_000 } },
-  search: { label: "Search by meaning", need: { input: ["text"], output: "vectors", stays: true } },
-  hiding: { label: "Hiding details", need: { input: ["text"], output: "marks", stays: true } },
+export interface Use {
+  label: string;
+  need: UseNeed;
+  fill: { thinking: string | null; order?: readonly string[] } | null;
+}
+
+export const MODEL_USES: Readonly<Record<UseId, Use>> = {
+  pictures: { label: "Photos", need: { input: ["text", "image"], output: "text" }, fill: null },
+  audio: { label: "Voice notes", need: { input: ["audio"], output: "text" }, fill: null },
+  text: { label: "Text", need: { input: ["text"], output: "text" }, fill: { thinking: null } },
+  chat: { label: "Chat", need: { input: ["text"], output: "text", tools: true, context_tokens: 32_000 }, fill: { thinking: "medium", order: ["claude", "codex", "runner", "openrouter"] } },
+  search: { label: "Search by meaning", need: { input: ["text"], output: "vectors", stays: true }, fill: null },
+  hiding: { label: "Hiding details", need: { input: ["text"], output: "marks", stays: true }, fill: null },
 };
 
 export const USE_IDS = Object.keys(MODEL_USES) as readonly UseId[];

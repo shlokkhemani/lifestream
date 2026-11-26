@@ -48,7 +48,7 @@ function homeWithRecords() {
     for (const { account } of ACCOUNTS) tx.tables.sources.add({ id: `${account}:cloud`, vendor: account.split(":")[0] === "gmail" ? "google" : "whoop", connector: account.split(":")[0]!, added_ms: NOW_MS });
   });
   db.close();
-  editSettings(home.root, { "privacy.detector": "off" });
+  editSettings(home.root, { "model.defaults.hiding": null });
   writePrepared(folder, peopleFileOf(home.root, machine().dir), PEOPLE, { rows: new Map([["names", new Map([["table", {
     owner: { who: "p-owner", shown: "Owner Example" },
     people: [{ who: "p-owner", is: "human", shown: "Owner Example", names: ["Owner Example"], accounts: [] }],

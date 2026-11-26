@@ -1,14 +1,23 @@
 import { mkdirSync } from "node:fs";
-import { errorText, SendFailed, type ListedModel, type Transport } from "../transport.js";
-import { checkProgram, run, UNAVAILABLE, type Judging, type ProgramAt, type ProgramCheck } from "./program.js";
-
+import { errorText, LIST_MS, SendFailed, withListed, type Input, type ListedModel, type Transport } from "../transport.js";
+import { checkProgram, converse, run, UNAVAILABLE, type Judging, type ProgramAt, type ProgramCheck } from "./program.js";
 
 export const CODEX_ITEM_MODEL = "gpt-6-luna";
 
-const DECLARED: readonly ListedModel[] = [{
-  model: CODEX_ITEM_MODEL, name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: 1_050_000,
-  thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
-}];
+export const CODEX_CHAT_MODEL = "gpt-6.2-sol";
+
+const CONTEXT_TOKENS = 1_050_000;
+
+const DECLARED: readonly ListedModel[] = [
+  {
+    model: CODEX_ITEM_MODEL, name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
+  },
+  {
+    model: CODEX_CHAT_MODEL, name: "GPT-6.2 Sol", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    thinking: ["low", "medium", "high"], ready: true, suggested: ["chat"],
+  },
+];
 
 const NOT_FOUND = "Codex is not on this Mac yet: it is downloaded once ChatGPT is chosen, and is downloading if it was";
 
@@ -22,6 +31,7 @@ const CODEX_FLAGS = ["-c", "check_for_update_on_startup=false", "-c", "analytics
 
 export interface CodexOptions {
   codex: ProgramAt | undefined;
+  listed?: readonly ListedModel[];
 }
 
 export function codexTransport(options: CodexOptions): Transport {
@@ -33,7 +43,26 @@ export function codexTransport(options: CodexOptions): Transport {
     leaves: "OpenAI",
     chat: "program",
     defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
-    models: async () => [...DECLARED],
+    models: async () => withListed(DECLARED, options.listed ?? []),
+    async list() {
+      if (codex === undefined) throw new SendFailed("codex", NOT_FOUND, null);
+      return listedCodex(await converse("codex", codex, ["app-server", ...CODEX_FLAGS], {
+        env: codexEnv(codex.home), cwd: codex.home, bound_ms: LIST_MS,
+        opening: [{ id: STARTED, method: "initialize", params: { clientInfo: { name: "lifestream-home", title: "Lifestream", version: "1" }, capabilities: { experimentalApi: true } } }],
+        heard: (message, write) => {
+          if (message.id === STARTED) {
+            if (message.error !== undefined) throw new Error("codex refused to start its app server");
+            write({ method: "initialized" });
+            write({ id: LISTED, method: "model/list", params: {} });
+            return undefined;
+          }
+          if (message.id !== LISTED) return undefined;
+          const listed = record(message.result)?.data;
+          if (!Array.isArray(listed)) throw new Error("codex answered with no list of its models");
+          return listed;
+        },
+      }));
+    },
     async available() {
       const check = await checkCodex(codex);
       return check.state === "signed_in" ? { ok: true } : { ok: false, reason: UNAVAILABLE[check.state], detail: check.why };
@@ -65,6 +94,31 @@ export function codexTransport(options: CodexOptions): Transport {
       return { text: result.stdout, model: request.model };
     },
   };
+}
+
+const STARTED = 1;
+const LISTED = 2;
+
+const INPUTS: readonly Input[] = ["text", "image", "audio"];
+
+export function listedCodex(listed: readonly unknown[]): ListedModel[] {
+  const rows = new Map<string, ListedModel>();
+  for (const each of listed) {
+    const model = record(each);
+    if (model === undefined || model.hidden === true || typeof model.id !== "string" || model.id === "" || rows.has(model.id)) continue;
+    const modalities = Array.isArray(model.inputModalities) ? model.inputModalities : ["text", "image"];
+    const efforts = Array.isArray(model.supportedReasoningEfforts) ? model.supportedReasoningEfforts.map((effort) => record(effort)?.reasoningEffort) : [];
+    rows.set(model.id, {
+      model: model.id, name: typeof model.displayName === "string" && model.displayName !== "" ? model.displayName : model.id,
+      input: INPUTS.filter((input) => modalities.includes(input)), output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+      thinking: efforts.filter((effort): effort is string => typeof effort === "string"), ready: true,
+    });
+  }
+  return [...rows.values()].filter((row) => row.input.includes("text"));
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 function reported(stderr: string): number | null | undefined {

@@ -354,17 +354,34 @@ extension HomeLink {
                 public let name: String
                 public let thinking: [String]
                 public let `default`: String
-                public let group: String?
-                public let photos: Bool
+                public let state: String
+                public let photosOff: String?
+                public let hides: Bool
+
+                public var ready: Bool { state == "ready" }
+
+                enum CodingKeys: String, CodingKey {
+                    case id, name, thinking, `default`, state, hides
+                    case photosOff = "photos_off"
+                }
             }
 
-            public let model: String
-            public let name: String
-            public let thinking: String
-            public let login: Login
+            public struct Default: Decodable, Sendable, Equatable {
+                public let model: String?
+                public let thinking: String?
+                public let shown: String?
+                public let choose: String?
+            }
+
+            public let model: String?
+            public let name: String?
+            public let thinking: String?
+            public let login: Login?
             public let said: String?
             public let gone: Bool?
             public let models: [Model]
+            public let menu: Pages.ModelMenu
+            public let `default`: Default
             public let starters: [Starter]
             public let voice: Voice
             public let limits: Limits

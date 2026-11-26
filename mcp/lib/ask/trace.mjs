@@ -5,14 +5,14 @@ import { performance } from 'node:perf_hooks';
 /**
  * @typedef {{ n: number, tool: string, via?: string, args: unknown, restored?: unknown, answer?: string, images?: number, chars?: number, start_ms: number, end_ms?: number, ms?: number, error?: string }} TracedCall
  * @typedef {{ ms: number, type: string, call?: number, name?: string, words?: string, said?: string, error?: string, message?: string }} TracedEvent
- * @typedef {{ chat: string, n: number, maker: string, model: string, answered_model?: string, thinking: string, question: string, question_hidden?: string, prompt?: string, prompt_sha256?: string, first_step_ms: number | null, first_text_ms: number | null, first_answer_ms: number | null, total_ms: number, end: string, error?: string, failed?: string, text: string, written?: string, tokens?: { input: number, output: number, cache_read: number }, calls: TracedCall[], events: TracedEvent[] }} TurnTrace
+ * @typedef {{ chat: string, n: number, connection: string, model: string, answered_model?: string, thinking: string, question: string, question_hidden?: string, prompt?: string, prompt_sha256?: string, first_step_ms: number | null, first_text_ms: number | null, first_answer_ms: number | null, total_ms: number, end: string, error?: string, failed?: string, text: string, written?: string, tokens?: { input: number, output: number, cache_read: number }, calls: TracedCall[], events: TracedEvent[] }} TurnTrace
  */
 
 /** @param {string} text */
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 
-/** @param {{ chat: string, n: number, maker: string, model: string, thinking: string, question: string, prompt?: string }} turn */
-export function openTracer({ chat, n, maker, model, thinking, question, prompt }) {
+/** @param {{ chat: string, n: number, connection: string, model: string, thinking: string, question: string, prompt?: string }} turn */
+export function openTracer({ chat, n, connection, model, thinking, question, prompt }) {
   const begun = performance.now();
   const at = () => Math.round(performance.now() - begun);
   /** @type {TracedCall[]} */
@@ -97,7 +97,7 @@ export function openTracer({ chat, n, maker, model, thinking, question, prompt }
       if (finished) return null;
       finished = true;
       return {
-        chat, n, maker, model, thinking, question,
+        chat, n, connection, model, thinking, question,
         ...(system === undefined ? {} : { prompt: system, prompt_sha256: sha256(system) }),
         first_step_ms: firstStep, first_text_ms: firstText, first_answer_ms: answerAt,
         total_ms: at(), end: 'failed', text: '',

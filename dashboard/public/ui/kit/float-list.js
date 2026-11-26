@@ -23,7 +23,21 @@ import { leadOf } from './name-row.js';
 export function floatList({ label, items, lit, none = '', role = 'listbox', className = '', attrs = {}, before = '',
   after = '', inline = false }) {
   const tag = inline ? 'span' : 'div';
-  const rows = items.map((item, at) => {
+  const rows = floatRows({ items, lit, role, inline });
+  return `<${tag}${attributes({ class: `ck-flist${className ? ` ${className}` : ''}`, role, 'aria-label': label, ...attrs })}>`
+    + before + (rows || `<p class="ck-flist__none mac-subhead">${esc(none)}</p>`) + after + `</${tag}>`;
+}
+
+/**
+ * @param {object} list
+ * @param {FloatItem[]} list.items
+ * @param {number | null} list.lit
+ * @param {'listbox' | 'menu'} [list.role]
+ * @param {boolean} [list.inline]
+ */
+export function floatRows({ items, lit, role = 'listbox', inline = false }) {
+  const tag = inline ? 'span' : 'div';
+  return items.map((item, at) => {
     const on = at === lit;
     if ('head' in item) return `<${tag}${attributes({ class: 'ck-flist__head mac-subhead', role: 'presentation', ...item.attrs })}>${esc(item.head)}</${tag}>`;
     if ('line' in item) {
@@ -52,6 +66,4 @@ export function floatList({ label, items, lit, none = '', role = 'listbox', clas
     const page = item.attrs?.['data-ck-page-of'];
     return item.parted ? `${row}<hr${attributes({ class: 'ck-flist__rule', 'data-ck-page-of': page ?? null, hidden: page === undefined ? null : item.attrs?.hidden })}>` : row;
   }).join('');
-  return `<${tag}${attributes({ class: `ck-flist${className ? ` ${className}` : ''}`, role, 'aria-label': label, ...attrs })}>`
-    + before + (rows || `<p class="ck-flist__none mac-subhead">${esc(none)}</p>`) + after + `</${tag}>`;
 }

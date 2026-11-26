@@ -373,6 +373,10 @@ test('N8: an act in a browser, a host act of no shape the host takes, the report
   assert.deepEqual(asked, [['/v1/connectors', '', { unit: 'macbook-pro-0001' }, 'mac/1'],
     ['/v1/connectors', 'W/"kept"', { unit: 'macbook-pro-0001' }, 'mac/1'], ['/v1/connectors', '', {}, undefined]],
   'the Mac\'s window asks as a Mac and sends its ETag; a browser asks as no device');
+  asked.splice(0);
+  await life.page('settingsPage', { id: 'advanced' });
+  await life.page('storage', {});
+  assert.deepEqual(asked.map(each => /** @type {unknown[]} */ (each).at(-1)), ['mac/1', 'mac/1'], 'Settings\' pages are the Mac\'s, always');
   for (const file of ['../public/ui/connectors/words.js', '../public/ui/connectors/page.js', '../public/ui/connectors/dialog.js',
     '../public/ui/connectors/view.js', '../public/ui/connectors/detail.js', '../public/ui/flows/model.js',
     '../public/ui/flows/view.js', '../public/ui/flows/frame.js', '../public/pages/connectors.js',

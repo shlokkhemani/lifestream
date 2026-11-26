@@ -102,7 +102,7 @@ describe("a request whose route leaves the machine", () => {
       const { settings } = effective(root);
       const processing = readHome(root, (db) => readProcessing(readTables(db), null, {
         connectors: fakeDeclarations(), families: fakeRegistry(settings, homeOf(openHomeFolder(root))).families, histories: new Map(), blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners,
-        day: settings.day, now_ms: Date.now(), privacy: settings.privacy, home: settings.unit,
+        day: settings.day, now_ms: Date.now(), privacy: settings.privacy,
       })).get("fake-poll")!;
       const row = processing.part.rows.find((each) => each.member === "llm.photos")!;
       expect(row.privacy).toMatchObject({ member: "privacy.photos", value: "all", words: "Personal details hidden" });

@@ -78,7 +78,7 @@ export { dialog, dialogHold, installDialogEdges } from './dialog.js';
 export { spotlight } from './spotlight.js';
 export { ARRIVES, avatar, bar, counting, iconSquare, lines, reading, shape, waitLine } from './skeleton.js';
 export {
-  ASK_LEVELS, ASK_SENT, ERASED_NOTE, askAnswer, askHome, askLevel, askPick, askQuestion, askStamp, askStarters, askSteps, askThread, askThreadReading, askTurn, askVoice,
+  ASK_LEVELS, ASK_SENT, ERASED_NOTE, askAnswer, askHome, askFound, askLevel, askPick, askQuestion, askStamp, askStarters, askSteps, askThread, askThreadReading, askTurn, askVoice,
   askPaceOf, askWaiting, chatList, chatListReading, chatRow, composer, composerAttach, composerState, installAsk, waveform,
 } from './ask.js';
 export { askLive, closed, cutsOf, thoughtFor, took } from './ask-live.js';

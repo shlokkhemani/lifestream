@@ -1878,9 +1878,10 @@ extension HomeLink {
             public let waiting: [Waiting]?
             public let only: String?
             public let route: String?
+            public let menu: Pages.ModelMenu?
 
             enum CodingKeys: String, CodingKey {
-                case key, kind, label, about, value, words, from, `default`, steps, panel, control, `where`, min, max, secret, held, folder, items, add, placeholder, waiting, only, route
+                case key, kind, label, about, value, words, from, `default`, steps, panel, control, `where`, min, max, secret, held, folder, items, add, placeholder, waiting, only, route, menu
             }
 
             public var id: String { key }
@@ -1898,13 +1899,11 @@ extension HomeLink {
                 public let value: String
                 public let words: String
                 public let note: String?
-                public let runner: Runner?
 
-                public init(value: String, words: String, note: String?, runner: Runner? = nil) {
+                public init(value: String, words: String, note: String?) {
                     self.value = value
                     self.words = words
                     self.note = note
-                    self.runner = runner
                 }
 
                 public func encode(to encoder: Encoder) throws {
@@ -1912,13 +1911,6 @@ extension HomeLink {
                     try container.encode(value, forKey: .value)
                     try container.encode(words, forKey: .words)
                     try container.encode(note, forKey: .note)
-                    try container.encodeIfPresent(runner, forKey: .runner)
-                }
-
-                public struct Runner: Codable, Sendable, Equatable {
-                    public let unit: String
-                    public let name: String
-                    public let home: Bool
                 }
             }
 

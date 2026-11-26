@@ -26,7 +26,7 @@ const PEOPLE: NameTable = {
   ],
 };
 
-const SETTINGS: PrivacySettings = { level: "all", chat: "all", detector: "runner-macbook-pro-0001", links: "tokens", always: ["Project Falcon"], never: ["Lifestream"] };
+const SETTINGS: PrivacySettings = { level: "all", chat: "all", links: "tokens", always: ["Project Falcon"], never: ["Lifestream"] };
 
 function scriptedPictures(findings: Record<string, Findings>): Pictures & { reads: string[]; made: Draft[] } {
   const reads: string[] = [];
@@ -46,8 +46,9 @@ function scriptedPictures(findings: Record<string, Findings>): Pictures & { read
 }
 
 let stores = 0;
-function hider(options: { detector?: FakeDetector; settings?: Partial<PrivacySettings>; people?: NameTable; pictures?: Pictures; store?: ReturnType<typeof openMarks> } = {}) {
+function hider(options: { detector?: FakeDetector; off?: true; settings?: Partial<PrivacySettings>; people?: NameTable; pictures?: Pictures; store?: ReturnType<typeof openMarks> } = {}) {
   const detector = options.detector ?? fakeDetector({});
+  if (options.off === true) detector.set({ state: "off" });
   const store = options.store ?? marksIn(dir, (stores += 1));
   const pictures = options.pictures ?? scriptedPictures({});
   return { detector, store, hider: openHider({ people: () => options.people ?? PEOPLE, settings: () => ({ ...SETTINGS, ...options.settings }), detector, pictures, marks: store }) };
@@ -423,9 +424,11 @@ describe("the table", () => {
   it("waits under a level that hides while People has no name table ready, never making one up, and carries on under none with no owner", async () => {
     const detector = fakeDetector({ Quorvel: "person" });
     const pictures = scriptedPictures({});
-    const own = (settings: Partial<PrivacySettings> = {}) => openHider({ people: () => undefined, settings: () => ({ ...SETTINGS, ...settings }), detector, pictures, marks: openMarks(openHomeFolder(dirname(join(dir, "no-names", "marks.db"))), join(dir, "no-names", "marks.db")) });
+    const off = fakeDetector({});
+    off.set({ state: "off" });
+    const own = (chosen: FakeDetector = detector) => openHider({ people: () => undefined, settings: () => SETTINGS, detector: chosen, pictures, marks: openMarks(openHomeFolder(dirname(join(dir, "no-names", "marks.db"))), join(dir, "no-names", "marks.db")) });
     const waiting = { wait: "Waiting for People to list the names of your people" };
-    for (const h of [own(), own({ detector: "off" })]) {
+    for (const h of [own(), own(off)]) {
       expect(h.ready("all")).toEqual(waiting);
       expect(h.ready(["phone"])).toEqual(waiting);
       expect(await h.hide([free("Quorvel called +15550000142")], "all", table())).toEqual(waiting);
@@ -461,7 +464,7 @@ describe("the detector", () => {
     detector.set({ state: "downloading", bytes: 340_000_000, total: 900_000_000 });
     const { hider: h, store } = hider({ detector });
     const text = free("Quorvel and Ada: call +15550000142");
-    const off = hider({ detector, settings: { detector: "off" } }).hider;
+    const off = hider({ off: true }).hider;
     const plain = await off.hide([text], "all", table());
     expect(texts(plain)).toEqual(["Quorvel and [[Person 1]]: call [[Phone 1]]"]);
     expect(plain).toMatchObject({ detector: null });
@@ -641,8 +644,8 @@ describe("the detector", () => {
   });
 
   it("answers the marking job wait with the detector off", async () => {
-    const { hider: h, detector, store } = hider({ settings: { detector: "off" } });
-    expect(await h.mark(["Quorvel wrote."], store.epoch)).toEqual({ wait: "No hiding model is chosen: privacy.detector is off." });
+    const { hider: h, detector, store } = hider({ off: true });
+    expect(await h.mark(["Quorvel wrote."], store.epoch)).toEqual({ wait: "No model is chosen for Hiding details" });
     expect(detector.calls).toEqual([]);
   });
 
@@ -714,7 +717,7 @@ describe("pictures", () => {
   it("covers an asked face by its own box, a face found over it being that face, and a face both finders found but nobody asked once, holding both boxes", async () => {
     const both: Findings = { lines: [], faces: [{ box: { x: 598, y: 2, width: 10, height: 10 } }, { box: box(500) }, { box: { x: 503, y: 1, width: 10, height: 10 } }] };
     const pictures = scriptedPictures({ "sha256:ee": both });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     const [picture] = texts(await h.hide([{ picture: "sha256:ee", faces: [{ box: box(600), placeholder: "[[Person 1]]" }] }], "all", table())) as Picture[];
     expect(picture!.recipe.covered.map(({ colour: _colour, ...face }) => face)).toEqual([
       { box: box(600), placeholder: "[[Person 1]]" },
@@ -734,7 +737,7 @@ describe("pictures", () => {
   it("covers a word the call or the table hides as another type: a tax number the text holds as a password", async () => {
     const pan: Findings = { lines: [{ words: [{ text: "ABCPE1234F", box: box(0) }] }], faces: [] };
     const pictures = scriptedPictures({ "sha256:cc": pan });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     expect((texts(await h.hide([{ picture: "sha256:cc" }], ["secret"], table()))[0] as Picture).recipe.filled).toEqual([]);
     const said = texts(await h.hide([free("password: ABCPE1234F"), { picture: "sha256:cc" }], ["secret"], table()), "picture holding a value its text hides as another type");
     expect(said[0]).toBe("password: [[Secret 1]]");
@@ -757,7 +760,7 @@ describe("pictures", () => {
     if (!("table" in one)) throw new Error("expected a table");
     const held: PlaceholderTable = { ...one.table, entries: [...one.table.entries, { placeholder: "[[Word 1]]", type: "word", detail: "Lifestream" }], next: { ...one.table.next, word: 2 } };
     const pictures = scriptedPictures({ "sha256:ff": screen });
-    const { hider: second } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: second } = hider({ pictures, off: true });
     const [picture] = texts(await second.hide([{ picture: "sha256:ff" }], "all", held), "picture holding a value an earlier call hid") as Picture[];
     expect(picture!.recipe.filled).toEqual([box(20), box(30)]);
   });
@@ -772,7 +775,7 @@ describe("pictures", () => {
       faces: [],
     };
     const pictures = scriptedPictures({ "sha256:dd": card });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     const [picture, text] = texts(await h.hide([{ picture: "sha256:dd" }, free("Seats 2345 6789\n0124 left")], "all", table()), "id number over two picture lines");
     expect((picture as Picture).recipe.filled).toEqual([box(0), box(10), box(20)]);
     expect(text).toBe("Seats 2345 6789\n0124 left");
@@ -804,7 +807,7 @@ describe("a Chat question's photo: its known faces tagged", () => {
 
   it("covers every face under all, a known one tagged with the conversation's placeholder for its person, a stranger with nothing, and the answer restores the name; no picture carries a name", async () => {
     const pictures = scriptedPictures({ "sha256:a1": photo });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     const answer = await h.hide([free("Is Ada in this one?"), tagged], "all", table());
     const [question, picture] = texts(answer, "tagged photo under all");
     expect(question).toBe("Is [[Person 1]] in this one?");
@@ -820,7 +823,7 @@ describe("a Chat question's photo: its known faces tagged", () => {
 
   it("gives a face alone in its call an entry of its own, numbered past a bare spelling the call's text leaves standing, and the same placeholder in the conversation's next call", async () => {
     const pictures = scriptedPictures({ "sha256:a1": photo });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     const first = await h.hide([free("Who is Person 1 here?"), tagged], "all", table());
     expect(texts(first)[0]).toBe("Who is Person 1 here?");
     expect(drawn(texts(first)[1]!).covered[0]).toEqual({ box: box(100), placeholder: "[[Person 2]]" });
@@ -832,7 +835,7 @@ describe("a Chat question's photo: its known faces tagged", () => {
 
   it("tags the known faces under a level that leaves faces, framed, and under none, reading the picture for its faces alone; writes nothing on a picture that states no tags", async () => {
     const pictures = scriptedPictures({ "sha256:a1": photo });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     const names = await h.hide([free("Is Ada in this one?"), tagged], "names", table());
     expect(texts(names)[0]).toBe("Is Ada in this one?");
     expect(drawn(texts(names)[1]!)).toEqual({ covered: [], written: [{ box: box(100), placeholder: "[[Person 1]]" }, { box: box(500), placeholder: "[[Person 0]]" }] });
@@ -848,7 +851,7 @@ describe("a Chat question's photo: its known faces tagged", () => {
   it("tags a face two finders hold once, by the finder that names it: Vision's box and the scan's unnamed one under the match's", async () => {
     const two: Findings = { lines: [], faces: [{ box: { x: 101, y: 1, width: 10, height: 10 } }, { box: box(100) }, { box: { x: 99, y: 0, width: 11, height: 11 }, who: "p-ada" }] };
     const pictures = scriptedPictures({ "sha256:b2": two });
-    const { hider: h } = hider({ pictures, settings: { detector: "off" } });
+    const { hider: h } = hider({ pictures, off: true });
     const [picture] = texts(await h.hide([{ picture: "sha256:b2", tags: true }], "all", table()));
     expect(drawn(picture!)).toEqual({ covered: [{ box: { x: 99, y: 0, width: 11, height: 11 }, placeholder: "[[Person 1]]" }], written: [] });
   });
@@ -856,7 +859,7 @@ describe("a Chat question's photo: its known faces tagged", () => {
 
 describe("the process's thread", () => {
   it("is handed back while a text is hidden: the loop serves another event between its pieces' marks, and between its marks and its hiding", async () => {
-    const { hider: h } = hider({ settings: { detector: "off" } });
+    const { hider: h } = hider({ off: true });
     const line = "Ada Example wrote to person-a@example.com about order #A100042, call +15550000142, see https://example.com/x/abcDEF123456\n";
     let answered = false;
     let served = 0;
