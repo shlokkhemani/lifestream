@@ -17,7 +17,10 @@ import { BOTTOM_BYTES, KEEP_BYTES, openHome, openHomeFolder, tryLock, type JsonO
 import { DEVICES, releaseFloors } from "./devices.js";
 import { modelReaches, MOVED_AWAY, QUIET, serveDoor, stalls, type Door, type DoorOptions } from "./door.js";
 import { nudges, NUDGES_OWED } from "./nudges.js";
-import { callsLock, openLedger } from "@lifestreamprotocol/model";
+import { callsLock, listRunners, openLedger, RUNNER_EXCHANGE } from "@lifestreamprotocol/model";
+import { readPrivacySettings } from "@lifestreamprotocol/privacy";
+import { Models, MODELS_META } from "./models.js";
+import { HIDDEN } from "./chat-route.js";
 import { awayWords } from "./lifecycle.js";
 import { addressesOf, machine, type Interfaces } from "./machine.js";
 import { PEOPLE, preparedDirOf, preparedFileOf, writePrepared } from "./prepared.js";
@@ -40,7 +43,7 @@ import {
 } from "./test/support.js";
 import { editSettings, writeFolder, testSocket } from "./test/folder.js";
 import { settleAccess } from "./access-move.js";
-import { endNudges, FAKES, freeSpace, hex, LOOK_MS, makeRoot, nudgeLog, readHome, removeRoot, TICK_MS, until } from "./test/harness-root.js";
+import { endNudges, FAKE_OFFER, FAKE_ROUTE, FAKES, freeSpace, hex, LOOK_MS, makeRoot, nudgeLog, readHome, removeRoot, TICK_MS, until } from "./test/harness-root.js";
 import { ship, shipFiles } from "./test/harness-deliveries.js";
 import { BUNDLE_ENTRIES, declarations, LENT, memorySecrets, pollCall, vendorOf } from "@lifestreamprotocol/connect";
 import { basicInstant, type FakeFolder } from "@lifestreamprotocol/connect/sdk";
@@ -675,6 +678,61 @@ describe("a bundle custody cannot take, taken", () => {
     expect((await exchange(url, at_floor)).status).toBe(200);
     expect((await put(url, bundle.path, at_floor, bundle.bytes)).status).toBe(201);
     report.mac_floor = { floor: floors.mac, refused: below };
+  });
+});
+
+describe("a runner below the release's floor", () => {
+  it("is refused 426, listed under below until it exchanges at the floor, and the home's next read keeps its last files with Update this runner", async () => {
+    const UNIT = "runner-macbook-pro-0001";
+    const at = homeWith({ runner: { scopes: ["run"], kind: "runner", unit: UNIT }, driver: { scopes: ["drive"] }, reader: { scopes: ["read"] } });
+    makeHomeDb(join(at.root, "home.db")).close();
+    const floors = releaseFloors();
+    const { url } = await serve(at, {}, undefined, { floors });
+    const older = String(Number(floors.runner) - 1);
+    const file = {
+      id: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 16,
+      state: "ready", fetched_bytes: 1_000, failure: null,
+    };
+    const exchange = async (version: string, signal?: AbortSignal): Promise<{ status: number; code: unknown }> => {
+      const response = await fetch(`${url}${RUNNER_EXCHANGE}`, {
+        method: "POST", headers: { authorization: `Bearer ${at.tokens.runner}`, "lifestream-device": `runner/${version}`, "content-type": "application/json" },
+        body: JSON.stringify({ runner: { name: "Synthetic Mac", version, boot: "boot-a", slots: 1, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files: [file] }, results: [] }),
+        ...(signal === undefined ? {} : { signal }),
+      });
+      const said = await response.text();
+      return { status: response.status, code: response.status === 200 ? null : (JSON.parse(said) as { code: string }).code };
+    };
+    expect(await exchange(floors.runner)).toEqual({ status: 200, code: null });
+    expect(await exchange(older)).toEqual({ status: 426, code: "DEVICE_TOO_OLD" });
+    const listed = await listRunners(url, at.tokens.driver!);
+    expect([listed.runners.map((each) => [each.unit, each.files.map((held) => held.id)]), listed.below]).toEqual([[[UNIT, ["qwen3.5-4b"]]], [{ unit: UNIT, version: older }]]);
+
+    const models = new Models({
+      settings: () => ({
+        model: { cap: 4 }, defaults: { pictures: null, audio: null, text: null }, connectors: {}, runners: {}, privacy: readPrivacySettings({}),
+        search: { meaning: "off", model: "embeddinggemma-2-q8-512" },
+      }),
+      registry: () => ({ connectors: [], families: [] }), ledger: { resting: () => new Map() },
+      found: () => ({ programs: {}, door: url, held: () => false }),
+      runners: () => listRunners(url, at.tokens.driver!), paired: () => new Set([UNIT]), clock: () => NOW_MS, day: () => ({ zone: "UTC", day_start_hour: 4 }),
+      unset: () => [], fill: () => undefined,
+    });
+    await models.read();
+    const db = openHome(openHomeFolder(at.root), "migrate");
+    try {
+      db.commit((tx) => void models.tick(tx));
+    } finally {
+      db.close();
+    }
+    const read = await get(url, "/v1/models", { authorization: `Bearer ${at.tokens.reader}` });
+    const runners = read.body.runners as { unit: string; line: string | null; files: { id: string }[] }[];
+    expect(runners.map((each) => [each.unit, each.line, each.files.map((held) => held.id)])).toEqual([[UNIT, "Update this runner", ["qwen3.5-4b"]]]);
+
+    const waiting = new AbortController();
+    void exchange(floors.runner, waiting.signal).catch(() => undefined);
+    await until("the runner exchanged at its floor again, and is below no more", async () => (await listRunners(url, at.tokens.driver!)).below.length === 0);
+    waiting.abort();
+    report.runner_floor = { floor: floors.runner, refused: older };
   });
 });
 
@@ -3553,5 +3611,134 @@ describe("the start, from its slider to its price", () => {
     const text = (at(null).streams["apple-calls"]! - 6_000_000) / 60;
     expect(Number.isInteger(text) && text > 0 && text !== 3000, `${text} bytes an item: the home's own measured rate, not the empty-home figure`).toBe(true);
     report["the start, from its slider to its price"] = { day, starts: await following(), history: calls.history, cost: priced };
+  });
+});
+
+describe("Chat's own loop reaching a model through the door", () => {
+  const KEY = "synthetic-provider-key-0001";
+  const ADDRESS_MODEL = "synthetic-local";
+  const RESTING = { ...FAKE_OFFER, model: "fake-resting", name: "Fake resting", ready: false };
+
+  interface Heard { path: string; headers: IncomingMessage["headers"]; body: Record<string, unknown>; ended: boolean }
+
+  async function provider() {
+    const heard: Heard[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const server: Server = createHttpServer((request: IncomingMessage, response: ServerResponse) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        const each: Heard = { path: request.url ?? "", headers: request.headers, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>, ended: false };
+        heard.push(each);
+        response.on("close", () => { each.ended = true; });
+        const said = JSON.stringify(each.body.messages);
+        if (said.includes("echo")) {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: { message: "a synthetic failure", headers: request.headers } }));
+          return;
+        }
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "first words" } }] })}\n\n`);
+        if (said.includes("hang")) return;
+        void gate.then(() => {
+          response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "last words" } }] })}\n\n`);
+          response.end("data: [DONE]\n\n");
+        });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    onTestFinished(() => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }));
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, heard, open };
+  }
+
+  async function chatHome() {
+    const upstream = await provider();
+    const root = makeRoot("lifestream-door-chat-", {
+      sources: {},
+      settings: {
+        "model.transports.address": { url: `${upstream.url}/address/v1`, model: ADDRESS_MODEL, kinds: ["text"] },
+        "model.transports.fake": { delay_ms: 0, models: [FAKE_OFFER, RESTING], reach: { url: `${upstream.url}/fake/chat/completions`, effort: "reasoning", key: KEY } },
+      },
+    });
+    const logs: string[] = [];
+    const door = await serveDoor(root, { port: 0, max_bundle_bytes: 1 << 30 }, {
+      lookMs: LOOK_MS, log: (line) => logs.push(line), floors: { mac: "1.0", phone: "1.0", extension: "1.0", runner: "1" }, registry: FAKES, connectors: fakeDeclarations(),
+    });
+    editSettings(root, { "door.port": door.port });
+    const home = await startHome(root, { tickMs: TICK_MS, lookMs: LOOK_MS, stopGraceMs: 50, registry: FAKES, slot: null, log: () => undefined });
+    onTestFinished(async () => {
+      await door.close();
+      await home.stop();
+      removeRoot(root);
+    });
+    await until("the home read the fake's and the address's models", () => {
+      const stored = readHome(root, (db) => String(db.prepare("SELECT value FROM meta WHERE key = ?").pluck().get(MODELS_META) ?? ""));
+      return stored.includes(`"id":"${FAKE_ROUTE}"`) && stored.includes(`"id":"address:${ADDRESS_MODEL}"`);
+    });
+    const ask = readFileSync(join(machine().dir, "ask", "door-token"), "utf8").trim();
+    const reader = mintPrincipal(openHomeFolder(root), { unit: "reader", scopes: ["read"], now_ms: Date.now() }).token;
+    const url = `http://127.0.0.1:${door.port}`;
+    const chat = (body: Record<string, unknown>, token = ask, signal?: AbortSignal) => fetch(`${url}/v1/chat/completions`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body), ...(signal === undefined ? {} : { signal }),
+    });
+    return { upstream, logs, chat, reader };
+  }
+
+  const asked = (model: string, words: string, more: Record<string, unknown> = {}) => ({ model, stream: true, messages: [{ role: "user", content: words }], ...more });
+
+  it("relays an address's model and one whose reach reads OpenRouter's dialect, each streamed as it comes, the thinking level in the provider's own member", async () => {
+    const { upstream, chat } = await chatHome();
+    const local = await chat(asked(`address:${ADDRESS_MODEL}`, "a synthetic question", { reasoning_effort: "high" }));
+    expect([local.status, local.headers.get("content-type")]).toEqual([200, "text/event-stream"]);
+    const reader = local.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    expect(first, "the first words arrive before the provider sends the rest").toContain("first words");
+    upstream.open();
+    let rest = "";
+    for (let part = await reader.read(); !part.done; part = await reader.read()) rest += new TextDecoder().decode(part.value);
+    expect(rest).toContain("last words");
+    expect(rest).toContain("[DONE]");
+    const cloud = await chat(asked(FAKE_ROUTE, "another synthetic question", { reasoning_effort: "low" }));
+    expect([cloud.status, (await cloud.text()).includes("last words")]).toEqual([200, true]);
+    expect(upstream.heard.map(({ path, headers, body }) => ({ path, authorization: headers.authorization ?? null, body }))).toEqual([
+      { path: "/address/v1/chat/completions", authorization: null, body: asked(ADDRESS_MODEL, "a synthetic question", { reasoning_effort: "high" }) },
+      { path: "/fake/chat/completions", authorization: `Bearer ${KEY}`, body: asked("fake-model", "another synthetic question", { reasoning: { effort: "low" } }) },
+    ]);
+    report["Chat's relay"] = { heard: upstream.heard.map(({ path, body }) => ({ path, body })) };
+  });
+
+  it("refuses an id no connection lists, a model not ready with its line, a body naming none, and every pass but Ask's own, asking no provider", async () => {
+    const { upstream, chat, reader } = await chatHome();
+    const said = async (response: Response) => [response.status, ((await response.json()) as { code: string }).code];
+    const resting = await chat(asked(`fake:${RESTING.model}`, "a synthetic question"));
+    expect([resting.status, await resting.json()]).toEqual([409, { code: "NOT_READY", message: "Fake resting isn't ready", line: "Fake resting isn't ready" }]);
+    expect(await said(await chat(asked("fake:no-such-model", "a synthetic question")))).toEqual([404, "NO_MODEL"]);
+    expect(await said(await chat(asked("no-such-model", "a synthetic question")))).toEqual([404, "NO_MODEL"]);
+    expect(await said(await chat({ messages: [] }))).toEqual([422, "BAD_REQUEST"]);
+    expect(await said(await chat(asked(FAKE_ROUTE, "a synthetic question"), reader))).toEqual([403, "PRINCIPAL_SCOPE"]);
+    expect(upstream.heard).toEqual([]);
+  });
+
+  it("hides the key in a provider's error that echoes it, passed on with the provider's status, and logs no key", async () => {
+    const { chat, logs } = await chatHome();
+    const failed = await chat(asked(FAKE_ROUTE, "echo the headers"));
+    const text = await failed.text();
+    expect(failed.status).toBe(500);
+    expect(text).toContain(HIDDEN);
+    expect(text).not.toContain(KEY);
+    expect(logs.join("\n")).not.toContain(KEY);
+    expect(logs.some((line) => line.includes(`"path":"/v1/chat/completions"`))).toBe(true);
+  });
+
+  it("ends the provider's request when the caller leaves the stream", async () => {
+    const { upstream, chat } = await chatHome();
+    const leaving = new AbortController();
+    const answer = await chat(asked(FAKE_ROUTE, "hang after the first words"), undefined, leaving.signal);
+    const first = await answer.body!.getReader().read();
+    expect(new TextDecoder().decode(first.value)).toContain("first words");
+    expect(upstream.heard.map((each) => each.ended)).toEqual([false]);
+    leaving.abort();
+    await until("the provider saw its request end", () => upstream.heard[0]!.ended);
   });
 });

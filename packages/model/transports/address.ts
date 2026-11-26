@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
-import { SendFailed, type Transport, type WorkKind } from "../transport.js";
-import { complete } from "./completions.js";
+import { SendFailed, type Input, type Transport } from "../transport.js";
+import type { WorkKind } from "../uses.js";
+import { complete, keyHeaders } from "./completions.js";
 
 export interface AddressSettings {
   url: string;
@@ -25,8 +26,10 @@ export function addressTransport(options: AddressOptions): Transport {
     provider: "the custom address",
     cost: "free",
     leaves: loopback(host) ? null : host,
+    chat: "door",
     defaults: { effort: "none", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 1 },
-    offers: async () => [{ model: options.model, name: options.model, kinds: options.kinds, text_chars: null, ready: true }],
+    models: async () => [{ model: options.model, name: options.model, input: inputOf(options.kinds), output: "text", tools: true, context_tokens: null, thinking: [], ready: true }],
+    reach: () => ({ url: endpoint, headers: keyHeaders(options.key()), effort: "reasoning_effort" }),
     async available() {
       return options.held() ? { ok: true } : { ok: false, reason: "no_key", detail: `the address's key ${options.secret} is not set` };
     },
@@ -37,7 +40,7 @@ export function addressTransport(options: AddressOptions): Transport {
       if (refused !== undefined) throw new Error(`the address takes images only, not ${refused.media_type}`);
       const answer = await complete({
         transport: "address", endpoint, fetch: fetcher, signal: request.signal,
-        headers: key === undefined ? {} : { Authorization: `Bearer ${key}` },
+        headers: keyHeaders(key),
         body: {
           model: request.model,
           ...(request.sampling === undefined ? {} : { temperature: request.sampling.temperature }),
@@ -55,6 +58,10 @@ export function addressTransport(options: AddressOptions): Transport {
       return { ...answer, model: request.model };
     },
   };
+}
+
+function inputOf(kinds: readonly WorkKind[]): Input[] {
+  return kinds.includes("pictures") ? ["text", "image"] : ["text"];
 }
 
 function loopback(host: string): boolean {

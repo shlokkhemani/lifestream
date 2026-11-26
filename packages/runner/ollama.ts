@@ -14,7 +14,7 @@ const ANSWER_TOKENS = 1_024;
 const KEEP_ALIVE = "5m";
 
 function contextOf(row: Row): number {
-  const tokens = Math.ceil((row.text_chars ?? 0) / 4) + PICTURE_TOKENS + ANSWER_TOKENS;
+  const tokens = (row.context_tokens ?? 0) + PICTURE_TOKENS + ANSWER_TOKENS;
   return Math.ceil(tokens / 1_024) * 1_024;
 }
 
@@ -87,7 +87,7 @@ export function ollamaLibrary(child: OllamaChild): Library {
         if (embed !== undefined && ask !== null) {
           const embedded = await call<{ embeddings?: number[][]; prompt_eval_count?: number }>(url, "POST", "/api/embed", {
             model: source.model, keep_alive: KEEP_ALIVE, truncate: true, input: ask.texts.map((text) => embed.prompts[ask.role] + text),
-            options: { num_ctx: Math.ceil((row.text_chars ?? 0) / 4) },
+            options: { num_ctx: row.context_tokens ?? 0 },
           }, signal);
           if (embedded.embeddings?.length !== ask.texts.length) throw new Failed("failed", `${row.id} answered ${embedded.embeddings?.length ?? 0} vectors for ${ask.texts.length} texts`);
           return {

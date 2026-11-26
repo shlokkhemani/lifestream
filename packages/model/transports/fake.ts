@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
-import { SendFailed, type Offer, type RequestDefaults, type SendAttachment, type SendRequest, type Sent, type Transport, type Unavailable } from "../transport.js";
+import { SendFailed, type ChatEffort, type ListedModel, type RequestDefaults, type SendAttachment, type SendRequest, type Sent, type Transport, type Unavailable } from "../transport.js";
+import { keyHeaders } from "./completions.js";
 
 export interface FakeOptions {
   provider?: string;
@@ -14,20 +15,24 @@ export interface FakeOptions {
   unavailable?: string;
   reason?: Unavailable;
   until_ms?: number;
-  offers?: Offer[];
+  models?: ListedModel[];
   log?: string;
+  reach?: { url: string; effort: ChatEffort; key?: string };
 }
 
 const DEFAULTS: RequestDefaults = { effort: "low", timeout_ms: 120_000, concurrency: 8 };
 
 export function fakeTransport(options: FakeOptions = {}): Transport {
+  const reach = options.reach;
   return {
     name: "fake",
     provider: options.provider ?? "the test model",
     cost: options.cost ?? (options.cost_usd === undefined ? "free" : "priced"),
     leaves: options.leaves ?? null,
+    chat: reach === undefined ? null : "door",
     defaults: DEFAULTS,
-    offers: async () => [...options.offers ?? []],
+    models: async () => [...options.models ?? []],
+    ...(reach === undefined ? {} : { reach: () => ({ url: reach.url, headers: keyHeaders(reach.key), effort: reach.effort }) }),
     async available() {
       if (options.unavailable === undefined) return { ok: true };
       return { ok: false, reason: options.reason ?? "away", detail: options.unavailable, ...(options.until_ms === undefined ? {} : { until_ms: options.until_ms }) };

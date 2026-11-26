@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { HIDING_META } from "./copies.js";
 import { afterAll, describe, expect, it } from "vitest";
 import { admit, admittedNone, imports, vendorOf, declarations, Refused, type Connector, type HeldSite, type KindExport } from "@lifestreamprotocol/connect";
-import { openLedger, type RunnerFile, type RunnerListing } from "@lifestreamprotocol/model";
+import { openLedger, type Abilities, type RunnerFile, type RunnerListing } from "@lifestreamprotocol/model";
 import { openHome, openHomeFolder, readTables, type DaySettings, type Guard, type Json, type JsonObject, type ReaderOutput } from "@lifestreamprotocol/core";
 import { CAPTION_PROMPT, MESSAGES_FAMILY, TRANSCRIPT_PROMPT } from "@lifestreamprotocol/families";
 import { readPrivacySettings } from "@lifestreamprotocol/privacy";
@@ -45,33 +45,36 @@ const FIXTURE = join(FIXTURES, "report.json");
 const PHONE_FIXTURE = join(FIXTURES, "pages", "canned", "connectors.report.json");
 const WRITE_FIXTURES = process.env.LIFESTREAM_FIXTURES === "write";
 
-const ROUTE = { text_chars: null, offered: true, runner: null, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
+const ROUTE = { output: "text", tools: false, context_tokens: null, thinking: [], offered: true, runner: null, request: { effort: "low", sampling: null, timeout_ms: 120_000 } } as const;
 const VISION: ModelRoute = {
-  ...ROUTE, id: "openrouter:vendor-a/vision-1", transport: "openrouter", model: "vendor-a/vision-1", name: "Vision One", kinds: ["pictures", "text"],
+  ...ROUTE, id: "openrouter:vendor-a/vision-1", transport: "openrouter", model: "vendor-a/vision-1", name: "Vision One", input: ["text", "image"], chat: "door",
   leaves: "OpenRouter", where: "Sent to OpenRouter", cost: "priced", state: "ready", line: null,
 };
 const PLAN_LINE = "Your Claude plan is used up · resets 14:00";
 const PLAN: ModelRoute = {
-  ...ROUTE, id: "claude:plan-model-1", transport: "claude", model: "plan-model-1", name: "Plan Model One", kinds: ["pictures", "audio", "text"],
+  ...ROUTE, id: "claude:plan-model-1", transport: "claude", model: "plan-model-1", name: "Plan Model One", input: ["text", "image", "audio"], chat: "program",
   leaves: "Anthropic", where: "Sent to Anthropic", cost: "plan", state: "waiting", line: PLAN_LINE,
 };
 const RUNNER_UNIT = "runner-macbook-pro-0001";
-const runnerFile = (id: string, name: string, kinds: RunnerFile["kinds"], bytes: number, text_chars: number | null, languages: string[], memory_gb: number, state: RunnerFile["state"], fetched_bytes = 0): RunnerFile =>
-  ({ id, name, kinds, bytes, text_chars, languages, memory_gb, state, fetched_bytes, failure: null });
+const SEES: Abilities = { input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [] };
+const HEARS: Abilities = { input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [] };
+const runnerFile = (id: string, name: string, abilities: Abilities, bytes: number, languages: string[], memory_gb: number, state: RunnerFile["state"], fetched_bytes = 0): RunnerFile =>
+  ({ id, name, ...abilities, bytes, languages, memory_gb, state, fetched_bytes, failure: null });
 const NEMOTRON_LANGUAGES = ["en", "es", "fr", "it", "pt", "nl", "de", "tr", "ru", "ar", "hi", "ja", "ko", "vi", "uk", "pl", "sv", "cs", "nb", "da", "bg", "fi", "hr", "sk", "zh", "hu", "ro", "et"];
 const RUNNER: RunnerListing = {
   unit: RUNNER_UNIT, name: "MacBook Pro", version: "1", boot: "boot-1", slots: 1, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], present: true,
   files: [
-    runnerFile("qwen3.5-4b", "Qwen 3.5", ["pictures", "text"], 3_973_305_013, 16_000, [], 16, "ready"),
-    runnerFile("parakeet-unified-en-0.6b", "Parakeet", ["audio"], 731_357_568, null, ["en"], 8, "fetching", 300_000_000),
-    runnerFile("nemotron-3.5-asr-0.6b", "Nemotron Speech", ["audio"], 751_094_240, null, NEMOTRON_LANGUAGES, 8, "absent"),
+    runnerFile("qwen3.5-4b", "Qwen 3.5", SEES, 3_973_305_013, [], 16, "ready"),
+    runnerFile("parakeet-unified-en-0.6b", "Parakeet", HEARS, 731_357_568, ["en"], 8, "fetching", 300_000_000),
+    runnerFile("nemotron-3.5-asr-0.6b", "Nemotron Speech", HEARS, 751_094_240, NEMOTRON_LANGUAGES, 8, "absent"),
   ],
 };
 const ON_RUNNER = {
   transport: "runner", offered: true, runner: { unit: RUNNER_UNIT, name: "MacBook Pro", battery: false }, leaves: null, where: "Stays on MacBook Pro", cost: "free",
   request: { effort: "none", sampling: null, timeout_ms: 300_000 },
 } as const;
-const onRunner = (file: RunnerFile) => ({ ...ON_RUNNER, id: `runner:${RUNNER_UNIT}/${file.id}`, model: file.id, name: file.name, kinds: file.kinds, text_chars: file.text_chars });
+const onRunner = (file: RunnerFile) => ({ ...ON_RUNNER, id: `runner:${RUNNER_UNIT}/${file.id}`, model: file.id, name: file.name, chat: "door" as const,
+  input: file.input, output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: file.thinking });
 const QWEN: ModelRoute = { ...onRunner(RUNNER.files[0]!), state: "ready", line: null };
 const PARAKEET: ModelRoute = { ...onRunner(RUNNER.files[1]!), state: "unavailable", line: "Downloading, 0.3 of 0.7 GB" };
 const NEMOTRON: ModelRoute = { ...onRunner(RUNNER.files[2]!), state: "unavailable", line: "Not downloaded" };
@@ -320,7 +323,7 @@ function canned(prefix: string, settings: JsonObject = {}, now = NOW) {
       return self;
     },
     models(routes: readonly ModelRoute[], connected = false, runners: readonly RunnerListing[] = []) {
-      raw.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(MODELS_META, JSON.stringify({ routes, runners, openrouter: { connected } }));
+      raw.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(MODELS_META, JSON.stringify({ routes, runners: runners.map((runner) => ({ ...runner, below: null })), openrouter: { connected } }));
       return self;
     },
     asks(work_id: string, prompt: string, rows: { item: string; at_ms: number; state?: "pending" | "given-up" | "done"; content?: Json; reply_key?: string }[]) {
@@ -1413,7 +1416,7 @@ describe("the streams report", () => {
         write.close();
       }
     };
-    expect([choose(5, TRANSCRIPT_PROMPT, VISION), choose(6, CAPTION_PROMPT, PLAN)]).toEqual(["Vision One doesn't take audio.", PLAN.id]);
+    expect([choose(5, TRANSCRIPT_PROMPT, VISION), choose(6, CAPTION_PROMPT, PLAN)]).toEqual(["Vision One can't hear audio.", PLAN.id]);
     items.chosen = made(6);
     expect(items.chosen).toEqual({ by: "Vision One", at_ms: NOW - 5 * MINUTE, state: "waiting", line: PLAN_LINE, ask: ask(6), choose: [QWEN_STEP] });
     summary.processing = { rows: rows(), items };

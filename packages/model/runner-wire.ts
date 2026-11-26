@@ -1,9 +1,9 @@
 import { isDetailType, isObject, type DetailType, type JsonObject } from "@lifestreamprotocol/core";
 import type { ArtifactError } from "./artifacts.js";
-import { WORK_KINDS, type WorkKind } from "./transport.js";
+import { MODEL_INPUTS, MODEL_OUTPUTS, type Abilities } from "./transport.js";
 
 
-export const RUNNER_WIRE_VERSION = "4";
+export const RUNNER_WIRE_VERSION = "5";
 
 export const RUNNER_EXCHANGE = "/v1/runners/exchange";
 export const RUNNER_CALLS = "/v1/runners/calls";
@@ -106,12 +106,10 @@ export type RunnerFileState = "absent" | "fetching" | "ready" | "failed";
 export type FileFailure = ArtifactError["reason"] | "untrusted" | "failed";
 const FILE_FAILURES: Readonly<Record<FileFailure, true>> = { offline: true, refused: true, hash: true, full: true, disk: true, untrusted: true, failed: true };
 
-export interface RunnerFile {
+export interface RunnerFile extends Readonly<Abilities> {
   readonly id: string;
   readonly name: string;
-  readonly kinds: readonly WorkKind[];
   readonly bytes: number;
-  readonly text_chars: number | null;
   readonly languages: readonly string[];
   readonly memory_gb: number;
   readonly state: RunnerFileState;
@@ -137,6 +135,16 @@ export interface RunnerInfo {
 }
 
 export type RunnerListing = RunnerInfo & { readonly present: boolean };
+
+export interface RunnerBelow {
+  readonly unit: string;
+  readonly version: string;
+}
+
+export interface RunnersListed {
+  readonly runners: readonly RunnerListing[];
+  readonly below: readonly RunnerBelow[];
+}
 
 export type RunnerStated = Omit<RunnerInfo, "unit">;
 
@@ -216,9 +224,13 @@ function isAttachment(value: unknown): value is RunnerAttachment {
 
 const isKey = (value: unknown): value is DetectorKey => isObject(value) && text(value.file, 100) && text(value.decode, 40);
 
+const isAbilities = (value: Record<string, unknown>): boolean => Array.isArray(value.input) && value.input.length === new Set(value.input).size
+  && value.input.every((input) => (MODEL_INPUTS as readonly unknown[]).includes(input)) && (MODEL_OUTPUTS as readonly unknown[]).includes(value.output)
+  && typeof value.tools === "boolean" && (value.context_tokens === null || count(value.context_tokens))
+  && Array.isArray(value.thinking) && value.thinking.length <= 10 && value.thinking.every((level) => text(level, 40));
+
 function isFile(value: unknown): value is RunnerFile {
-  return isObject(value) && text(value.id, 100) && text(value.name, 200) && Array.isArray(value.kinds) && value.kinds.length <= WORK_KINDS.length
-    && value.kinds.every((kind) => (WORK_KINDS as readonly unknown[]).includes(kind)) && count(value.bytes) && (value.text_chars === null || count(value.text_chars))
+  return isObject(value) && text(value.id, 100) && text(value.name, 200) && isAbilities(value) && count(value.bytes)
     && languages(value.languages) && typeof value.memory_gb === "number" && ["absent", "fetching", "ready", "failed"].includes(value.state as string) && count(value.fetched_bytes)
     && (value.failure === null || among(FILE_FAILURES, value.failure)) && (value.detector === undefined || isKey(value.detector));
 }
@@ -235,7 +247,8 @@ export function runnerInfo(unit: string, stated: RunnerStated): RunnerInfo {
     unit, name: stated.name, version: stated.version, boot: stated.boot, slots: stated.slots, power: stated.power, idle_s: stated.idle_s, thermal: stated.thermal,
     memory_gb: stated.memory_gb, running: [...stated.running],
     files: stated.files.map((file) => ({
-      id: file.id, name: file.name, kinds: [...file.kinds], bytes: file.bytes, text_chars: file.text_chars, languages: [...file.languages], memory_gb: file.memory_gb,
+      id: file.id, name: file.name, input: [...file.input], output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: [...file.thinking],
+      bytes: file.bytes, languages: [...file.languages], memory_gb: file.memory_gb,
       state: file.state, fetched_bytes: file.fetched_bytes, failure: file.failure, ...(file.detector === undefined ? {} : { detector: { file: file.detector.file, decode: file.detector.decode } }),
     })),
   };

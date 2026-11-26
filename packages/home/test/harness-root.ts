@@ -37,7 +37,7 @@ export interface RootOptions {
   settings?: JsonObject;
 }
 
-export const FAKE_OFFER = { model: "fake-model", name: "Fake model", kinds: ["pictures", "audio", "text"], text_chars: null, ready: true };
+export const FAKE_OFFER = { model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, context_tokens: null, thinking: [], ready: true };
 export const FAKE_ROUTE = "fake:fake-model";
 const SINCE_EPOCH = "1970-01-31";
 
@@ -67,7 +67,7 @@ export function makeRoot(prefix: string, options: RootOptions): string {
     "model.cap": options.cap ?? 64,
     "model.defaults.pictures": route, "model.defaults.audio": route, "model.defaults.text": route,
     ...options.settings,
-    "model.transports.fake": { delay_ms: 0, offers: [FAKE_OFFER], ...options.fake, ...options.settings?.["model.transports.fake"] as JsonObject | undefined },
+    "model.transports.fake": { delay_ms: 0, models: [FAKE_OFFER], ...options.fake, ...options.settings?.["model.transports.fake"] as JsonObject | undefined },
   };
   writeFolder(root, settings);
   const entries = Object.entries(options.sources);

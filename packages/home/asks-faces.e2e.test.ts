@@ -17,7 +17,7 @@ const SOURCE = "fake-photos:a:b";
 const WORK = "fake-photos/photos";
 const NOON = Date.UTC(2026, 8, 5, 12);
 const ROUTE: ModelRoute = {
-  id: "fake/fake-model", transport: "fake", model: "fake-model", name: "Fake model", kinds: ["pictures"], text_chars: null, offered: true, runner: null, leaves: null,
+  id: "fake/fake-model", transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, offered: true, runner: null, leaves: null,
   where: "Stays on this computer", cost: "free", request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
 };
 const ROUTING: Routing = {

@@ -91,7 +91,7 @@ describe("a keyed home's inventory", () => {
 
     editSettings(folder, {
       "model.defaults.pictures": FAKE_ROUTE, "model.defaults.audio": FAKE_ROUTE, "model.defaults.text": FAKE_ROUTE,
-      "model.transports.fake": { delay_ms: 100, offers: [FAKE_OFFER] },
+      "model.transports.fake": { delay_ms: 100, models: [FAKE_OFFER] },
       "families.photos": {}, "families.voice": {}, "connectors.apple-photos": { "llm.range": "all" }, "connectors.voice-notes": { "llm.range": "all" },
     });
     const running = serveKeyed(here);

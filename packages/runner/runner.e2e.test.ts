@@ -232,7 +232,7 @@ describe("the runner", () => {
     expect([...state.headers]).toEqual([`runner/${RUNNER_WIRE_VERSION} Bearer ${PASS}`]);
     expect(state.last()!.runner).toMatchObject({ version: RUNNER_WIRE_VERSION, slots: 1, running: [] });
     expect(state.last()!.runner.files.map((each) => [each.id, each.state])).toEqual(FILES.map((row) => [row.id, "absent"]));
-    expect(Object.keys(state.last()!.runner.files[0]!).sort()).toEqual(["bytes", "failure", "fetched_bytes", "id", "kinds", "languages", "memory_gb", "name", "state", "text_chars"]);
+    expect(Object.keys(state.last()!.runner.files[0]!).sort()).toEqual(["bytes", "context_tokens", "failure", "fetched_bytes", "id", "input", "languages", "memory_gb", "name", "output", "state", "thinking", "tools"]);
     const languages = Object.fromEntries(state.last()!.runner.files.map((each) => [each.id, each.languages]));
     expect(languages).toEqual(Object.fromEntries(FILES.map((row) => [row.id, row.languages])));
     expect(languages[PICTURES]).toEqual([]);
@@ -410,7 +410,7 @@ describe("the runner's detector", () => {
     await ready(state, pictures, PICTURES);
     await ready(state, detector, DETECTOR);
     const row = FILES.find((each) => each.id === DETECTOR)!;
-    expect(state.file(DETECTOR)).toMatchObject({ kinds: [], bytes: row.bytes, detector: row.library === "detector" ? row.key : null });
+    expect(state.file(DETECTOR)).toMatchObject({ input: ["text"], output: "marks", context_tokens: 8_000, bytes: row.bytes, detector: row.library === "detector" ? row.key : null });
     expect(state.file(PICTURES)!.detector).toBeUndefined();
     state.calls.push(call("r-0000000000c1"));
     await until("the caption runs", () => state.running("r-0000000000c1"));
@@ -532,7 +532,8 @@ function model(registry: string, name: string, layers: Record<string, string>, e
     layers: Object.entries(layers).map(([tensor, text]) => ({ ...blob(text), name: tensor })),
   };
   const row = ollamaRow({
-    id: `${name}-test`, name, kinds: embed === undefined ? ["pictures", "text"] : [], platforms: [], text_chars: embed === undefined ? 16_000 : 8_192, languages: [], memory_gb: 16,
+    id: `${name}-test`, name, input: embed === undefined ? ["text", "image"] : ["text"], output: embed === undefined ? "text" : "vectors", tools: false,
+    context_tokens: embed === undefined ? 4_000 : 2_048, thinking: [], platforms: [], languages: [], memory_gb: 16,
     source: { model: `${name}:1b`, registry: `${registry}/v2/library/${name}`, manifest }, ...(embed === undefined ? {} : { embed }),
   });
   const served = new Map([`config of ${name}`, ...Object.values(layers)].map((text) => [`/v2/library/${name}/blobs/sha256:${sha(text)}`, Buffer.from(text)]));
@@ -957,7 +958,7 @@ describe("the speech library", () => {
     const bytes = { a: Buffer.from("model a"), b: Buffer.from("model b") };
     const served = await files(new Map([["/models/speech-a.gguf", bytes.a], ["/models/speech-b.gguf", bytes.b]]));
     const row = (id: string, of: Buffer) => speechRow({
-      id, name: id, kinds: ["audio"], platforms: [], text_chars: null, languages: ["en"], memory_gb: 8, source: { url: `${served.url}/models/${id}.gguf`, bytes: of.length, sha256: sha(of) },
+      id, name: id, input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], platforms: [], languages: ["en"], memory_gb: 8, source: { url: `${served.url}/models/${id}.gguf`, bytes: of.length, sha256: sha(of) },
     });
     return { a: row("speech-a", bytes.a), b: row("speech-b", bytes.b) };
   }
@@ -1087,7 +1088,7 @@ describe("the detector library", () => {
     const server = await files(new Map(Object.entries(names).map(([key, name]) => [`/pf/${name}`, bytes[key as keyof typeof bytes]])));
     const artifact = (key: keyof typeof bytes) => ({ url: `${server.url}/pf/${names[key]}`, bytes: bytes[key].length, sha256: sha(bytes[key]) });
     const row = detectorRow({
-      id: DETECTOR, name: "Privacy Filter", kinds: [], platforms: [], text_chars: 32_000, languages: [], memory_gb: 8,
+      id: DETECTOR, name: "Privacy Filter", input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], platforms: [], languages: [], memory_gb: 8,
       source: { graph: artifact("graph"), weights: artifact("weights"), tokenizer: artifact("tokenizer"), tokenizer_config: artifact("tokenizer_config"), config: artifact("config") },
     });
     return { row, asked: server.asked, bytes };

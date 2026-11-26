@@ -245,7 +245,7 @@ describe("pausing one job", () => {
       await until("the caption owed", () => count(root, "SELECT count(*) FROM asks WHERE item = 'photo:n1' AND state = 'pending'") === 1
         && count(root, "SELECT count(*) FROM jobs WHERE state IN ('queued', 'running')") === 0);
       writeFileSync(hold, "");
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: [FAKE_OFFER] })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: [FAKE_OFFER] })]);
       await until("the send holds", () => existsSync(`${hold}.held`));
       expect(job(root, "send", "notes")?.state).toBe("running");
 
@@ -436,7 +436,7 @@ describe("pausing a runner's calls", () => {
   const listing = (root: string, units: string[]) => {
     const db = openHome(openHomeFolder(root), "migrate");
     try {
-      const runners = units.map((unit) => ({ unit, name: "MacBook Pro", present: false, power: null, memory_gb: 16, files: [] }));
+      const runners = units.map((unit) => ({ unit, name: "MacBook Pro", present: false, power: null, memory_gb: 16, files: [], below: null }));
       db.commit((tx) => tx.tables.meta.set(MODELS_META, JSON.stringify({ routes: [], runners, openrouter: { connected: false } } satisfies StoredModels)));
     } finally {
       db.close();

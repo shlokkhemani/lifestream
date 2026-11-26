@@ -13,7 +13,7 @@ const EMBEDDER = "embeddinggemma-2-q8-512";
 const JPEG = { media_type: "image/jpeg", base64: Buffer.from("synthetic jpeg").toString("base64") };
 
 const file = (id: string, state: File["state"]): File => ({
-  id, name: id, kinds: ["pictures", "text"], bytes: 1_000, text_chars: 16_000, languages: [], memory_gb: 16, state, fetched_bytes: state === "ready" ? 1_000 : 0, failure: null,
+  id, name: id, input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 1_000, languages: [], memory_gb: 16, state, fetched_bytes: state === "ready" ? 1_000 : 0, failure: null,
 });
 const runner = (over: Partial<Stated> = {}): Stated => ({
   name: "Synthetic Mac", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: 300, thermal: "nominal", memory_gb: 32, running: [], files: [file(MODEL, "ready")], ...over,
@@ -309,7 +309,7 @@ describe("the door's runners", () => {
 
 const DETECTOR = "privacy-filter";
 const KEY = { file: "sha256:0f0f", decode: "1" };
-const detector = (state: File["state"]): File => ({ ...file(DETECTOR, state), kinds: [], text_chars: 32_000, detector: KEY });
+const detector = (state: File["state"]): File => ({ ...file(DETECTOR, state), input: ["text"], output: "marks", tools: false, context_tokens: 8_000, thinking: [], detector: KEY });
 const both = (over: Partial<Stated> = {}, state: File["state"] = "ready"): Stated => runner({ files: [file(MODEL, "ready"), detector(state)], ...over });
 const find = (name: string, line: FindLine, over: Partial<Placed> = {}): Placed => ({ runner: RUNNER, model: DETECTOR, input: JSON.stringify([name]), attachments: [], line, ...over });
 const found = (id: string) => ({ id, ok: { text: JSON.stringify({ ...KEY, marks: [[]] }), model: DETECTOR } });
@@ -541,7 +541,7 @@ describe("Chat's line and a note's reservation", () => {
   const SPEECH = "parakeet-unified-en-0.6b";
   const NOTE_A = "a".repeat(32);
   const NOTE_B = "b".repeat(32);
-  const speaking = (over: Partial<Stated> = {}): Stated => runner({ files: [file(MODEL, "ready"), { ...file(SPEECH, "ready"), kinds: ["audio"] }], ...over });
+  const speaking = (over: Partial<Stated> = {}): Stated => runner({ files: [file(MODEL, "ready"), { ...file(SPEECH, "ready"), input: ["audio"] }], ...over });
   const call = (name: string, chat: boolean, model = MODEL): Placed => ({ runner: RUNNER, model, input: name, attachments: [], ...(chat ? { line: "chat" as const } : {}) });
   const warm: Placed = { runner: RUNNER, model: SPEECH, input: "", attachments: [], line: "chat", warm: true };
   const answered = (id: string) => ({ id, ok: { text: "synthetic answer", model: MODEL } });

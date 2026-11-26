@@ -1,9 +1,14 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { errorText, SendFailed, type Transport } from "../transport.js";
+import { errorText, SendFailed, type ListedModel, type Transport } from "../transport.js";
 import { checkProgram, run, UNAVAILABLE, type Judging, type ProgramAt, type ProgramCheck } from "./program.js";
 
 export const CLAUDE_ITEM_MODEL = "claude-haiku-5-5";
+
+const DECLARED: readonly ListedModel[] = [{
+  model: CLAUDE_ITEM_MODEL, name: "Claude Haiku 5.5", input: ["text", "image"], output: "text", tools: true, context_tokens: 200_000,
+  thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
+}];
 
 const NOT_FOUND = "Claude Code is not on this Mac yet: it is downloaded once Claude is chosen, and is downloading if it was";
 
@@ -39,8 +44,9 @@ export function claudeTransport(options: ClaudeOptions): Transport {
     provider: "Claude",
     cost: "plan",
     leaves: "Anthropic",
+    chat: "program",
     defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
-    offers: async () => [{ model: CLAUDE_ITEM_MODEL, name: "Claude Haiku 5.5", kinds: ["pictures", "text"], text_chars: null, ready: true }],
+    models: async () => [...DECLARED],
     async available() {
       const check = await checkClaude(claude);
       return check.state === "signed_in" ? { ok: true } : { ok: false, reason: UNAVAILABLE[check.state], detail: check.why };

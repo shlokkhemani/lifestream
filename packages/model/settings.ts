@@ -1,4 +1,4 @@
-import { WORK_KINDS } from "./transport.js";
+import { WORK_KINDS } from "./uses.js";
 import type { AddressSettings } from "./transports/address.js";
 import type { FakeOptions } from "./transports/fake.js";
 
@@ -26,7 +26,7 @@ const MEMBERS: Record<keyof TransportSettings, readonly string[]> = {
   openrouter: ["concurrency"],
   "openrouter-voice": ["concurrency"],
   address: ["concurrency", "url", "model", "kinds", "secret"],
-  fake: ["concurrency", "provider", "leaves", "reply", "delay_ms", "cost_usd", "cost", "fail", "status", "unavailable", "reason", "until_ms", "offers", "log"],
+  fake: ["concurrency", "provider", "leaves", "reply", "delay_ms", "cost_usd", "cost", "fail", "status", "unavailable", "reason", "until_ms", "models", "log", "reach"],
 };
 
 export const OWN_BLOCKS: readonly string[] = Object.keys(MEMBERS).filter((name) => MEMBERS[name as keyof TransportSettings].some((member) => member !== "concurrency"));

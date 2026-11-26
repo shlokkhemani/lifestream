@@ -1,7 +1,7 @@
 import type { DaySettings } from "@lifestreamprotocol/core";
 import type { ModelSettings, RunnerFile, WorkKind } from "@lifestreamprotocol/model";
 import type { Pause } from "./jobs.js";
-import { FILLED, fileLine, gigabytes, NO_MODEL, opening, routeWords, runnerLine, runnerPause, savesBattery, type Defaults, type RoutingAt, type StoredModels, type StoredRunner } from "./models.js";
+import { FILLED, fileLine, gigabytes, itemUsesOf, NO_MODEL, opening, routeWords, runnerLine, runnerPause, savesBattery, type Defaults, type RoutingAt, type StoredModels, type StoredRunner } from "./models.js";
 import { pausedWords, when } from "./stream-words.js";
 import type { Step } from "./streams-report.js";
 
@@ -28,6 +28,10 @@ const DOES: Readonly<Record<WorkKind, string>> = { pictures: "describes photos",
 
 const FINDS = "search by meaning";
 
+export const UPDATE_RUNNER = "Update this runner";
+
+const fileUses = (file: RunnerFile): WorkKind[] => itemUsesOf({ ...file, leaves: null });
+
 const NAMED: readonly (readonly [code: string, name: string])[] = [["en", "English"], ["hi", "Hindi"]];
 
 const listed = (words: readonly string[]): string => words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)!}`;
@@ -47,14 +51,15 @@ export interface PausesAt {
   day: DaySettings;
 }
 
-function aboutFile(file: Pick<RunnerFile, "kinds" | "languages" | "bytes" | "memory_gb">, runner: Pick<StoredRunner, "memory_gb" | "files">): string {
-  const does = file.kinds.length === 0 ? [FINDS]
-    : file.kinds.map((kind) => kind === "audio" && file.languages.length > 0 ? `${DOES.audio} in ${languageWords(file.languages)}` : DOES[kind]);
+function aboutFile(file: RunnerFile, runner: Pick<StoredRunner, "memory_gb" | "files">): string {
+  const kinds = fileUses(file);
+  const said = kinds.length === 0 ? [FINDS]
+    : kinds.map((kind) => kind === "audio" && file.languages.length > 0 ? `${DOES.audio} in ${languageWords(file.languages)}` : DOES[kind]);
   const fits = (each: Pick<RunnerFile, "memory_gb">) => runner.memory_gb >= each.memory_gb;
-  const first = file.kinds.some((kind) => runner.files.find((each) => fits(each) && each.kinds.includes(kind)) === file);
+  const first = kinds.some((kind) => runner.files.find((each) => fits(each) && fileUses(each).includes(kind)) === file);
   const recommended = fits(file) && first && !runner.files.every(fits);
   const needs = fits(file) ? [] : [`Needs ${file.memory_gb} GB of memory`];
-  return [opening(listed(does)), gigabytes(file.bytes), ...recommended ? ["Recommended for this Mac"] : [], ...needs].join(" · ");
+  return [opening(listed(said)), gigabytes(file.bytes), ...recommended ? ["Recommended for this Mac"] : [], ...needs].join(" · ");
 }
 
 function runnerRows(runners: readonly StoredRunner[], defaults: Defaults, at: PausesAt): ModelsRead["runners"] {
@@ -62,7 +67,7 @@ function runnerRows(runners: readonly StoredRunner[], defaults: Defaults, at: Pa
   for (const kind of Object.keys(defaults) as WorkKind[]) {
     if (defaults[kind] !== null) continue;
     for (const runner of runners) {
-      const files = runner.files.filter((each) => each.kinds.includes(kind));
+      const files = runner.files.filter((each) => fileUses(each).includes(kind));
       if (files.some((each) => each.state === "ready")) continue;
       const fetching = files.filter((each) => each.state === "fetching");
       for (const file of fetching.length > 0 ? fetching : files.filter((each) => runner.memory_gb >= each.memory_gb)) suggested.add(`${runner.unit}/${file.id}`);
@@ -78,7 +83,7 @@ function runnerRows(runners: readonly StoredRunner[], defaults: Defaults, at: Pa
     return { on, held: on && runner.power === "battery" ? BATTERY_HELD : null };
   };
   return runners.map((runner) => ({
-    unit: runner.unit, name: runner.name, line: runnerLine(runner), paused: pausedOf(runner.unit), battery: batteryOf(runner),
+    unit: runner.unit, name: runner.name, line: runner.below !== null ? UPDATE_RUNNER : runnerLine(runner), paused: pausedOf(runner.unit), battery: batteryOf(runner),
     files: runner.files.filter((file) => file.detector === undefined).map((file) => ({
       id: file.id, name: file.name, about: aboutFile(file, runner), state: file.state, line: fileLine(file), suggested: suggested.has(`${runner.unit}/${file.id}`),
       fits: runner.memory_gb >= file.memory_gb,
@@ -95,7 +100,7 @@ export function modelsRead(stored: StoredModels, model: ModelSettings, defaults:
     const value = defaults[kind];
     const route = stored.routes.find((each) => each.id === value);
     const words = route === undefined ? NO_MODEL : routeWords(route);
-    const steps = stored.routes.filter((each) => each.kinds.includes(kind)).map((each) => ({ value: each.id, words: each.name, note: each.state === "ready" ? each.where : each.line }));
+    const steps = stored.routes.filter((each) => itemUsesOf(each).includes(kind)).map((each) => ({ value: each.id, words: each.name, note: each.state === "ready" ? each.where : each.line }));
     if (FILLED.includes(kind)) return { value, words, steps };
     return value === null ? { value: OFF_STEP.value, words: OFF_STEP.words, steps: [OFF_STEP, ...steps] } : { value, words, steps: [OFF_STEP, ...steps] };
   };

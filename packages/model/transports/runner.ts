@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import type { JsonObject } from "@lifestreamprotocol/core";
-import { CHAT_LINE, RUNNER_CALLS, RUNNERS, type RunnerEnded, type RunnerListing, type RunnerPlaced } from "../runner-wire.js";
-import { errorText, SendFailed, transcript, type Offer, type Transport } from "../transport.js";
+import { unfit } from "../fit.js";
+import { CHAT_LINE, RUNNER_CALLS, RUNNERS, type RunnerEnded, type RunnerListing, type RunnerPlaced, type RunnersListed } from "../runner-wire.js";
+import { errorText, SendFailed, transcript, type ListedModel, type Transport } from "../transport.js";
+import { MODEL_USES, USE_IDS, type UseId } from "../uses.js";
 
 
 export const CALL_PASS = "call";
+export const RUNNER_TRANSPORT = "runner";
 const AWAY_MS = 15_000;
 const BUSY_MS = 30_000;
 const TIMEOUT_MS = 5 * 60_000;
@@ -24,19 +27,31 @@ export function runnerTransport(options: RunnerOptions): Transport {
   const door = options.door?.replace(/\/+$/u, "");
   const runners = options.runners ?? [];
   return {
-    name: "runner",
+    name: RUNNER_TRANSPORT,
     provider: "the runner",
     cost: "free",
     leaves: null,
+    chat: "door",
     defaults: { effort: "none", timeout_ms: TIMEOUT_MS, concurrency: runners.filter((runner) => runner.present).reduce((slots, runner) => slots + runner.slots, 0) },
     async available() {
       return door === undefined ? { ok: false, reason: "away", detail: "no door is known", until_ms: clock() + AWAY_MS } : { ok: true };
     },
-    async offers() {
-      return runners.flatMap((runner) => runner.files.map((file): Offer => ({
-        model: file.id, name: file.name, kinds: file.kinds, text_chars: file.text_chars,
-        runner: { unit: runner.unit, name: runner.name, battery: runner.power === "battery" }, ready: runner.present && file.state === "ready",
-      })));
+    async models() {
+      return runners.flatMap((runner) => {
+        const suggested = suggestions(runner);
+        return runner.files.map((file): ListedModel => {
+          const uses = suggested.get(file.id);
+          return {
+            model: file.id, name: file.name, input: file.input, output: file.output, tools: file.tools, context_tokens: file.context_tokens, thinking: file.thinking,
+            runner: { unit: runner.unit, name: runner.name, battery: runner.power === "battery" }, ready: runner.present && file.state === "ready",
+            ...(uses === undefined ? {} : { suggested: uses }),
+          };
+        });
+      });
+    },
+    reach(model, runner) {
+      if (runner === undefined) throw new TypeError("a runner's model names its runner");
+      return { runner, file: model };
     },
     async send(request, attachments) {
       const pass = options.pass();
@@ -87,10 +102,19 @@ export function runnerTransport(options: RunnerOptions): Transport {
   };
 }
 
-export async function listRunners(door: string, pass: string, fetcher: typeof fetch = fetch, timeoutMs = LISTING_MS): Promise<RunnerListing[]> {
+function suggestions(runner: Pick<RunnerListing, "memory_gb" | "files">): Map<string, UseId[]> {
+  const suggested = new Map<string, UseId[]>();
+  for (const use of USE_IDS) {
+    const first = runner.files.find((file) => runner.memory_gb >= file.memory_gb && unfit({ ...file, leaves: null }, MODEL_USES[use].need) === null);
+    if (first !== undefined) suggested.set(first.id, [...suggested.get(first.id) ?? [], use]);
+  }
+  return suggested;
+}
+
+export async function listRunners(door: string, pass: string, fetcher: typeof fetch = fetch, timeoutMs = LISTING_MS): Promise<RunnersListed> {
   const response = await fetcher(`${door.replace(/\/+$/u, "")}${RUNNERS}`, { headers: { authorization: `Bearer ${pass}` }, signal: AbortSignal.timeout(timeoutMs) });
   if (response.status !== 200) throw new Error(`the door answered ${response.status}`);
-  return ((await response.json()) as { runners: RunnerListing[] }).runners;
+  return (await response.json()) as RunnersListed;
 }
 
 export async function warmRunner(door: string, pass: string, runner: string, model: string, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<RunnerEnded> {

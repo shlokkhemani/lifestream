@@ -989,7 +989,7 @@ describe("the connectors", () => {
     expect((({ name, health }) => ({ name, health }))(reportOf(root).home)).toEqual({ name: "Lifestream", health: { state: "paused", reason: null, words: "Away for the weekend", since_ms: 1, next_ms: null, acts: [], detail: null } });
     write.commit((tx) => tx.tables.controls.clear("home"));
     write.commit((tx) => {
-      const runners = [{ unit: "runner-macbook-pro-0001", name: "MacBook Pro", present: false, power: null, memory_gb: 16, files: [] }];
+      const runners = [{ unit: "runner-macbook-pro-0001", name: "MacBook Pro", present: false, power: null, memory_gb: 16, files: [], below: null }];
       tx.tables.meta.set(MODELS_META, JSON.stringify({ routes: [], runners, openrouter: { connected: false } } satisfies StoredModels));
       tx.tables.controls.set({ target: "runner:runner-macbook-pro-0001", reason: "", at_ms: 1, by: "you" });
       tx.tables.controls.set({ target: "runner:runner-mac-mini-bb17", reason: "the mini is busy", at_ms: 1, by: "terminal" });

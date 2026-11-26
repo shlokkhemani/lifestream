@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { extname } from "node:path";
-import { SendFailed, transcript, type Offer, type Transport } from "../transport.js";
+import { SendFailed, transcript, type ListedModel, type Transport } from "../transport.js";
 import { post, record } from "./completions.js";
 import { OPENROUTER_SECRET } from "./openrouter.js";
 
@@ -9,7 +9,9 @@ const ENDPOINT = "https://openrouter.ai/api/v1/audio/transcriptions";
 
 export const CLOUD_VOICE = { transport: "openrouter-voice", model: "elevenlabs/scribe-v2" } as const;
 
-const OFFERS: readonly Offer[] = [{ model: CLOUD_VOICE.model, name: "Scribe v2", kinds: ["audio"], text_chars: null, ready: true }];
+const DECLARED: readonly ListedModel[] = [{
+  model: CLOUD_VOICE.model, name: "Scribe v2", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], ready: true, suggested: ["audio"],
+}];
 
 export interface TranscriptionsOptions {
   held: () => boolean;
@@ -25,8 +27,9 @@ export function transcriptionsTransport(options: TranscriptionsOptions): Transpo
     provider: "OpenRouter",
     cost: "priced",
     leaves: "OpenRouter",
+    chat: null,
     defaults: { effort: "none", timeout_ms: 120_000, concurrency: 4 },
-    offers: async () => [...OFFERS],
+    models: async () => [...DECLARED],
     async available() {
       return options.held() ? { ok: true } : { ok: false, reason: "no_key", detail: `${name} has no OpenRouter key` };
     },

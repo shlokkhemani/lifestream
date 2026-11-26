@@ -66,7 +66,7 @@ const job = (root: string, kind: string, key: string) =>
 
 function folder(prefix: string, options: { defaults?: boolean; fake?: JsonObject; helpers?: number; settings?: JsonObject } = {}) {
   const root = makeRoot(prefix, {
-    sources: { [SOURCE]: "fake-rows" }, cap: 4, defaults: options.defaults ?? false, fake: { offers: OFFERS, ...options.fake },
+    sources: { [SOURCE]: "fake-rows" }, cap: 4, defaults: options.defaults ?? false, fake: { models: OFFERS, ...options.fake },
     ...(options.helpers === undefined ? {} : { helpers: options.helpers }), ...(options.settings === undefined ? {} : { settings: options.settings }),
   });
   roots.push(root);
@@ -189,7 +189,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await ship(root, { source: SOURCE, fetched_ms: Date.now() - 60_000, rows: [note("n1", D1, { plan_hold: gate })] });
       await until("the ask owed", () => quiet(root) && pending(root).length === 1);
       writeFileSync(gate, "");
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("the send run planning, held", () => existsSync(`${gate}.held`) && job(root, "send", "notes") === "running");
       const before = plans(root);
       if (way === "off") await set("llm.photos", "off");
@@ -212,7 +212,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
 
   it("a route that stops is replaced by another, or a setting changed needs a restart to be followed", async () => {
     const stopped = [{ ...FAKE_OFFER, ready: false }, OTHER_OFFER];
-    const { root, verb, set } = folder("lifestream-processing-stopped-", { fake: { offers: stopped } });
+    const { root, verb, set } = folder("lifestream-processing-stopped-", { fake: { models: stopped } });
     const home = await start(root);
     try {
       await set("llm.photos", FAKE_ROUTE);
@@ -221,7 +221,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await picked(root, home);
       await picked(root, home);
       expect(sent(root)).toEqual([]);
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("the caption answered", () => quiet(root) && done(root).length === 1);
       expect(sent(root)).toEqual([{ item: "photo:n1", model: "fake-model", attempts: ["fake replied"] }]);
     } finally {
@@ -419,14 +419,14 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       expect(sent(root).map((each) => [each.item, each.model, each.attempts])).toEqual([["photo:n1", "fake-model", ["fake replied"]], ["photo:n2", "fake-model", ["fake replied"]]]);
 
       const away = [FAKE_OFFER, { ...OTHER_OFFER, ready: false }];
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: away })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: away })]);
       await until("the other model not ready", () => stored(root)[OTHER_ROUTE] === "unavailable");
       await act("photo:n1", OTHER_ROUTE);
       await until("n1 owed by its choice", () => quiet(root) && pending(root).some((row) => row.item === "photo:n1"));
       await picked(root, home);
       expect([answers(root).find(([item]) => item === "photo:n1"), sent(root).length]).toEqual([["photo:n1", caption], 2]);
       expect(dayOne(root)).toContain(`[${caption}]`);
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("n1 answered by the other model", () => quiet(root) && answers(root).some(([item, text]) => item === "photo:n1" && text !== caption));
       const other = answers(root).find(([item]) => item === "photo:n1")![1];
       expect(sent(root).map((each) => [each.item, each.model, each.attempts]).at(-1)).toEqual(["photo:n1", "fake-other", ["fake replied"]]);
@@ -449,8 +449,8 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
   });
 
   it("a choice is taken by a route the home does not reach, one that cannot serve the item's kind, or of an item nothing asks, or names no route, or through the door on a pass that is no device's, or of an item that begins with a dash read as an option; a default set by the models act says nothing on the feed", async () => {
-    const text = { ...FAKE_OFFER, model: "fake-text", name: "Fake text", kinds: ["text"] };
-    const { root, set, verb } = folder("lifestream-processing-chosen-act-", { fake: { offers: [...OFFERS, text] } });
+    const text = { ...FAKE_OFFER, model: "fake-text", name: "Fake text", input: ["text"] };
+    const { root, set, verb } = folder("lifestream-processing-chosen-act-", { fake: { models: [...OFFERS, text] } });
     const act = (item: string, route?: string) => verb("models", ["process", "notes", item, "fake-caption", ...(route === undefined ? [] : [route])]);
     const home = await start(root);
     try {
@@ -459,7 +459,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await until("the ask owed", () => quiet(root) && pending(root).length === 1);
       await expect(act("photo:n1")).rejects.toThrow("usage: lifestream models");
       await expect(act("photo:n1", "fake:nope")).rejects.toThrow("That model isn't connected.");
-      await expect(act("photo:n1", "fake:fake-text")).rejects.toThrow("Fake text doesn't take pictures.");
+      await expect(act("photo:n1", "fake:fake-text")).rejects.toThrow("Fake text can't see photos.");
       await expect(act("photo:none", FAKE_ROUTE)).rejects.toThrow("Nothing is asked of this item.");
       await picked(root, home);
       expect([count(root, "SELECT count(*) FROM item_routes"), sent(root)]).toEqual([0, []]);
@@ -525,7 +525,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await ship(root, { source: SOURCE, fetched_ms: Date.now() - 60_000, rows: [note("n1", D1, { plan_hold: gate })] });
       await until("the ask owed", () => quiet(root) && pending(root).length === 1);
       writeFileSync(gate, "");
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("the send run planning, held", () => existsSync(`${gate}.held`) && job(root, "send", "notes") === "running");
       choose(root, "photo:n1", OTHER_ROUTE);
       rmSync(gate);
@@ -543,7 +543,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
     const UNIT = "runner-macbook-pro-0001";
     const RUNNER_OFFER = { ...FAKE_OFFER, runner: { unit: UNIT, name: "MacBook Pro", battery: false } };
     const RUNNER_ROUTE = `fake:${UNIT}/fake-model`;
-    const { root, verb, set } = folder("lifestream-processing-runner-paused-", { fake: { offers: [RUNNER_OFFER, OTHER_OFFER] } });
+    const { root, verb, set } = folder("lifestream-processing-runner-paused-", { fake: { models: [RUNNER_OFFER, OTHER_OFFER] } });
     const gate = join(root, "plan-gate");
     const home = await start(root);
     try {
@@ -582,7 +582,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
     const UNIT = "runner-macbook-pro-0001";
     const RUNNER_OFFER = { ...FAKE_OFFER, runner: { unit: UNIT, name: "MacBook Pro", battery: false } };
     const RUNNER_ROUTE = `fake:${UNIT}/fake-model`;
-    const { root, verb, set } = folder("lifestream-processing-runner-paused-begin-", { fake: { offers: [RUNNER_OFFER] }, helpers: 3 });
+    const { root, verb, set } = folder("lifestream-processing-runner-paused-begin-", { fake: { models: [RUNNER_OFFER] }, helpers: 3 });
     const gate = join(root, "plan-gate");
     const home = await start(root);
     const plannedSince = (after: number) => count(root, "SELECT coalesce(sum(json_extract(counts, '$.planned')), 0) FROM runs WHERE kind = 'plan' AND id > ?", after);
@@ -629,7 +629,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
   });
 
   it("a route that leaves the offers and comes back plans its work's units again, renders a day, says its work needs a model, or sends while away", async () => {
-    const away = { delay_ms: 100, unavailable: "a synthetic outage", offers: [OTHER_OFFER] };
+    const away = { delay_ms: 100, unavailable: "a synthetic outage", models: [OTHER_OFFER] };
     const { root, verb, set } = folder("lifestream-processing-route-away-", { fake: { unavailable: "a synthetic outage" } });
     const home = await start(root);
     try {
@@ -645,13 +645,13 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await picked(root, home);
       expect(statusOf(root, { now_ms: Date.now(), settings: readOpsSettings(root) }).works.filter((work) => work.connector === "fake-poll" && work.member === "llm.photos").map(({ member, shape, line }) => [member, shape, line]))
         .toEqual([["llm.photos", "waiting", "Fake model isn't offered now"]]);
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ ...away, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ ...away, models: OFFERS })]);
       await until("the route offered again", () => stored(root)[FAKE_ROUTE] === "unavailable");
       await picked(root, home);
       await picked(root, home);
       expect({ plans: plans(root), pending: pending(root), rendered: rendered() }).toEqual(before);
       expect(sent(root)).toEqual([]);
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("both answered", () => quiet(root) && done(root).length === 2);
       expect(sent(root).map((each) => each.model)).toEqual(["fake-model", "fake-model"]);
     } finally {
@@ -662,7 +662,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
   it("a screen's sitting is kept from a route that leaves, or sent to it as it is under `all`: no sent copy, plain screen text; its menu holds that route back; or it goes as it is under `none` the person did not choose; or the home's level changed is never read by the send run", async () => {
     const SCREEN = "screen:local:mac-0001";
     const RECEIVER = "Example Cloud";
-    const root = makeRoot("lifestream-processing-screen-leaves-", { sources: { [SCREEN]: "fake-rows" }, fake: { offers: OFFERS, leaves: RECEIVER } });
+    const root = makeRoot("lifestream-processing-screen-leaves-", { sources: { [SCREEN]: "fake-rows" }, fake: { models: OFFERS, leaves: RECEIVER } });
     roots.push(root);
     const log = join(root, "received.jsonl");
     const verb = (name: string, args: string[]) => askHome(testSocket(root), name, args);
@@ -670,7 +670,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
     const copies = () => readLedger(root, (db) => db.prepare("SELECT level, body FROM sent_copies ORDER BY id").all()) as { level: string; body: string | null }[];
     const home = await start(root);
     try {
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS, leaves: RECEIVER, log, reply: "Reading mail." })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS, leaves: RECEIVER, log, reply: "Reading mail." })]);
       await until("People's first run done", () => quiet(root));
       writePrepared(openHomeFolder(root), peopleFileOf(root, machine().dir), PEOPLE, { rows: new Map([["names", new Map([["table", {
         owner: null, people: [{ who: "p-ada", is: "human", shown: "Ada Example", names: ["Ada Example"], accounts: ["person-a@example.com", "+15550000001"] }],
@@ -748,9 +748,9 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       home = await start(root);
       await picked(root, home);
       expect(defaults()).toEqual({ "model.defaults.audio": FAKE_ROUTE, "model.defaults.pictures": null, "model.defaults.text": null });
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, unavailable: "a synthetic outage", offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, unavailable: "a synthetic outage", models: OFFERS })]);
       await until("the route not ready", () => stored(root)[FAKE_ROUTE] === "unavailable");
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("the route ready again", () => stored(root)[FAKE_ROUTE] === "ready");
       await picked(root, home);
       expect(defaults()).toEqual({ "model.defaults.audio": FAKE_ROUTE, "model.defaults.pictures": null, "model.defaults.text": null });
@@ -786,9 +786,9 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
   });
 
   it("connectors set or a kind's default takes a route that cannot serve the work, settings set writes a default beside its act, or a model whose name has a space is refused", async () => {
-    const text = { ...FAKE_OFFER, model: "fake-text", name: "Fake text", kinds: ["text"] };
+    const text = { ...FAKE_OFFER, model: "fake-text", name: "Fake text", input: ["text"] };
     const spaced = { ...FAKE_OFFER, model: "fake spaced model", name: "Fake spaced" };
-    const { root, verb, set } = folder("lifestream-processing-serves-", { fake: { offers: [FAKE_OFFER, text, spaced] } });
+    const { root, verb, set } = folder("lifestream-processing-serves-", { fake: { models: [FAKE_OFFER, text, spaced] } });
     const home = await start(root);
     try {
       await expect(set("llm.photos", "fake:fake-text")).rejects.toThrow("names a model route that cannot serve photo descriptions");
@@ -819,7 +819,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await ship(root, { source: SOURCE, fetched_ms: Date.now() - 60_000, rows: [note("a1", D1), note("a2", D1 + 60_000), note("b1", D1 + DAY), note("c1", D1 + 2 * DAY)] });
       await until("three asks owed, day 1 started", () => quiet(root) && done(root).length === 1 && pending(root).length === 3 &&
         count(root, "SELECT started FROM asks WHERE item = 'photo:a2'") === 1);
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS, concurrency: 1 })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS, concurrency: 1 })]);
       await until("every ask answered", () => quiet(root) && done(root).length === 4);
       expect(sent(root).map((each) => each.item)).toEqual(["photo:a1", "photo:a2", "photo:c1", "photo:b1"]);
     } finally {
@@ -894,7 +894,7 @@ describe("LLM processing: an item goes only where its stream sends it", () => {
       await until("the rebuild held at its first unit", () => existsSync(`${gate}.held`));
       expect(code()).toBe("1");
       const before = { plans: plans(root), day: dayOne(root) };
-      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, offers: OFFERS })]);
+      await verb("settings", ["set", "model.transports.fake", JSON.stringify({ delay_ms: 100, models: OFFERS })]);
       await until("the old ask gone, nothing sending or planning", () => pending(root).length === 0 && plans(root) > before.plans && idle());
       const at = home.stats().ticks.count;
       await until("two more ticks, nothing planned or sent", () => home.stats().ticks.count > at + 1 && idle());
@@ -1097,7 +1097,7 @@ describe("what a pick reads", () => {
   }
 
   const ROUTE: ModelRoute = {
-    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", kinds: ["pictures", "audio", "text"], text_chars: null, offered: true, runner: null, leaves: null,
+    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, offered: true, runner: null, leaves: null,
     where: "Stays on this computer", cost: "free", request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
   };
   const OTHER: ModelRoute = { ...ROUTE, id: OTHER_ROUTE, model: "fake-other", name: "Fake other" };
@@ -1292,12 +1292,12 @@ describe("what a route says", () => {
   function models(fake: JsonObject, now: () => number, rest: () => Rest | null = () => null): Models {
     return new Models({
       settings: () => ({
-        model: { cap: 1, transports: { fake: { offers: [FAKE_OFFER], ...fake } } } as unknown as ReturnType<typeof effective>["settings"]["model"],
+        model: { cap: 1, transports: { fake: { models: [FAKE_OFFER], ...fake } } } as unknown as ReturnType<typeof effective>["settings"]["model"],
         defaults: { pictures: null, audio: null, text: null }, connectors: {}, runners: {}, privacy: PRIVACY, search: SEARCH_OFF,
       }),
       registry: () => ({ connectors: [], families: [] }),
       ledger: { resting: () => new Map(rest() === null ? [] : [["fake", rest()!]]) },
-      found: () => ({ programs: {}, held: () => false }), runners: async () => [], paired: () => new Set(), clock: now, day: () => DAY_SETTINGS, unset: () => [], fill: () => undefined,
+      found: () => ({ programs: {}, held: () => false }), runners: async () => ({ runners: [], below: [] }), paired: () => new Set(), clock: now, day: () => DAY_SETTINGS, unset: () => [], fill: () => undefined,
     });
   }
   const said = (each: Models) => {
@@ -1334,7 +1334,7 @@ describe("what a route says", () => {
       await line({}, { cause: "unavailable", resets_ms: null }),
       await line({ unavailable: "synthetic", reason: "signed_out" }), await line({ unavailable: "synthetic", reason: "no_key" }),
       await line({ unavailable: "synthetic", reason: "no_program" }), await line({ unavailable: "synthetic", reason: "unusable" }),
-      await line({ unavailable: "synthetic" }), await line({ offers: [{ ...FAKE_OFFER, ready: false }] }), await line({}),
+      await line({ unavailable: "synthetic" }), await line({ models: [{ ...FAKE_OFFER, ready: false }] }), await line({}),
     ]).toEqual([
       "Your Claude plan is used up · resets 14:00", "Your Claude plan is used up for now", "Claude is at its limit · resets 14:00",
       "Waiting for Claude", "Claude isn't available for now",
@@ -1351,11 +1351,11 @@ describe("what a tick opens again", () => {
     let block: JsonObject = { "llm.photos": FAKE_ROUTE, "llm.range": "all" };
     const models = new Models({
       settings: () => ({
-        model: { cap: 4, transports: { fake: { offers: OFFERS } } } as unknown as ReturnType<typeof effective>["settings"]["model"],
+        model: { cap: 4, transports: { fake: { models: OFFERS } } } as unknown as ReturnType<typeof effective>["settings"]["model"],
         defaults: { pictures: null, audio: null, text: null }, connectors: { "fake-poll": block }, runners: {}, privacy: PRIVACY, search: SEARCH_OFF,
       }),
       registry: () => ({ connectors: FAKE_CONNECTORS, families: [] }), ledger: { resting: () => new Map() },
-      found: () => ({ programs: {}, held: () => false }), runners: async () => [], paired: () => new Set(), clock: () => D1, day: () => ({ zone: "UTC", day_start_hour: 4 }),
+      found: () => ({ programs: {}, held: () => false }), runners: async () => ({ runners: [], below: [] }), paired: () => new Set(), clock: () => D1, day: () => ({ zone: "UTC", day_start_hour: 4 }),
       unset: () => [], fill: () => undefined,
     });
     const states = () => readHome(root, (db) => db.prepare("SELECT item, state, given_up FROM asks ORDER BY item").all());
@@ -1396,11 +1396,11 @@ describe("what a tick opens again, of what could not be hidden", () => {
     let privacy = PRIVACY;
     const models = () => new Models({
       settings: () => ({
-        model: { cap: 4, transports: { fake: { offers: OFFERS } } } as unknown as ReturnType<typeof effective>["settings"]["model"],
+        model: { cap: 4, transports: { fake: { models: OFFERS } } } as unknown as ReturnType<typeof effective>["settings"]["model"],
         defaults: { pictures: null, audio: null, text: null }, connectors: { "fake-poll": block }, runners: {}, privacy, search: SEARCH_OFF,
       }),
       registry: () => ({ connectors: FAKE_CONNECTORS, families: [] }), ledger: { resting: () => new Map() },
-      found: () => ({ programs: {}, held: () => false }), runners: async () => [], paired: () => new Set(), clock: () => D1, day: () => ({ zone: "UTC", day_start_hour: 4 }),
+      found: () => ({ programs: {}, held: () => false }), runners: async () => ({ runners: [], below: [] }), paired: () => new Set(), clock: () => D1, day: () => ({ zone: "UTC", day_start_hour: 4 }),
       unset: () => [], fill: () => undefined,
     });
     const why = () => readHome(root, (db) => db.prepare("SELECT why FROM asks_unhideable WHERE item = 'photo:u1'").pluck().get() ?? null) as string | null;
@@ -1440,7 +1440,7 @@ describe("what a tick opens again, of what could not be hidden", () => {
 describe("what the hand-off writes", () => {
   const RECEIVER = "Example Cloud";
   const LEAVING: ModelRoute = {
-    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", kinds: ["pictures", "audio", "text"], text_chars: null, offered: true, runner: null, leaves: RECEIVER,
+    id: FAKE_ROUTE, transport: "fake", model: "fake-model", name: "Fake model", input: ["text", "image", "audio"], output: "text", tools: false, context_tokens: null, thinking: [], chat: null, offered: true, runner: null, leaves: RECEIVER,
     where: "Sent to Example Cloud", cost: "free", request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
   };
   const workOn = (route: string): WorkRouting => ({ kind: "pictures", text_chars: null, value: route, route, suggests: route, start_ms: null, power_ms: null });
@@ -1529,17 +1529,17 @@ describe("a runner's files", () => {
   const PASS = "synthetic-drive-pass";
   type Listed = RunnerListing["files"][number];
   const qwen = (state: Listed["state"], fetched_bytes = 0): Listed => ({
-    id: "qwen3.5-4b", name: "Qwen 3.5", kinds: ["pictures", "text"], bytes: 4_200_000_000, text_chars: 16_000, languages: [], memory_gb: 16, state, fetched_bytes, failure: null,
+    id: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], bytes: 4_200_000_000, languages: [], memory_gb: 16, state, fetched_bytes, failure: null,
   });
   const parakeet = (state: Listed["state"]): Listed => ({
-    id: "parakeet-unified-en-0.6b", name: "Parakeet", kinds: ["audio"], bytes: 731_357_568, text_chars: null, languages: ["en"], memory_gb: 8, state, fetched_bytes: 0, failure: null,
+    id: "parakeet-unified-en-0.6b", name: "Parakeet", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], bytes: 731_357_568, languages: ["en"], memory_gb: 8, state, fetched_bytes: 0, failure: null,
   });
   const nemotron = (state: Listed["state"]): Listed => ({
-    id: "nemotron-3.5-asr-0.6b", name: "Nemotron Speech", kinds: ["audio"], bytes: 751_094_240, text_chars: null, memory_gb: 8, state, fetched_bytes: 0, failure: null,
+    id: "nemotron-3.5-asr-0.6b", name: "Nemotron Speech", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], bytes: 751_094_240, memory_gb: 8, state, fetched_bytes: 0, failure: null,
     languages: ["en", "es", "fr", "it", "pt", "nl", "de", "tr", "ru", "ar", "hi", "ja", "ko", "vi", "uk", "pl", "sv", "cs", "nb", "da", "bg", "fi", "hr", "sk", "zh", "hu", "ro", "et"],
   });
   const gemma = (state: Listed["state"]): Listed => ({
-    id: "embeddinggemma-2-q8-512", name: "EmbeddingGemma 2", kinds: [], bytes: 480_000_000, text_chars: 8_192, languages: [], memory_gb: 8, state, fetched_bytes: 0, failure: null,
+    id: "embeddinggemma-2-q8-512", name: "EmbeddingGemma 2", input: ["text"], output: "vectors", tools: false, context_tokens: 2_048, thinking: [], bytes: 480_000_000, languages: [], memory_gb: 8, state, fetched_bytes: 0, failure: null,
   });
   const runner = (present: boolean, files: Listed[]): RunnerListing => ({
     unit: UNIT, name: "MacBook Pro", version: "1", boot: "boot-a", slots: 1, power: "mains", idle_s: null, thermal: null, memory_gb: 16, running: [], files, present,
@@ -1548,7 +1548,7 @@ describe("a runner's files", () => {
   async function door(listed: () => RunnerListing[]): Promise<{ url: string; close(): Promise<void> }> {
     const server = createServer((request, response) => {
       const ok = request.url === "/v1/runners" && request.headers.authorization === `Bearer ${PASS}`;
-      response.writeHead(ok ? 200 : 401, { "content-type": "application/json" }).end(JSON.stringify(ok ? { runners: listed() } : { code: "PRINCIPAL_UNKNOWN" }));
+      response.writeHead(ok ? 200 : 401, { "content-type": "application/json" }).end(JSON.stringify(ok ? { runners: listed(), below: [] } : { code: "PRINCIPAL_UNKNOWN" }));
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => new Promise((resolve) => server.close(() => resolve())) };
@@ -1574,7 +1574,7 @@ describe("a runner's files", () => {
       expect(routes()).toEqual({
         [`runner:${UNIT}/qwen3.5-4b`]: ["unavailable", "Downloading, 1.2 of 4.2 GB"], [`runner:${UNIT}/parakeet-unified-en-0.6b`]: ["unavailable", "Not downloaded"],
       });
-      const read = () => modelsRead({ routes: models.list(new Set()), runners: listed, openrouter: { connected: false } }, { cap: 4 }, { pictures: null, audio: null, text: null }, { pauses: [], runners: {}, now_ms: D1, day: DAY_SETTINGS }).runners;
+      const read = () => modelsRead({ routes: models.list(new Set()), runners: listed.map((each) => ({ ...each, below: null })), openrouter: { connected: false } }, { cap: 4 }, { pictures: null, audio: null, text: null }, { pauses: [], runners: {}, now_ms: D1, day: DAY_SETTINGS }).runners;
       expect(read()).toEqual([{
         unit: UNIT, name: "MacBook Pro", line: null, paused: null, battery: { on: true, held: null }, files: [
           { id: "qwen3.5-4b", name: "Qwen 3.5", about: "Describes photos and sums up text · 4.2 GB", state: "fetching", line: "Downloading, 1.2 of 4.2 GB", suggested: true, fits: true },
@@ -1587,7 +1587,7 @@ describe("a runner's files", () => {
       expect(read()[0]!.line).toBe("MacBook Pro's runner is not running");
       expect(filled).toEqual([]);
       listed = [runner(true, [qwen("ready"), parakeet("fetching")])];
-      transports = { fake: { offers: [FAKE_OFFER] } };
+      transports = { fake: { models: [FAKE_OFFER] } };
       await models.read();
       const id = `runner:${UNIT}/qwen3.5-4b`;
       expect(filled).toEqual([{ text: id }]);
@@ -1602,7 +1602,7 @@ describe("a runner's files", () => {
 
   it("a runner's Save battery: none where its machine states no battery or it is away; on unless turned off; while on battery and on, why its older work waits", () => {
     const battery = (power: RunnerListing["power"], runners: Record<string, { save_battery?: boolean }> = {}, present = true) =>
-      modelsRead({ routes: [], runners: [{ ...runner(present, []), power }], openrouter: { connected: false } }, { cap: 4 }, { pictures: null, audio: null, text: null },
+      modelsRead({ routes: [], runners: [{ ...runner(present, []), power, below: null }], openrouter: { connected: false } }, { cap: 4 }, { pictures: null, audio: null, text: null },
         { pauses: [], runners, now_ms: D1, day: DAY_SETTINGS }).runners[0]!.battery;
     const OFF = { [UNIT]: { save_battery: false } };
     expect([battery(null), battery("mains"), battery("battery"), battery("mains", OFF), battery("battery", OFF)]).toEqual([
@@ -1614,7 +1614,7 @@ describe("a runner's files", () => {
 
   it("a kind with no default suggests every file of it the machine runs, the one fetching alone once one is, none once one is ready or the kind has a default; a speech file's words name its languages; only the first file of a kind that fits says it is recommended, and only where another does not fit, which says what it needs", () => {
     const read = (files: Listed[], audio: string | null = null, memory_gb = 16) => {
-      const runners = [{ ...runner(true, files), memory_gb }];
+      const runners = [{ ...runner(true, files), memory_gb, below: null }];
       return Object.fromEntries(modelsRead({ routes: [], runners, openrouter: { connected: false } }, { cap: 4 }, { pictures: FAKE_ROUTE, audio, text: FAKE_ROUTE }, { pauses: [], runners: {}, now_ms: D1, day: DAY_SETTINGS }).runners[0]!.files
         .map((file) => [file.id, [file.about, file.suggested]]));
     };
@@ -1638,7 +1638,7 @@ describe("a runner's files", () => {
     settings: () => ({ model: { cap: 4, transports: {} } as unknown as ReturnType<typeof effective>["settings"]["model"], defaults: NONE, connectors: {}, runners: {}, privacy: PRIVACY, search: SEARCH_OFF }),
     registry: () => ({ connectors: [], families: [] }), ledger: { resting: () => new Map(resting()) },
     found: () => ({ programs: {}, door: "http://127.0.0.1:9", held: () => false }),
-    runners: list, paired, clock: () => D1, day: () => DAY_SETTINGS, unset: () => [], fill: () => undefined,
+    runners: () => list().then((runners) => ({ runners, below: [] })), paired, clock: () => D1, day: () => DAY_SETTINGS, unset: () => [], fill: () => undefined,
   });
   const states = (models: Models) => Object.fromEntries(models.list(new Set()).filter((route) => route.transport === "runner").map((route) => [route.id, route.line ?? route.state]));
 
@@ -1759,7 +1759,7 @@ describe("a runner's files", () => {
   it("a runner on battery, its Save battery on (unset), serves its work's asks of the last two days and a person's choice of any day; on mains or Save battery off, its whole range", () => {
     const id = `runner:${UNIT}/qwen3.5-4b`;
     const route = (battery: boolean): ModelRoute => ({
-      id, transport: "runner", model: "qwen3.5-4b", name: "Qwen 3.5", kinds: ["pictures", "text"], text_chars: 16_000, offered: true,
+      id, transport: "runner", model: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], chat: "door", offered: true,
       runner: { unit: UNIT, name: "MacBook Pro", battery }, leaves: null, where: "Stays on MacBook Pro", cost: "free",
       request: { effort: "none", sampling: null, timeout_ms: 300_000 }, state: "ready", line: null,
     });

@@ -1,9 +1,14 @@
 import { mkdirSync } from "node:fs";
-import { errorText, SendFailed, type Transport } from "../transport.js";
+import { errorText, SendFailed, type ListedModel, type Transport } from "../transport.js";
 import { checkProgram, run, UNAVAILABLE, type Judging, type ProgramAt, type ProgramCheck } from "./program.js";
 
 
 export const CODEX_ITEM_MODEL = "gpt-6-luna";
+
+const DECLARED: readonly ListedModel[] = [{
+  model: CODEX_ITEM_MODEL, name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: 1_050_000,
+  thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
+}];
 
 const NOT_FOUND = "Codex is not on this Mac yet: it is downloaded once ChatGPT is chosen, and is downloading if it was";
 
@@ -26,8 +31,9 @@ export function codexTransport(options: CodexOptions): Transport {
     provider: "ChatGPT",
     cost: "plan",
     leaves: "OpenAI",
+    chat: "program",
     defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
-    offers: async () => [{ model: CODEX_ITEM_MODEL, name: "GPT-6 Luna", kinds: ["pictures", "text"], text_chars: null, ready: true }],
+    models: async () => [...DECLARED],
     async available() {
       const check = await checkCodex(codex);
       return check.state === "signed_in" ? { ok: true } : { ok: false, reason: UNAVAILABLE[check.state], detail: check.why };

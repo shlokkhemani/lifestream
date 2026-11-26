@@ -11,8 +11,8 @@ const dot = (a: Float32Array, b: Float32Array): number => a.reduce((sum, value, 
 
 describe("the embedding row", () => {
   it("pins EmbeddingGemma 2's q8_0 text path on Apple silicon, its bytes the build's and its manifest's, and writes the manifest the registry serves", () => {
-    expect([ROW.library, ROW.platforms, ROW.kinds, ROW.source.model, ROW.source.registry]).toEqual([
-      "ollama", ["darwin-arm64"], [], "embeddinggemma-2:270m-q8_0-text", "https://registry.ollama.ai/v2/library/embeddinggemma-2",
+    expect([ROW.library, ROW.platforms, ROW.input, ROW.output, ROW.context_tokens, ROW.source.model, ROW.source.registry]).toEqual([
+      "ollama", ["darwin-arm64"], ["text"], "vectors", 2_048, "embeddinggemma-2:270m-q8_0-text", "https://registry.ollama.ai/v2/library/embeddinggemma-2",
     ]);
     expect(ROW.bytes).toBe(OLLAMA.artifact.bytes + 158 + 303_957_280);
     expect(createHash("sha256").update(JSON.stringify(EMBEDDINGGEMMA_2_Q8)).digest("hex")).toBe("c21dd30c1e38444d3b4faa091407b6fa97221447b4965d74931d43d7f09bbbfd");
