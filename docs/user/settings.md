@@ -162,7 +162,7 @@ when you pick it for **Hiding details**.
 
 | Setting | What it changes | Default |
 |---|---|---|
-| **Run local models** | Off, the Mac holds its models' work until you turn it on again. It shows once a model is ready. | On |
+| **Run local models** | Off, the Mac holds its models' work until you turn it on again. | On |
 | **Save battery** | On battery, the Mac's models work only on today's and yesterday's items. The rest wait until it is plugged in. | On |
 
 #### Other server
@@ -197,11 +197,11 @@ what it was about, not only by its words. It runs on a Mac only, and nothing lea
 
 | Setting | What it changes | Default |
 |---|---|---|
-| **Model** | Shows the model chosen for **Search by meaning** in **Default models**, such as **EmbeddingGemma 2**. **Choose** or **Change** opens **Default models**. Download the model under **On this Mac** first. Once one is chosen, this Mac reads your screen's text for meaning, newest day first. Word search works either way. | Off |
-| **When it runs** | **Only when plugged in and idle**, so it never slows you down or spends your battery. | Only when plugged in and idle |
+| **Model** | Shows the model chosen for **Search by meaning** in **Default models**, such as **EmbeddingGemma 2**. **Choose** or **Change** opens **Default models**. Download the model under **Local models** in **Providers**, or pick it in **Default models**, which downloads it. Once one is chosen, this Mac reads your screen's text for meaning, newest day first. Word search works either way. | Off |
+| **When it runs** | **Only when plugged in and idle**, so it never slows you down or spends your battery. It is the one choice, so the row only says it. | Only when plugged in and idle |
 
-While a model is chosen, **Searchable** says how much of your screen it has read, and **On disk**
-how much space it keeps.
+While a model is chosen, **Searchable** says how much of your screen it has read, or what it waits
+for, such as this Mac being plugged in and idle, and **On disk** how much space it keeps.
 
 ## App
 

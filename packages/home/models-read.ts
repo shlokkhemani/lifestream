@@ -1,7 +1,8 @@
 import type { JsonObject } from "@lifestreamprotocol/core";
-import { MODEL_USES, readRouteId, unfit, USE_IDS, type Input, type Transport, type UseId } from "@lifestreamprotocol/model";
+import { MODEL_USES, readRouteId, unfit, USE_IDS, type Input, type RunnerFile, type Transport, type UseId } from "@lifestreamprotocol/model";
 import { ADDRESS, ROUTE_ID, runnerLine, WORK_MEMBER, type ModelRoute, type StoredModels, type StoredRunner } from "./models.js";
 import { MODELS_FOUND, type ModelGroup, type ModelMenu, type ModelRow } from "./pages.js";
+import { wantedOn } from "./runners.js";
 import { chosenFor, type Settings, type UseDefaults } from "./settings.js";
 import type { Step } from "./streams-report.js";
 
@@ -67,6 +68,8 @@ export function modelsAt(settings: Pick<Settings, "defaults" | "thinking" | "mod
 
 export const UPDATE_RUNNER = "Update this runner";
 
+export const ADDRESS_UNLISTED = "Couldn't list this server's models";
+
 export const ADDRESS_WINDOW = `Chat needs the server to run a context window of ${MODEL_USES.chat.need.context_tokens!.toLocaleString("en-US")} tokens or more`;
 
 export const OFF_STEP: Step = { value: "none", words: MENU.off, note: null };
@@ -102,11 +105,34 @@ function connectionsOf(stored: StoredModels, offered: readonly ModelRoute[], at:
   const runners = stored.runners.map((runner): ConnectionRead => ({ id: runnerConnection(runner.unit), kind: "runner", name: runner.name, line: storedRunnerLine(runner) }));
   const others = new Map<string, ModelRoute[]>();
   for (const route of offered) if (route.runner === null) others.set(route.transport, [...others.get(route.transport) ?? [], route]);
-  const listed = [...others].map(([transport, rows]): ConnectionRead => ({
+  const listed = [...others].sort(([a], [b]) => planRank(a) - planRank(b)).map(([transport, rows]): ConnectionRead => ({
     id: transport, kind: kindOf(rows[0]!), name: NAMES[transport] ?? transport, line: sharedLine(rows) ?? (transport === ADDRESS ? ADDRESS_WINDOW : null),
   }));
-  const address = others.has(ADDRESS) ? [] : [{ id: ADDRESS, kind: "address" as const, name: NAMES[ADDRESS]!, line: at.address === undefined ? null : ADDRESS_WINDOW }];
+  const unlisted = at.address === undefined ? null : stored.connections[ADDRESS] === undefined ? ADDRESS_UNLISTED : ADDRESS_WINDOW;
+  const address = others.has(ADDRESS) ? [] : [{ id: ADDRESS, kind: "address" as const, name: NAMES[ADDRESS]!, line: unlisted }];
   return [...runners, ...listed, ...address];
+}
+
+function planRank(transport: string): number {
+  const at = PLANS_FIRST.indexOf(transport);
+  return at < 0 ? PLANS_FIRST.length : at;
+}
+
+function wishedFile(file: RunnerFile, wanted: boolean): RunnerFile {
+  if (wanted && file.state === "absent") return { ...file, state: "fetching", fetched_bytes: 0, failure: null };
+  if (!wanted && file.state !== "absent") return { ...file, state: "absent", fetched_bytes: 0, failure: null };
+  return file;
+}
+
+export function wished(stored: StoredModels, settings: Pick<Settings, "runners" | "defaults" | "connectors">): StoredModels {
+  return {
+    ...stored,
+    runners: stored.runners.map((runner) => {
+      if (!runner.present) return runner;
+      const wanted = wantedOn(settings, runner);
+      return { ...runner, files: runner.files.map((file) => wishedFile(file, wanted.includes(file.id))) };
+    }),
+  };
 }
 
 function accountOf(route: Pick<ModelRoute, "id" | "transport" | "runner">, runners: readonly Pick<StoredRunner, "unit" | "name">[]): string {
@@ -143,11 +169,7 @@ export function modelList(routes: readonly ModelRoute[], runners: readonly Store
 
 export function modelGroups(routes: readonly ModelRoute[], runners: readonly StoredRunner[], chosen: string | null): ModelGroup[] {
   const shown = routes.filter((route) => usable(route, runners));
-  const rank = (route: ModelRoute): number => {
-    if (isLocal(route)) return PLANS_FIRST.length + 1;
-    const at = PLANS_FIRST.indexOf(route.transport);
-    return at < 0 ? PLANS_FIRST.length : at;
-  };
+  const rank = (route: ModelRoute): number => isLocal(route) ? PLANS_FIRST.length + 1 : planRank(route.transport);
   const groups = new Map<string, ModelRoute[]>();
   for (const route of [...shown].sort((a, b) => rank(a) - rank(b))) {
     const label = isLocal(route) ? MENU.local : NAMES[route.transport] ?? route.transport;

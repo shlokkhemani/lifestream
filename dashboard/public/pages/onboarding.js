@@ -22,7 +22,8 @@ import {
   backOf, BEFORE, done, DOTS, FACES, heldSpan, keepSpan, keptOf, landing, leftAs, macOf, macSources, nameHolds, nameText, nextOf, passed, recordOf,
   resume, SCREENS, sensesOf, stepOf,
 } from '../ui/onboarding/model.js';
-import { mediaPlaces, partsOf, rangeOf, scrambleAct, siteAdded, typedName } from '../ui/onboarding/view.js';
+import { MEDIA_MORE, mediaListed, mediaPick, partsOf, rangeOf, scrambleAct, siteAdded, typedName } from '../ui/onboarding/view.js';
+import { SETTINGS_DEFAULTS } from '../ui/connectors/settings.js';
 
 /** @param {string} value @returns {value is Screen} */
 const isScreen = value => /** @type {string[]} */ (SCREENS).includes(value);
@@ -320,9 +321,8 @@ export function mountOnboarding(container, context, host, reports, changes) {
    * @param {string} model
    */
   async function choose(kind, model) {
-    if (!changes.models.read) return;
-    const chosen = mediaPlaces(changes.models.read, kind).choices.find(each => each.value === model);
-    if (model !== 'none' && (!chosen || chosen.disabled)) return;
+    if (!changes.models.read || !mediaListed(mediaPick(changes.models.read, kind), model)) return;
+    if (model === MEDIA_MORE) return context.dialog(SETTINGS_DEFAULTS);
     await send({ act: 'models', do: 'default', use: kind, model }, 'media');
   }
 

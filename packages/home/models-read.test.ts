@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UseId, WorkKind } from "@lifestreamprotocol/model";
-import { ADDRESS_WINDOW, foundOf, inUseOf, MENU, menuOf, modelList, modelsRead, UPDATE_RUNNER, type ModelsAt } from "./models-read.js";
+import type { RunnerFile } from "@lifestreamprotocol/model";
+import { ADDRESS_UNLISTED, ADDRESS_WINDOW, foundOf, inUseOf, MENU, menuOf, modelList, modelsRead, UPDATE_RUNNER, wished, type ModelsAt } from "./models-read.js";
 import type { Defaults, ModelRoute, StoredRunner } from "./models.js";
 import type { ModelMenu } from "./pages.js";
 import { memberWords } from "./processing.js";
@@ -26,9 +27,9 @@ const NONE: Record<UseId, string | null> = { pictures: null, audio: null, text: 
 const AT: ModelsAt = { defaults: NONE, thinking: { chat: null }, address: undefined, blocks: {} };
 
 describe("the models read", () => {
-  it("lists each connection once, the runners first, then each transport in its routes' order, then the address, set or not, its line Chat's window", () => {
-    const read = modelsRead({ routes: [QWEN, FILTER, HAIKU, OPUS, ROUTE], runners: [RUNNER, { ...RUNNER, unit: "runner-mac-mini-0002", name: "Mac mini", present: false, below: "0.1.0" }], connections: {} },
-      { ...AT, address: { url: "http://127.0.0.1:1234/v1" } });
+  it("lists each connection once, the runners first, then the plans, Claude then ChatGPT, then each other transport in its routes' order, then the address, set or not, its line Chat's window once listed", () => {
+    const read = modelsRead({ routes: [QWEN, FILTER, HAIKU, OPUS, ROUTE], runners: [RUNNER, { ...RUNNER, unit: "runner-mac-mini-0002", name: "Mac mini", present: false, below: "0.1.0" }],
+      connections: { address: { listed_ms: 0, models: [] } } }, { ...AT, address: { url: "http://127.0.0.1:1234/v1" } });
     expect(read.connections).toEqual([
       { id: `runner:${UNIT}`, kind: "runner", name: "MacBook Pro", line: null },
       { id: "runner:runner-mac-mini-0002", kind: "runner", name: "Mac mini", line: UPDATE_RUNNER },
@@ -41,6 +42,21 @@ describe("the models read", () => {
       { id: "fake", kind: "key", name: "fake", line: null },
       { id: "address", kind: "address", name: "Other server", line: null },
     ]);
+    const unlisted = modelsRead({ routes: [ROUTE], runners: [], connections: {} }, { ...AT, address: { url: "http://127.0.0.1:1234/v1" } });
+    expect(unlisted.connections.at(-1)?.line, "a server the home could not list says so").toBe(ADDRESS_UNLISTED);
+    const LUNA: ModelRoute = { ...HAIKU, id: "codex:gpt-6-luna", transport: "codex", model: "gpt-6-luna", name: "GPT-6 Luna" };
+    expect(modelsRead({ routes: [ROUTE, LUNA, HAIKU], runners: [], connections: {} }, AT).connections.map((each) => each.id)).toEqual(["claude", "codex", "fake", "address"]);
+  });
+
+  it("the person's wish on a running runner's files stands until the runner's report overtakes it: wanted and absent reads fetching, not wanted reads absent", () => {
+    const file = (id: string, state: RunnerFile["state"]): RunnerFile => ({ id, name: id, input: ["text"], output: "text", tools: false, timed: false, context_tokens: null, thinking: [], bytes: 1_000,
+      languages: [], memory_gb: 8, state, fetched_bytes: state === "fetching" ? 500 : 0, failure: state === "failed" ? "offline" : null });
+    const runner: StoredRunner = { ...RUNNER, files: [file("a", "absent"), file("b", "ready"), file("c", "fetching"), file("d", "failed"), file("e", "ready")] };
+    const stored = { routes: [], runners: [runner, { ...runner, unit: "runner-mac-mini-0002", present: false }], connections: {} };
+    const settings = { runners: { [UNIT]: { files: ["a", "d"] } }, defaults: { ...NONE, search: `runner:${UNIT}/e` }, connectors: {} };
+    const [mine, away] = wished(stored, settings).runners;
+    expect(mine?.files.map((each) => [each.id, each.state, each.fetched_bytes])).toEqual([["a", "fetching", 0], ["b", "absent", 0], ["c", "absent", 0], ["d", "failed", 0], ["e", "ready", 0]]);
+    expect(away?.files.map((each) => each.state), "a runner away does nothing yet: its report stands").toEqual(["absent", "ready", "fetching", "failed", "ready"]);
   });
 
   it("a use's fits are the models that fit it, those suggested for it first, then the connections' order; ready or not; value and thinking are the settings'", () => {

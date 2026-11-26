@@ -331,8 +331,8 @@ button.ck-figure:hover { background: var(--hover); }
 .ck-flist__item[role="menuitem"] > .ck-flist__check { display: none; }
 .ck-flist__item > .ck-appicon { width: 20px; height: 20px; border-radius: 5px; font-size: 11px; line-height: 20px; }
 .ck-fmenu__find, .ck-pick__find { flex: none; height: var(--size-row-mac); margin-bottom: var(--space-1); padding: 0 10px; border: 0; border-radius: calc(var(--radius-lg) - var(--space-1)); outline: 0; background: var(--well); color: var(--text); font: inherit; -webkit-appearance: none; appearance: none; }
-.ck-fmenu__find::placeholder, .ck-pick__find::placeholder { color: var(--text-tertiary); }
-.ck-fmenu__find::-webkit-search-cancel-button, .ck-pick__find::-webkit-search-cancel-button { display: none; }
+.ck-fmenu__find::placeholder { color: var(--text-tertiary); }
+.ck-fmenu__find::-webkit-search-cancel-button { display: none; }
 .ck-fmenu__date { display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--size-row-mac); margin-top: var(--space-1); padding: 4px var(--space-2) 4px 10px; border-top: var(--stroke-border) solid var(--hairline); color: var(--text); }
 .ck-fmenu__date-field { height: 26px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-control); outline: 0; background: var(--raised); color: var(--text); font: inherit; }
 .ck-fmenu__date-field:focus-visible { box-shadow: inset 0 0 0 var(--stroke-border) var(--focus); }
@@ -1354,6 +1354,8 @@ button.ck-week__day { cursor: pointer; }
 .ck-ssection:first-of-type { margin-top: var(--space-5); }
 .ck-ssection--bare:first-of-type { margin-top: 0; }
 .ck-ssection--card { margin-top: var(--space-6); }
+.ck-ssection--group { margin-top: var(--space-4); }
+.ck-ssection--group .ck-ssection__heading { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--text-tertiary); }
 .ck-ssection--card > .ck-ssection__head { padding-bottom: var(--space-2); }
 .ck-ssection--card > .ck-ssection__rows { padding: var(--space-1); border-radius: var(--radius-lg); box-shadow: inset 0 0 0 var(--stroke-border) var(--hairline); }
 .ck-ssection--card .ck-srow { padding-inline: var(--space-3); border-radius: var(--radius-sm); }
@@ -1441,6 +1443,11 @@ button.ck-week__day { cursor: pointer; }
 .ck-srow__chev { display: grid; place-items: center; flex: none; width: var(--size-icon-xs); margin-inline-start: calc(var(--space-3) - var(--space-6)); color: var(--text-tertiary); }
 .ck-srow.ck-srow--add { flex-wrap: nowrap; min-height: 44px; padding-block: 6px; }
 .ck-srow--add .ck-srow__lead { color: var(--text-tertiary); }
+.ck-find { display: flex; align-items: center; gap: var(--space-3); flex: 1; min-width: 0; }
+.ck-find__glass { display: grid; place-items: center; flex: none; min-width: 20px; color: var(--text-tertiary); }
+.ck-find:focus-within .ck-find__glass { color: var(--here); }
+.ck-find__field { flex: 1; min-width: 0; height: 32px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-family: var(--font-sans); font-size: 13px; -webkit-appearance: none; appearance: none; }
+.ck-find__field::placeholder { color: var(--text-tertiary); opacity: 1; }
 .ck-srow__field { flex: 1; min-width: 0; height: 32px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-family: var(--font-sans); font-size: 13px; -webkit-appearance: none; appearance: none; }
 .ck-srow__field::placeholder { color: var(--text-tertiary); opacity: 1; }
 .ck-srow--add:focus-within .ck-srow__lead { color: var(--here); }
@@ -1681,6 +1688,8 @@ button.ck-cite.is-open { color: var(--text); box-shadow: inset 0 0 0 100px var(-
 .ck-composer__tool { display: grid; place-items: center; flex: none; width: var(--size-control-mac); height: var(--size-control-mac); border-radius: var(--radius-full); color: var(--text); }
 .ck-composer__tool:hover, .ck-composer__tool[aria-expanded="true"] { background: var(--hover); }
 .ck-composer__mic { color: var(--text-secondary); }
+.ck-composer__mic:disabled { color: var(--text-disabled); }
+.ck-composer__mic:disabled:hover { background: none; }
 .ck-composer__send { display: grid; place-items: center; flex: none; width: var(--size-control-mac); height: var(--size-control-mac); border-radius: var(--radius-full); background: var(--accent-solid); color: var(--accent-ink); transition: transform var(--duration-instant) var(--ease-out); }
 .ck-composer__send:not(:disabled):hover { box-shadow: inset 0 0 0 100px var(--hover); }
 .ck-composer__send:not(:disabled):active { transform: scale(0.96); }
@@ -1717,7 +1726,8 @@ button.ck-cite.is-open { color: var(--text); box-shadow: inset 0 0 0 100px var(-
 .ck-flist__more .ck-flist__tag { margin-inline-start: auto; }
 .ck-pick__other { display: flex; flex-direction: column; }
 .ck-pick__other[hidden], .ck-pick__found[hidden] { display: none; }
-.ck-pick__find { width: 100%; }
+.ck-pick__find { flex: none; width: 100%; gap: var(--space-2); box-sizing: border-box; }
+.ck-pick__find > .ck-find__field { height: 100%; }
 .ck-flist__more .ck-flist__check::before { content: "›"; color: var(--text-tertiary); font-size: 15px; line-height: 1; }
 .ck-flist__head { flex: none; padding: var(--space-1) 10px 2px; color: var(--text-tertiary); font-weight: 500; }
 .ck-flist__head[hidden], .ck-flist__item[hidden], .ck-flist__rule[hidden] { display: none; }

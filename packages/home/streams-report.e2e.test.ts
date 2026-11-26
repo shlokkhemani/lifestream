@@ -13,7 +13,7 @@ import { installCommand } from "./command.js";
 import { DISMISSED, readConnectors, refusedWords, type ConnectorsInput } from "./connectors.js";
 import { chooseFor, openMade } from "./made.js";
 import { restRefusal } from "./jobs.js";
-import { ADDRESS_WINDOW, MENU } from "./models-read.js";
+import { ADDRESS_UNLISTED, MENU } from "./models-read.js";
 import { MODELS_META, readRouting, type ModelRoute } from "./models.js";
 import { peopleFileOf } from "./people.js";
 import { PEOPLE, writePrepared } from "./prepared.js";
@@ -1558,9 +1558,9 @@ describe("the streams report", () => {
       expect(models).toEqual({
         connections: [
           { id: runner, kind: "runner", name: "MacBook Pro", line: null },
-          { id: "openrouter", kind: "key", name: "OpenRouter", line: null },
           { id: "claude", kind: "plan", name: "Claude", line: PLAN_LINE },
-          { id: "address", kind: "address", name: "Other server", line: ADDRESS_WINDOW },
+          { id: "openrouter", kind: "key", name: "OpenRouter", line: null },
+          { id: "address", kind: "address", name: "Other server", line: ADDRESS_UNLISTED },
         ],
         uses: {
           pictures: use("pictures", [QWEN, VISION, PLAN], VISION.id, [VISION], [QWEN]), audio: use("audio", [PLAN, PARAKEET, NEMOTRON]), text: use("text", [VISION, PLAN, QWEN], null, [VISION]),

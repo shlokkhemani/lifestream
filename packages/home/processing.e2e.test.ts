@@ -1586,7 +1586,7 @@ describe("a runner's files", () => {
       });
       const read = () => pageRunner({ routes: models.list(new Set()), runners: listed.map((each) => ({ ...each, below: null })), connections: {} });
       expect(read()).toEqual({
-        kind: "runner", id: `runner:${UNIT}`, unit: UNIT, place: WORDS.local, name: "MacBook Pro", line: null, none: null, run: null, paused: false, found: [],
+        kind: "runner", id: `runner:${UNIT}`, unit: UNIT, place: WORDS.local, name: "MacBook Pro", line: null, none: null, run: { label: WORDS.run, on: true, line: null }, paused: false, found: [],
         battery: { label: WORDS.saveBattery, on: true, line: WORDS.batteryLine }, files: [
           { id: "qwen3.5-4b", name: "Qwen 3.5", line: "Downloading", working: true, state: "fetching", fits: true, words: null, acts: [{ act: "cancel", words: WORDS.cancel }] },
           {

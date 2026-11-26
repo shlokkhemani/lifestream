@@ -310,12 +310,10 @@ export const SIGNING_MS = 60_000;
 const MODEL_NOTE = 'What you ask, and what it needs from your life, goes to the model you choose.';
 
 const PLANS = {
-  chatgpt: { name: 'ChatGPT', mark: 'chatgpt', program: 'Codex', absent: 'Use your ChatGPT plan.',
-    signedOut: 'Sign in with your ChatGPT plan.',
-    signing: 'Enter this code on OpenAI’s page.' },
-  claude: { name: 'Claude', mark: 'claude', program: 'Claude Code', absent: 'Use your Claude plan.',
-    signedOut: 'Sign in with your Claude plan.',
+  claude: { name: 'Claude', mark: 'claude', program: 'Claude Code',
     signing: 'Approve on Anthropic’s page. If it shows a code, paste it here.' },
+  chatgpt: { name: 'ChatGPT', mark: 'chatgpt', program: 'Codex',
+    signing: 'Enter this code on OpenAI’s page.' },
 };
 /** @typedef {keyof typeof PLANS} PlanId */
 
@@ -361,19 +359,18 @@ function planItem(of, model, session, now) {
   const plan = model[of];
   const signing = plan.state === 'signing_in';
   const step = session.frame === 'step' && !model.connected;
-  const line = plan.state === 'absent' ? words.absent
-    : plan.state === 'fetching' ? plan.bytes !== null && plan.total !== null
-      ? `Getting ${words.program} to sign in, ${megabytes(plan.bytes)} of ${megabytes(plan.total)} MB.` : `Getting ${words.program} to sign in.`
-      : plan.state === 'signed_out' ? words.signedOut : signing ? words.signing
-        : plan.state === 'signed_in' ? [plan.account, of === 'claude' && plan.plan ? `${plan.plan[0]?.toUpperCase()}${plan.plan.slice(1)} plan` : '']
-          .filter(Boolean).join(' · ') || `Signed in with your ${words.name} plan.` : '';
+  const line = plan.state === 'fetching' ? plan.bytes !== null && plan.total !== null
+    ? `Getting ${words.program} to sign in, ${megabytes(plan.bytes)} of ${megabytes(plan.total)} MB.` : `Getting ${words.program} to sign in.`
+    : signing ? words.signing
+      : plan.state === 'signed_in' ? [plan.account, of === 'claude' && plan.plan ? `${plan.plan[0]?.toUpperCase()}${plan.plan.slice(1)} plan` : '']
+        .filter(Boolean).join(' · ') || `Signed in with your ${words.name} plan.` : '';
   /** @type {FlowAct | null} */
   const act = plan.state === 'fetching' ? null
     : signing ? flowAct('Open sign-in page', `open-page:${of}`, session, { host: true, variant: step ? 'primary' : 'secondary',
       working: openedUntil(of, model, session, now) !== null, waiting: 'Signing in', disabled: plan.url === null,
       data: { 'data-url': plan.url } })
       : plan.state === 'signed_in' ? flowAct('Sign out', `sign-out:${of}`, session, { host: true, variant: 'plain' })
-        : flowAct(plan.state === 'absent' ? 'Connect' : plan.state === 'failed' ? 'Try again' : 'Sign in', `connect:${of}`, session,
+        : flowAct(plan.state === 'failed' ? 'Try again' : 'Sign in', `connect:${of}`, session,
           { host: true, variant: step ? 'primary' : 'secondary' });
   const cancel = signing || plan.state === 'fetching' ? flowAct('Cancel', `cancel-login:${of}`, session, { variant: 'plain', host: true })
     : null;
@@ -385,7 +382,7 @@ function planItem(of, model, session, now) {
     : signing ? [{ field: { kind: 'code', name: 'claude-code', label: 'Code from Anthropic',
       placeholder: 'Paste the code, then press Return', value: session.code, form: 'flow-code', disabled: !session.hosted,
       invalid: session.failure?.key === code, title: session.hosted ? '' : ELSEWHERE } }] : [];
-  const faces = session.frame === 'step' ? [words.absent, words.signedOut, words.signing].filter(each => each !== line) : [];
+  const faces = session.frame === 'step' && line !== words.signing ? [words.signing] : [];
   return itemOf({ id: of, name: words.name, icon: words.mark, line,
     why: (signing ? refused(code, session) : '') || refused(`connect:${of}`, session) || refused(`open-page:${of}`, session)
       || refused(`sign-out:${of}`, session, plan.why ?? ''),

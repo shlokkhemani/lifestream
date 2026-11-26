@@ -29,7 +29,7 @@ export { menuButton } from './menu-button.js';
 export { installPageHeads, pageHead } from './page-head.js';
 export { DESCRIBE, made, madeActs, sentLine, TRANSCRIBE } from './made.js';
 export { choiceRows, installChoiceRows } from './choice-rows.js';
-export { addRow, findRow } from './add-row.js';
+export { addRow, findField, findRow } from './add-row.js';
 export { settingMenuRow } from './setting-menu-row.js';
 export { settingRow, settingsSection, settingTile, settingTime, settingValue } from './setting-row.js';
 export { boldLine, boldRuns } from './bold-line.js';

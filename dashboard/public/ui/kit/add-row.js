@@ -34,8 +34,19 @@ export function addRow({ placeholder, value = '', finds = [], lit = null, input 
  * @param {string} [row.value]
  * @param {Attributes} [row.input]
  */
-export const findRow = ({ placeholder, value = '', input = {} }) => '<li class="ck-srow ck-srow--lead ck-srow--add">'
-  + `<span class="ck-srow__lead" aria-hidden="true">${icon('search', { size: 'sm' })}</span>`
-  + `<input${attributes({ class: 'ck-srow__field mac-body', type: 'search', placeholder, value, 'aria-label': placeholder, autocomplete: 'off',
-    spellcheck: 'false', autocapitalize: 'off', ...input })}>`
-  + '</li>';
+export const findRow = ({ placeholder, value = '', input = {} }) => `<li class="ck-srow ck-srow--lead ck-srow--add">${
+  findField({ placeholder, value, input })}</li>`;
+
+/**
+ * @param {object} field
+ * @param {string} field.placeholder
+ * @param {string} [field.value]
+ * @param {string} [field.label]
+ * @param {string} [field.className]
+ * @param {Attributes} [field.input]
+ */
+export const findField = ({ placeholder, value = '', label = placeholder, className = '', input = {} }) =>
+  `<label${attributes({ class: ['ck-find', className].filter(Boolean).join(' ') })}>`
+  + `<span class="ck-find__glass" aria-hidden="true">${icon('search', { size: 'sm' })}</span>`
+  + `<input${attributes({ class: 'ck-find__field mac-body', type: 'search', placeholder, value, 'aria-label': label, autocomplete: 'off',
+    spellcheck: 'false', autocapitalize: 'off', ...input })}></label>`;

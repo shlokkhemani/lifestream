@@ -112,9 +112,10 @@ export const settingValue = (words, { done = false, signal = null } = {}) => '<s
  * @param {string[]} [section.rows]
  * @param {string} [section.body]
  * @param {string} [section.note]
+ * @param {boolean} [section.group]
  * @param {Attributes} [section.attrs]
  */
-export function settingsSection({ heading = '', about = '', line = '', act = '', aside = [], rows = [], body = '', note = '', attrs = {} }) {
+export function settingsSection({ heading = '', about = '', line = '', act = '', aside = [], rows = [], body = '', note = '', group = false, attrs = {} }) {
   if (rows.length === 0 && !body) return '';
   const titled = heading ? `<span class="ck-ssection__titled"><h3 class="ck-ssection__heading">${esc(heading)}</h3>`
     + `${about ? tip({ label: heading, text: about }) : ''}</span>` : '';
@@ -123,7 +124,7 @@ export function settingsSection({ heading = '', about = '', line = '', act = '',
     + (aside.length > 0 ? `<p class="ck-ssection__aside">${boldRuns(aside)}</p>` : '')
     + (act ? `<span class="ck-ssection__act">${act}</span>` : '') + '</div>' : '';
   const { class: own, ...rest } = attrs;
-  return `<section${attributes({ class: ['ck-ssection', heading ? '' : 'ck-ssection--bare', String(own ?? '')].filter(Boolean).join(' '), ...rest })}>`
+  return `<section${attributes({ class: ['ck-ssection', heading ? '' : 'ck-ssection--bare', group ? 'ck-ssection--group' : '', String(own ?? '')].filter(Boolean).join(' '), ...rest })}>`
     + head + (rows.length > 0 ? `<ul class="ck-ssection__rows">${rows.join('')}</ul>` : '')
     + (body ? `<div class="ck-ssection__body">${body}</div>` : '')
     + (note ? `<p class="ck-ssection__note">${esc(note)}</p>` : '') + '</section>';

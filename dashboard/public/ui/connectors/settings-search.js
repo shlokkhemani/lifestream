@@ -1,10 +1,8 @@
 // @ts-check
-/** @import { HostAct, MeaningWrite } from '../../lib/host.js' */
-/** @import { DetailPart, End, PanelRow } from './dialog.js' */
+/** @import { DetailPart, PanelRow } from './dialog.js' */
 /** @import { Do } from './words.js' */
 import { freeWords } from '../../lib/words.js';
 import { rowOf } from './dialog.js';
-import { homeSettingKey } from './pending.js';
 import { part } from './settings-pages.js';
 
 /** @typedef {{ as_of: string | null, building: { done: number, of: number } | null }} IndexState */
@@ -15,31 +13,12 @@ import { part } from './settings-pages.js';
 
 /** @typedef {{ power: 'plugged-idle', words_indexed_through: string | null, bytes: number, vectors_bytes: number, queued: number, waits: string | null, waits_line: string | null, embedded: number, named: number, skipped: number }} ScreenState */
 
-export const MEANING_POWER = { key: /** @type {const} */ ('search.meaning.power'), id: /** @type {const} */ ('plugged-idle'),
-  words: 'Only when plugged in and idle' };
+const RUNS_WHEN = 'Only when plugged in and idle';
 
 export const MEANING_LINE = 'Finds moments on your screen by what they were about, not only by their words. Word search works either way.';
 
-/** @param {HostAct} act @returns {Do} */
-const asking = act => ({ host: act });
-
 /** @param {number} bytes */
 const sizeWords = bytes => freeWords(bytes).replace(/ free$/u, '');
-
-export const MEANING_BUSY = homeSettingKey(MEANING_POWER.key);
-
-/**
- * @param {boolean} acts
- * @returns {End}
- */
-function powerChoice(acts) {
-  const { words } = MEANING_POWER;
-  if (!acts) return { words };
-  /** @type {MeaningWrite} */
-  const settings = { [MEANING_POWER.key]: MEANING_POWER.id };
-  return { menu: { id: `settings.${MEANING_POWER.key}`, busy: MEANING_BUSY, label: 'When it runs', words, find: '', date: null,
-    choices: [{ words, note: '', chosen: true, default: true, do: asking({ act: 'home-setting', settings }) }] } };
-}
 
 /** @param {ScreenState} state */
 const screenTexts = state => state.embedded + state.queued + state.skipped;
@@ -61,7 +40,8 @@ function reachedRow(state) {
   const skipped = state.skipped > 0 ? ` ${state.skipped.toLocaleString('en-US')} could not be read.` : '';
   const line = (state.waits_line ? `${state.waits_line.replace(/\.$/u, '')}.`
     : caught ? 'Caught up with your screen.'
-      : texts ? 'It reads when this Mac is plugged in and idle.' : 'It starts once this Mac has recorded your screen.') + skipped;
+      : texts || state.words_indexed_through !== null ? 'It reads when this Mac is plugged in and idle.'
+        : 'It starts once this Mac has recorded your screen.') + skipped;
   const share = meaningShare(state);
   return rowOf('Searchable', { line, end: all ? { words: 'All of your screen', done: true } : null,
     progress: all || !texts ? null
@@ -78,7 +58,7 @@ export function meaningParts({ state, failed, acts, model, choose }) {
   const settings = part({ rows: [
     rowOf('Model', { tag: 'Runs on a Mac only', line: model?.line ?? MEANING_LINE,
       end: { words: model?.words ?? 'Off', acts: acts ? [{ label: on ? 'Change' : 'Choose', variant: 'secondary', do: choose }] : [] } }),
-    rowOf('When it runs', { line: 'So it never slows you down or spends your battery.', end: powerChoice(acts) }),
+    rowOf('When it runs', { line: 'So it never slows you down or spends your battery.', end: { words: RUNS_WHEN } }),
   ] });
   if (!on) return { parts: [settings], reading: false };
   /** @type {PanelRow[]} */

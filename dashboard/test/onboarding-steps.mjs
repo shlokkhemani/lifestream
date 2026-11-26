@@ -5,7 +5,8 @@ import { MODELS } from '../public/kit-gallery-llm.js';
 import { subscriptionOf } from '../public/lib/host.js';
 import { sessionOf } from '../public/ui/flows/model.js';
 import { backOf, heldSpan, keepSpan, keptSpan, landing, leftAs, owed, resume, SCREENS } from '../public/ui/onboarding/model.js';
-import { mediaPlaces, MOVING_LINE, NO_CHANGES, partsOf, rangeOf, SCRAMBLE_CAUGHT_PERCENT } from '../public/ui/onboarding/view.js';
+import { MEDIA_MORE, mediaListed, mediaPick, MOVING_LINE, NO_CHANGES, partsOf, rangeOf, SCRAMBLE_CAUGHT_PERCENT } from '../public/ui/onboarding/view.js';
+import { menuLines } from '../public/lib/model-menu.js';
 
 /** @typedef {import('../public/lib/host.js').HostState} HostState */
 /** @typedef {import('../public/types.js').StartCost} StartCost */
@@ -216,34 +217,37 @@ test('S10: a set up that fails after Login Items says the host’s words, with B
   assert.doesNotMatch(login.foot.note ?? '', /Waiting for you/u);
 });
 
-test('S6: images and audio: the places the home names, each disabled with its line or named by its model; the chosen place, or the model picked elsewhere; Off first', () => {
+test('S6: images and audio draw the menu Default models draws: the home\'s rows, the Local header, More, Off last; its line, shimmering while it downloads; the footer only beside a download', () => {
   const QWEN = 'runner:runner-macbook-pro-0001/qwen3.5-4b';
   const PLAN = 'claude:plan-model-1';
-  const VISION = 'openrouter:vendor-a/vision-1';
-  /** @param {string | null} value @param {Partial<import('../public/pages.js').ModelPlace>} [claude] */
-  const modelsOf = (value, claude = {}) => ({ ...MODELS, uses: MODELS.uses.map(use => use.use !== 'pictures' ? use : { ...use, value,
-    line: value === QWEN ? 'Downloading, 0.3 of 4.0 GB' : null, words: value === null ? 'Off' : [...use.menu.rows, ...use.menu.local?.rows ?? []].find(each => each.value === value)?.name ?? '',
-    places: [{ place: 'On this Mac', value: QWEN, line: 'Download Qwen 3.5 4B · 4.0 GB', ready: true, leaves: false },
-      { place: 'Claude', value: PLAN, line: 'Connect Claude first', ready: false, leaves: true, ...claude }] }) });
-  const off = mediaPlaces(modelsOf(null), 'pictures');
-  assert.deepEqual(off.choices.map(each => [each.value, each.words, each.note, each.disabled]), [
-    [QWEN, 'On this Mac', 'Download Qwen 3.5 4B · 4.0 GB', false], [PLAN, 'Claude', 'Connect Claude first', true]], 'the home\'s places, in its order');
-  assert.deepEqual([off.chosen, off.words, off.off, off.line], [null, 'Off', true, '']);
-  assert.equal(mediaPlaces(modelsOf(null, { line: null, ready: true }), 'pictures').choices[1].note, 'Plan Model One', 'a ready place names its model');
-  const local = mediaPlaces(modelsOf(QWEN), 'pictures');
-  assert.deepEqual([local.chosen?.words, local.words, local.off, local.line], ['On this Mac', 'On this Mac', false, 'Downloading, 0.3 of 4.0 GB']);
-  const elsewhere = mediaPlaces(modelsOf(VISION), 'pictures');
-  assert.deepEqual([elsewhere.chosen, elsewhere.words, elsewhere.off], [null, 'Vision One', false], 'a model picked in Settings reads its name');
-  assert.deepEqual(mediaPlaces(null, 'audio'), { choices: [], chosen: null, words: 'Off', off: true, line: '' });
+  /** @param {string | null} value @param {Partial<import('../public/pages.js').ModelUse>} [said] */
+  const modelsOf = (value, said = {}) => ({ ...MODELS, uses: MODELS.uses.map(use => use.use !== 'pictures' ? use : { ...use, value,
+    line: null, working: false, leaves: false,
+    words: value === null ? 'Off' : [...use.menu.rows, ...use.menu.local?.rows ?? []].find(each => each.value === value)?.name ?? '', ...said }) });
+  const pictures = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'pictures'));
+  const off = mediaPick(modelsOf(null), 'pictures');
+  assert.deepEqual(off.lines, menuLines(pictures.menu), 'the use\'s own menu');
+  assert.deepEqual([off.words, off.line, off.working, off.leaves], ['Off', '', false, false]);
+  assert.equal(mediaListed(off, MEDIA_MORE), true);
+  assert.equal(mediaListed(off, QWEN), true);
+  assert.equal(mediaListed(off, 'none'), true);
+  assert.equal(mediaListed(off, 'runner:runner-macbook-pro-0001/other'), false, 'nothing the menu does not list');
+  assert.deepEqual(mediaPick(null, 'audio'), { lines: [], words: 'Off', line: '', working: false, leaves: false });
   const absent = { chatgpt: subscriptionOf({ state: 'absent' }), claude: subscriptionOf({ state: 'absent' }) };
   /** @param {any} models */
   const media = models => partsOf('media', seenOf({ ask_login: absent }), sessionWith({ changes: { ...NO_CHANGES,
     models: { read: models, drawn: null, failed: '' } } }), null);
   const drawn = media(modelsOf(null));
   assert.match(drawn.body ?? '', /Describe photos and screenshots/u);
-  assert.match(drawn.foot.note ?? '', /Models download in the background\./u);
+  assert.match(drawn.body ?? '', /data-value="more"/u);
+  assert.doesNotMatch(drawn.body ?? '', /On this Mac|Connect \w+ first|Download /u, 'no places, no greyed rows, no download in a name');
+  assert.equal(drawn.foot.note, undefined, 'no download line: no footer');
   assert.doesNotMatch(drawn.body ?? '', /Faces and personal details/u, 'nothing leaves: no covered faces');
-  assert.match(media(modelsOf(PLAN, { line: null, ready: true })).body ?? '', /Sent to Claude/u, 'a place that sends the photo shows its faces covered');
+  const fetching = media(modelsOf(QWEN, { line: 'Downloading · 3 min left', working: true }));
+  assert.match(fetching.body ?? '', /<span class="ck-shimmer">Downloading · 3 min left<\/span>/u);
+  assert.match(fetching.foot.note ?? '', /Models download in the background\./u);
+  assert.match(media(modelsOf(PLAN, { leaves: true, words: 'Plan Model One' })).body ?? '', /Sent to Plan Model One/u,
+    'a model that sends the photo shows its faces covered');
 });
 
 test('S7: the ai screen says its caught share from the one constant', () => {

@@ -134,11 +134,12 @@ says what hiding replaces.
 
 Photos and voice notes go to no model until you pick one.
 
-1. Beside **Describe photos and screenshots**, pick where a model reads your photos: **Off**, a plan
-   you connected, or **On this Mac**. Each choice names its model, or what it needs first, such as
-   **Connect Claude first**.
-2. Beside **Turn voice into text**, pick **Off** or **On this Mac**.
-3. Click **Continue**. A model on this Mac downloads in the background.
+1. Beside **Describe photos and screenshots**, pick a model: the menu is the one **Default models**
+   shows, each model by its name, the ones that run on your Mac under **Local**, then **More** and
+   **Off**.
+2. Beside **Turn voice into text**, pick a model the same way, such as **Parakeet**, or **Off**.
+3. Click **Continue**. A model on your Mac downloads in the background: its line says how long is
+   left, such as "Downloading · 3 min left".
 
 You can change both later in **Settings** › **Default models**, as
 [Choose which AI models read your data](./ai-models.md#pick-a-model-for-each-use) says.
