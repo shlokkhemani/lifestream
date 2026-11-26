@@ -7,7 +7,7 @@ import { LabelerUnavailable, type LabelOutput } from "../../labeler.js";
 import { Refused } from "../../shared/index.js";
 import { artifact, collect, deliver, fetchedBytes, memorySecrets, openTestHome, type TestHome } from "../../test/drive.js";
 import { ANSWERS_FILE, answerKey, googlePlacesConnector } from "./reader.js";
-import { FRESH_MS, googlePlacesLabeler, PER_RUN, type Lookup, type Owed } from "./labeler.js";
+import { googlePlacesLabeler, PER_DAY, PER_RUN, type Lookup, type Owed } from "./labeler.js";
 
 const UNIT = "macbook-pro-0001";
 const SOURCE = `google-places:${UNIT}:nearby`;
@@ -93,16 +93,18 @@ const record: Record<string, string[]> = {};
 beforeAll(() => google.start());
 afterAll(() => google.stop());
 
-async function bench(owed: Owed, options: { now?: number; key?: string | null; locked?: boolean; lookup?: boolean; unwritten?: boolean } = {}) {
+async function bench(owed: Owed, options: { now?: number; key?: string | null; locked?: boolean; lookup?: boolean; unwritten?: boolean; spent?: number } = {}) {
   const home = openTestHome("google-places-");
   const owing = { now: owed };
   const stated: { sent: Lookup; sent_before: number }[] = [];
+  const clock = { now: options.now ?? NOW };
+  const looked: number[] = Array.from({ length: options.spent ?? 0 }, () => clock.now);
   const lookup = (sent: Lookup) => {
     if (options.unwritten === true) throw new Error("the ledger cannot be written");
     stated.push({ sent, sent_before: google.asked.length });
+    looked.push(clock.now);
   };
-  const clock = { now: options.now ?? NOW };
-  const made = () => googlePlacesLabeler({ unit: UNIT, key: "google-places", owed: () => owing.now, hints: (names) => names.some((name) => /terminal|airport/iu.test(name)) ? ["airport"] : [], lookup, endpoint: google.url, now: () => clock.now });
+  const made = () => googlePlacesLabeler({ unit: UNIT, key: "google-places", owed: () => owing.now, hints: (names) => names.some((name) => /terminal|airport/iu.test(name)) ? ["airport"] : [], lookup, looked: (since_ms) => looked.filter((at) => at >= since_ms).length, endpoint: google.url, now: () => clock.now });
   let labeler = made();
   if (options.lookup !== false) {
     await home.land(googlePlaceNames, deliver(home, LOOKUP, { "statements.ndjson": Buffer.from(`${JSON.stringify({ kind: "place", key: "google:ChIJother9", content: { type: "google.place", id: "ChIJother9", name: "Another Place", centre: { latitude: 1, longitude: 1 } } })}\n`) }, {}, NOW - DAY));
@@ -183,30 +185,37 @@ describe("the google-places labeler", () => {
     expect(asked.filter((each) => each.includes("48.85661") && /airport|beach/u.test(each))).toEqual([]);
   });
 
-  it("G2: a request answered within 30 days near the same centre is never asked again; an older one for a spot still owed is", async () => {
+  it("G2: a request answered near the same centre is never asked again, however old the answer", async () => {
     const b = await bench({ spots: [CAFE], ids: [] });
     expect((await b.run()).asked).toHaveLength(2);
     const moved = { latitude: CAFE.latitude + 0.0001, longitude: CAFE.longitude + 0.0001 };
-    const again = await bench({ spots: [moved], ids: [] });
-    await again.home.land(googlePlacesConnector, deliver(again.home, SOURCE, { [ANSWERS_FILE]: Buffer.from(b.home.heads(SOURCE, ["answer"]).map((head) => `${JSON.stringify({ at_ms: head.start_ms, content: head.content, key: head.key, kind: "answer" })}\n`).join("")) }, {}, NOW));
-    const within = await again.run();
-    expect(within).toEqual({ output: null, asked: [] });
-    const later = await bench({ spots: [moved], ids: [] }, { now: NOW + FRESH_MS + DAY });
-    await later.home.land(googlePlacesConnector, deliver(later.home, SOURCE, { [ANSWERS_FILE]: Buffer.from(b.home.heads(SOURCE, ["answer"]).map((head) => `${JSON.stringify({ at_ms: head.start_ms, content: head.content, key: head.key, kind: "answer" })}\n`).join("")) }, {}, NOW));
-    const stale = await later.run();
-    record.stale = stale.asked;
-    expect(stale.asked).toEqual(["nearby 48.85671,2.35232 150", "venues 48.85671,2.35232 300"]);
-    expect(Object.keys(answers(later.home)).sort()).toEqual([
-      "nearby:48.85661,2.35222:150", "nearby:48.85671,2.35232:150", "venues:48.85661,2.35222:300", "venues:48.85671,2.35232:300",
-    ]);
+    const held = Buffer.from(b.home.heads(SOURCE, ["answer"]).map((head) => `${JSON.stringify({ at_ms: head.start_ms, content: head.content, key: head.key, kind: "answer" })}\n`).join(""));
+    for (const now of [NOW, NOW + 400 * DAY]) {
+      const again = await bench({ spots: [moved], ids: [] }, { now });
+      await again.home.land(googlePlacesConnector, deliver(again.home, SOURCE, { [ANSWERS_FILE]: held }, {}, NOW));
+      expect(await again.run(), String(now)).toEqual({ output: null, asked: [] });
+    }
   });
 
-  it("G2: the same labeler that found its answers fresh asks again once they age past 30 days, the owed and the key unchanged", async () => {
+  it("G2: the same labeler asks nothing again as its answers age, though Google would answer the same", async () => {
     const b = await bench({ spots: [CAFE], ids: [] });
     expect((await b.run()).asked).toEqual(["nearby 48.85661,2.35222 150", "venues 48.85661,2.35222 300"]);
+    for (const days of [0, 31, 90]) {
+      b.at(NOW + days * DAY);
+      expect(await b.run(), `${days} days`).toEqual({ output: null, asked: [] });
+    }
+  });
+
+  it("G7: a home asks Google at most PER_DAY times in any 24 hours, and the rest a day later", async () => {
+    const b = await bench({ spots: [CAFE, ROAD], ids: [{ id: "google:ChIJknown01", account: ACCOUNT }] }, { spent: PER_DAY - 3 });
+    const capped = await b.run();
+    expect(capped.asked).toEqual(["nearby 48.85661,2.35222 150", "venues 48.85661,2.35222 300", "nearby 48.72333,2.37944 150"]);
+    expect(capped.output!.facts).toMatchObject({ answers: 3, owed: 1 });
+    b.at(NOW + DAY);
     expect(await b.run()).toEqual({ output: null, asked: [] });
-    b.at(NOW + FRESH_MS + DAY);
-    expect((await b.run()).asked).toEqual(["nearby 48.85661,2.35222 150", "venues 48.85661,2.35222 300"]);
+    b.at(NOW + DAY + 1);
+    const next = await b.run();
+    expect(next.asked).toEqual(["venues 48.72333,2.37944 300", "airport 48.72333,2.37944 5000"]);
   });
 
   it("G3: with no key, an empty key or the vault locked it asks nothing and delivers nothing", async () => {

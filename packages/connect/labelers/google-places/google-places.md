@@ -17,7 +17,7 @@ source with the first delivery. Product `google-places` (Google Places).
 |---|---|---|---|
 | `answer` | `<request>:<lat5>,<lon5>:<radius>`: the request, the centre asked about to five decimals, the radius in metres (`nearby:48.85661,2.35222:150`) | `{type: "google-places.answer", places?: [...]}`, Google's answer as it gave it beside its type: each place's `id`, `displayName`, `location`, `types` and `primaryType`; no `places` when Google found none | the asking |
 
-An answer asked again later states a new version under the same key; an answer is never `gone`.
+An answer is asked once and kept: it is never asked again, and never `gone`.
 
 ## The key
 
@@ -53,7 +53,7 @@ home's registry as the cameras labeler is handed its unit: connect does not impo
 and the one fold of To name is the one the list shows. None before the job's first run: it asks
 nothing until then. The `places` event, which says the file moved, makes it due
 (`Labeler.events`); so do its own delivery's landing, the key sealed and the home's start. Every
-run reads its answers, so one older than 30 days is asked again on the next run.
+run reads its answers, however old.
 
 A names delivery feeds two sources: its own, which reads no row of it, and the account's lookup.
 The home starts no run while any row of its newest delivery waits to import, whichever source the
@@ -85,24 +85,28 @@ nearby answers included; it runs again when that import does.
    land, so `owed` may still name it. An ID Google does not know (404) is not asked again while
    the helper runs.
 
-A request answered within 30 days by an answer whose centre lies within 40 m is not asked again:
-a spot's centre moves a little as stays join it. The fresh answers are held by
+A request answered by an answer whose centre lies within 40 m is never asked again, however old
+the answer: a spot's centre moves a little as stays join it, and Google answers the same spot the
+same way, so an answer asked again would land as the same version and leave its time unchanged. The answers are held by
 request and by band of latitude, so a spot finds its own among a few; their places are read only
-for a spot whose two answers around are both fresh, to ask its hints. The suggester takes an answer
-asked within 120 m of the point it is asked about (a spot's reach and these 40 m). An answer older than 30 days
-is asked again only while its spot is still owed. A run asks at most 60 requests; the landing of
-its delivery wakes the next run for the rest.
+for a spot whose two answers around are both held, to ask its hints. The suggester takes an answer
+asked within 120 m of the point it is asked about (a spot's reach and these 40 m). A run asks at most 60 requests (`PER_RUN`); the landing of
+its delivery wakes the next run for the rest. A home asks Google at most 500 times in any 24 hours
+(`PER_DAY`), both kinds of request together, counted from the `lookup` rows of the outbound log
+(`GooglePlacesSettings.looked`, registry-home.ts `lookupsOf`), so a restart forgets none: a run
+that finds none left asks nothing and delivers nothing, and the next `places` event or start after
+the 24 hours asks the rest.
 
 ## One run
 
-1. **Read**, before the first await: the key, what is owed, the fresh answers' keys and times,
-   each owed spot's plan (the requests it lacks; its hints, when its answers around are fresh), and
+1. **Read**, before the first await: the key, what is owed, the held answers' keys and times, what the last 24 hours asked,
+   each owed spot's plan (the requests it lacks; its hints, when its answers around are held), and
    the IDs to ask: one account's, up to 60, none the lookup holds.
 2. **Ask** each spot's requests in order, keeping each answer. Before each, the labeler states it to
    its settings' `lookup` (`Lookup`: `searchNearby` with one point, or `place` with the ID's length
    in characters), which the home writes as one `lookup` row of the outbound log
    (registry-home.ts `lookupWriter`); a statement that throws ends the run as a refusal does, and
-   that request is never sent. Nothing owed or all fresh: the run delivers nothing.
+   that request is never sent. Nothing owed, all held or none left today: the run delivers nothing.
 3. **Deliver** the answers as one `google-places.ndjson` (facts `{answers, owed, sources}`); or,
    with no answer owed, the names as one `statements.ndjson` (facts `{statements, device, owed,
    sources}`, the lookup source beside its own), which this connector reads as no row.
@@ -134,7 +138,7 @@ a home of years of Timeline, at most 60 a run.
 ## Tests
 
 [e2e.test.ts](./e2e.test.ts): the labeler against a fake Google on loopback (what it asks, the
-hints, nothing twice within 30 days, nothing with no key, the bound, a refusal, a refused key
+hints, nothing twice however old, at most `PER_DAY` a day, nothing with no key, the bound, a refusal, a refused key
 resting `refused` and a new one tried, the Timeline's names, an account's first lookup, each request stated
 to `lookup` before it is sent and none sent when the statement throws) and the connector's refusals. The home's side (a hidden spot never asked about, the key typed later, an
 unhidden spot asked about, the typed search with no key, one character, an unreachable Google, a

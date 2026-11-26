@@ -8,7 +8,7 @@ import { placesFileOf, readOwed } from "../places.js";
 import type { Registry, RegistryHome } from "../registry.js";
 import type { Settings } from "../settings.js";
 import { fakeRows } from "./fakes.js";
-import { connectors, lookupWriter, placesKey } from "../registry-home.js";
+import { connectors, lookupsOf, lookupWriter, placesKey } from "../registry-home.js";
 import { RELEASE_FED } from "./fed.js";
 
 const physical = physicalFamily({ photos: RELEASE_FED.photos })(RELEASE_FED.physical);
@@ -43,7 +43,7 @@ export default function registry(settings: Settings, home: RegistryHome): Regist
       saying("screen", "device-activity", ["screen"], ["frame"]), saying("ai", "ai", ["ask", "chatgpt", "claude-code"], ["msg", "agent-turn"]),
     ],
     labelers: settings.unit === null ? [] : [
-      googlePlaces.googlePlacesLabeler({ unit: settings.unit, key: placesKey(settings), owed: () => readOwed(home.folder(), placesFileOf(folder, machine().dir)), hints: bigHints, lookup: lookupWriter(home, "google-places"), endpoint }),
+      googlePlaces.googlePlacesLabeler({ unit: settings.unit, key: placesKey(settings), owed: () => readOwed(home.folder(), placesFileOf(folder, machine().dir)), hints: bigHints, lookup: lookupWriter(home, "google-places"), looked: lookupsOf(home, "google-places"), endpoint }),
     ],
     placesSearch: { secret: placesKey(settings), endpoint },
   };

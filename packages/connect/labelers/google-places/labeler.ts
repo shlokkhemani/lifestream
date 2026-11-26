@@ -6,8 +6,9 @@ import { ANSWER_KIND, ANSWERS_FILE, answerKey, answerLine, googlePlacesConnector
 
 export const GOOGLE = "https://places.googleapis.com";
 export const ANSWER_REACH_M = 40;
-export const FRESH_MS = 30 * 86_400_000;
 export const PER_RUN = 60;
+export const PER_DAY = 500;
+const DAY_MS = 86_400_000;
 export const PLACES_EVENT = "places";
 const REQUEST_MS = 30_000;
 
@@ -52,6 +53,7 @@ export interface GooglePlacesSettings {
   owed(): Owed;
   hints(names: readonly string[]): ("airport" | "beach")[];
   lookup(sent: Lookup): void;
+  looked(since_ms: number): number;
   endpoint?: string;
   now?: () => number;
 }
@@ -89,10 +91,11 @@ export function googlePlacesLabeler(settings: GooglePlacesSettings): Labeler {
       if (key === undefined) return null;
       const owed = settings.owed();
       const at_ms = now();
+      let room = PER_DAY - settings.looked(at_ms - DAY_MS);
       const stored = new Answers();
       for (const head of view.heads(source, ANSWER_KIND)) {
         const asked = readAnswerKey(head.key);
-        if (asked !== undefined && head.start_ms !== null && at_ms - head.start_ms < FRESH_MS) stored.add({ ...asked, at_ms: head.start_ms, places: head.version });
+        if (asked !== undefined && head.start_ms !== null) stored.add({ ...asked, at_ms: head.start_ms, places: head.version });
       }
       const placesOf = (answer: Stored): JsonObject[] => {
         if (typeof answer.places === "string") {
@@ -102,16 +105,17 @@ export function googlePlacesLabeler(settings: GooglePlacesSettings): Labeler {
         return answer.places;
       };
       const plans = owed.spots.map((spot): Plan => {
-        const around = (["nearby", "venues"] as const).map((request) => stored.fresh(request, spot));
+        const around = (["nearby", "venues"] as const).map((request) => stored.held(request, spot));
         const names = around.flatMap((answer) => answer === undefined ? [] : namesIn(placesOf(answer)));
         const lacks = (["nearby", "venues"] as const).filter((_, index) => around[index] === undefined);
-        return { spot, lacks: lacks.length > 0 ? lacks : settings.hints(names).filter((hint) => stored.fresh(hint, spot) === undefined), names };
+        return { spot, lacks: lacks.length > 0 ? lacks : settings.hints(names).filter((hint) => stored.held(hint, spot) === undefined), names };
       });
       const lookup = idsToAsk(view, owed.ids, unknown);
       await Promise.resolve();
 
       const ask = async (path: string, init: { body?: JsonObject; fields: string }): Promise<{ status: number; answer: JsonObject }> => {
         signal?.throwIfAborted();
+        room--;
         settings.lookup(init.body === undefined
           ? { receiver: RECEIVER, request: "place", points: 0, chars: decodeURIComponent(path.slice("/v1/places/".length)).length }
           : { receiver: RECEIVER, request: "searchNearby", points: 1, chars: 0 });
@@ -133,7 +137,7 @@ export function googlePlacesLabeler(settings: GooglePlacesSettings): Labeler {
       let asked = 0;
       let left = 0;
       const answered = async (request: Request, point: Point): Promise<JsonObject[] | null> => {
-        if (asked >= PER_RUN) return null;
+        if (asked >= PER_RUN || room <= 0) return null;
         asked++;
         const [latitude, longitude] = [round5(point.latitude), round5(point.longitude)];
         const { radius_m, body } = ASKS[request];
@@ -153,13 +157,13 @@ export function googlePlacesLabeler(settings: GooglePlacesSettings): Labeler {
           let names = plan.names;
           let complete = true;
           for (const request of around) {
-            const held = stored.fresh(request, plan.spot);
+            const held = stored.held(request, plan.spot);
             const places = held !== undefined ? (Array.isArray(held.places) ? held.places : []) : await answered(request, plan.spot);
             if (places === null) complete = false;
             else names = [...names, ...namesIn(places)];
           }
           for (const hint of around.length === 0 ? plan.lacks : complete ? settings.hints(names) : []) {
-            if (stored.fresh(hint, plan.spot) === undefined && (await answered(hint, plan.spot)) === null) complete = false;
+            if (stored.held(hint, plan.spot) === undefined && (await answered(hint, plan.spot)) === null) complete = false;
           }
           if (!complete) left++;
         }
@@ -170,7 +174,10 @@ export function googlePlacesLabeler(settings: GooglePlacesSettings): Labeler {
       if (lines.length > 0) return answers(lines, source, left);
 
       if (lookup === undefined) return null;
-      const { account, ids, left: unasked } = lookup;
+      const { account, ids: listed, left: listedLeft } = lookup;
+      const ids = listed.slice(0, Math.max(0, room));
+      const unasked = listedLeft + listed.length - ids.length;
+      if (ids.length === 0) return null;
       const statements: string[] = [];
       try {
         for (const id of ids) {
@@ -220,7 +227,7 @@ class Answers {
     else list.push(answer);
   }
 
-  fresh(request: Request, point: Point): Stored | undefined {
+  held(request: Request, point: Point): Stored | undefined {
     let best: Stored | undefined;
     for (let step = -1; step <= 1; step++) {
       for (const answer of this.#by.get(`${request} ${band(point.latitude) + step}`) ?? []) {
