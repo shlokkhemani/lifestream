@@ -665,7 +665,7 @@ final class ImportsTests: XCTestCase {
                     return source == live?.sourceId ? live : nil
                 }
             },
-            clock: clock.read, record: { _ in }, keepAwake: keepAwake, network: .free, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+            clock: clock.read, record: { _ in }, keepAwake: keepAwake, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
     }
 
     private func file(_ name: String, bytes: Int, seed: UInt8 = 0) throws -> URL {

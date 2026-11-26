@@ -11,10 +11,10 @@ import {
 } from "@lifestreamprotocol/model";
 import { canonicalWav, decodeAudio, MOST_SECONDS } from "./audio.js";
 import { detectorLibrary, withFallback, type Classifier } from "./detector.js";
-import { detectorRow, FILES, OLLAMA, ollamaRow, speechRow, type OllamaManifest, type OllamaRow, type Row } from "./files.js";
+import { detectorRow, FILES, OLLAMA, ollamaRow, speechRow, type OllamaRow, type Row } from "./files.js";
 import { HELD, HELD_SAID, leashCommand } from "./leash.js";
 import { Failed, NotReady, type Library } from "./library.js";
-import { ollamaLibrary } from "./ollama.js";
+import { ollamaLibrary, type OllamaManifest } from "./ollama.js";
 import { openOllama, type OllamaChild, type OllamaOptions } from "./ollama-child.js";
 import { idleOf, powerOf, serve, thermalOf, type RunnerOptions } from "./serve.js";
 import { speechLibrary, type Transcriber } from "./speech.js";
@@ -122,7 +122,7 @@ function runner(at: string, given: Omit<Record<Row["library"], Library>, "detect
 interface Fetching {
   resolve(): void;
   reject(error: Error): void;
-  progress(bytes: number): void;
+  progress(fetched: number, bytes?: number): void;
 }
 
 function fake(answer: (call: Call, signal: AbortSignal) => Promise<Answer> = async (call) => ({ text: `seen: ${call.input}`, model: call.model })) {
@@ -223,7 +223,7 @@ describe("the runner", () => {
     expect(ollama.asked.ran).toEqual(["r-0000000000e3", "r-0000000000e4"]);
   });
 
-  it("fetches only the files wanted, says how far each is in facts alone, removes one no longer wanted or whose fetch it stopped, and says why a fetch failed", async () => {
+  it("fetches only the files wanted, says how far each is in facts alone, its size the row's until its library says the fetch's own, removes one no longer wanted or whose fetch it stopped, and says why a fetch failed", async () => {
     const { url, state } = await door();
     const pictures = fake();
     const speech = fake();
@@ -244,9 +244,12 @@ describe("the runner", () => {
     await until("both are fetched", () => pictures.fetching() !== null && speech.fetching() !== null);
     pictures.fetching()!.progress(1_234);
     await until("its progress is read", () => state.file(PICTURES)?.state === "fetching" && state.file(PICTURES)?.fetched_bytes === 1_234);
+    expect(state.file(PICTURES)!.bytes).toBe(FILES.find((row) => row.id === PICTURES)!.bytes);
+    pictures.fetching()!.progress(2_345, 9_876);
+    await until("the fetch's own size is stated", () => state.file(PICTURES)?.fetched_bytes === 2_345 && state.file(PICTURES)?.bytes === 9_876);
     pictures.fetching()!.resolve();
     await until("the pictures model is ready", () => state.file(PICTURES)?.state === "ready");
-    expect(state.file(PICTURES)).toMatchObject({ fetched_bytes: FILES.find((row) => row.id === PICTURES)!.bytes, failure: null });
+    expect(state.file(PICTURES)).toMatchObject({ bytes: 9_876, fetched_bytes: 9_876, failure: null });
     speech.fetching()!.reject(new ArtifactError("hash", "the file's SHA-256 differs"));
     await until("the failed fetch says why", () => state.file(SPEECH)?.state === "failed");
     expect(state.file(SPEECH)!.failure).toBe("hash");
@@ -524,67 +527,219 @@ function child(dir: string, at: () => Promise<string>) {
   return made;
 }
 
-function model(registry: string, name: string, layers: Record<string, string>, embed?: OllamaRow["embed"]) {
-  const blob = (text: string) => ({ mediaType: "application/vnd.ollama.image.tensor", digest: `sha256:${sha(text)}`, size: Buffer.byteLength(text) });
-  const manifest: OllamaManifest = {
-    schemaVersion: 2, mediaType: "application/vnd.docker.distribution.manifest.v2+json",
-    config: { ...blob(`config of ${name}`), mediaType: "application/vnd.docker.container.image.v1+json" },
-    layers: Object.entries(layers).map(([tensor, text]) => ({ ...blob(text), name: tensor })),
-  };
-  const row = ollamaRow({
-    id: `${name}-test`, name, input: embed === undefined ? ["text", "image"] : ["text"], output: embed === undefined ? "text" : "vectors", tools: false,
-    context_tokens: embed === undefined ? 4_000 : 2_048, thinking: [], platforms: [], languages: [], memory_gb: 16,
-    source: { model: `${name}:1b`, registry: `${registry}/v2/library/${name}`, manifest }, ...(embed === undefined ? {} : { embed }),
+const MANIFEST_TYPE = "application/vnd.docker.distribution.manifest.v2+json";
+
+async function registry() {
+  const served = new Map<string, Buffer>();
+  const asked: string[] = [];
+  const accepts: string[] = [];
+  const gates = new Map<string, Promise<void>>();
+  const cut = new Set<string>();
+  const url = await listen(async (request, _body, response) => {
+    asked.push(request.url!);
+    if (request.url!.includes("/manifests/")) accepts.push(String(request.headers.accept));
+    await gates.get(request.url!);
+    const bytes = served.get(request.url!);
+    if (bytes === undefined) return void response.writeHead(404).end();
+    response.writeHead(200, { "content-length": bytes.length });
+    if (!cut.has(request.url!)) return void response.end(bytes);
+    response.write(bytes.subarray(0, 1), () => response.destroy());
   });
-  const served = new Map([`config of ${name}`, ...Object.values(layers)].map((text) => [`/v2/library/${name}/blobs/sha256:${sha(text)}`, Buffer.from(text)]));
-  return { row, served };
+  const blob = (text: string, type: string) => ({ mediaType: type, digest: `sha256:${sha(text)}`, size: Buffer.byteLength(text) });
+  const blobUrl = (name: string, text: string): string => `/v2/library/${name}/blobs/sha256:${sha(text)}`;
+  const publish = (name: string, layers: readonly string[], type = "application/vnd.ollama.image.model") => {
+    const manifest: OllamaManifest = { schemaVersion: 2, config: blob(`config of ${name}: ${layers.join(", ")}`, "application/vnd.docker.container.image.v1+json"), layers: layers.map((text) => blob(text, type)) };
+    const bytes = Buffer.from(JSON.stringify({ ...manifest, mediaType: MANIFEST_TYPE, runner: "llamacpp", format: "gguf" }));
+    served.set(`/v2/library/${name}/manifests/1b`, bytes);
+    for (const text of [`config of ${name}: ${layers.join(", ")}`, ...layers]) served.set(`/v2/library/${name}/blobs/sha256:${sha(text)}`, Buffer.from(text));
+    const digests = [manifest.config, ...manifest.layers].map((layer) => layer.digest.replace(":", "-"));
+    return { manifest, bytes, digests, size: [manifest.config, ...manifest.layers].reduce((sum, layer) => sum + layer.size, 0) };
+  };
+  const model = (name: string, layers: readonly string[], embed?: OllamaRow["embed"]) => {
+    const published = publish(name, layers);
+    const row = ollamaRow({
+      id: `${name}-test`, name, input: embed === undefined ? ["text", "image"] : ["text"], output: embed === undefined ? "text" : "vectors", tools: false,
+      context_tokens: embed === undefined ? 4_000 : 2_048, thinking: [], platforms: [], languages: [], memory_gb: 16,
+      source: { model: `${name}:1b`, registry: `${url}/v2/library/${name}`, bytes: published.size, layers: ["application/vnd.docker.container.image.v1+json", "application/vnd.ollama.image.model"] },
+      ...(embed === undefined ? {} : { embed }),
+    });
+    return { row, ...published };
+  };
+  return { url, served, asked, accepts, gates, cut, blobUrl, publish, model };
 }
 
 describe("the Ollama library", () => {
   const signal = new AbortController().signal;
 
-  it("makes its build ready first, then fetches each layer of its row's manifest as an artifact, its progress one rising sum from the build's first byte, writes the manifest last, runs it with the context its row needs, and fetches nothing it holds", async () => {
+  it("makes its build ready first, resolves its tag's manifest from the registry, fetches each layer as an artifact, its progress one rising sum from the build's first byte to the manifest's size, writes the manifest as served, runs it with the context its row needs, and asks the registry nothing for a model it holds", async () => {
     const dir = folder();
-    const blobs = new Map<string, Buffer>();
-    const registry = await files(blobs);
+    const served = await registry();
     const { url, state } = await ollama(join(dir, "models"));
-    const { row, served } = model(registry.url, "synthetic", { "a.weight": "the first tensor's bytes", "b.weight": "the second tensor's bytes, longer" });
-    for (const [path, bytes] of served) blobs.set(path, bytes);
+    const { row, bytes, digests, size } = served.model("synthetic", ["the first tensor's bytes", "the second tensor's bytes, longer"]);
     const playing = child(dir, async () => url);
     const library = ollamaLibrary(playing);
     const progress: number[] = [];
-    await library.fetch(row, (bytes) => progress.push(bytes), signal);
+    const sizes = new Set<number>();
+    await library.fetch(row, (fetched, total) => {
+      progress.push(fetched);
+      if (total !== undefined) sizes.add(total);
+    }, signal);
     expect(playing.asked.builds).toBe(1);
     expect(progress.slice(0, 2)).toEqual([OLLAMA.artifact.bytes / 2, OLLAMA.artifact.bytes]);
-    expect(progress.at(-1)).toBe(row.bytes);
-    expect(progress.every((bytes, at) => at === 0 || bytes >= progress[at - 1]!)).toBe(true);
-    expect(readdirSync(join(dir, "models", "blobs")).sort()).toEqual([row.source.manifest.config, ...row.source.manifest.layers].map((layer) => layer.digest.replace(":", "-")).sort());
+    expect(progress.at(-1)).toBe(OLLAMA.artifact.bytes + size);
+    expect([...sizes]).toEqual([OLLAMA.artifact.bytes + size]);
+    expect(progress.every((each, at) => at === 0 || each >= progress[at - 1]!)).toBe(true);
+    expect(served.asked[0]).toBe("/v2/library/synthetic/manifests/1b");
+    expect(served.accepts).toEqual([MANIFEST_TYPE]);
+    expect(readdirSync(join(dir, "models", "blobs")).sort()).toEqual([...digests].sort());
+    expect(readFileSync(join(dir, "models", "manifests", "registry.ollama.ai", "library", "synthetic", "1b"))).toEqual(bytes);
     expect(await library.run(row, call("r-1", row.id), signal)).toEqual({ text: "A synthetic photo.", model: row.id, input_tokens: 2_100, output_tokens: 12 });
     expect(state.chats[0]).toMatchObject({
       model: "synthetic:1b", stream: false, think: false, keep_alive: "5m",
       messages: [{ role: "user", content: "Describe this photo.", images: [JPEG.base64] }],
       options: { temperature: 0, num_ctx: 8_192 },
     });
-    const asked = registry.asked.length;
+    const asked = served.asked.length;
     await library.fetch(row, () => undefined, signal);
-    expect(registry.asked).toHaveLength(asked);
+    expect(served.asked.slice(asked)).toEqual([]);
     state.cut = true;
     await expect(library.run(row, call("r-2", row.id), signal)).rejects.toMatchObject({ name: "Failed", reason: "cut" });
   });
 
-  it("writes no manifest while a layer is not its pin, never runs a model listed under another digest, and leaves a child that does not start the call's failure, its row not ready only when its build is not", async () => {
+  it("keeps the build it holds when the tag is republished, and fetches the tag as the registry now serves it once a layer it held is gone, letting go of the layers only the old manifest named", async () => {
     const dir = folder();
-    const blobs = new Map<string, Buffer>();
-    const registry = await files(blobs);
+    const served = await registry();
+    const { url } = await ollama(join(dir, "models"));
+    const first = served.model("synthetic", ["a tensor both builds share", "the first build's own tensor"]);
+    const library = ollamaLibrary(child(dir, async () => url));
+    await library.fetch(first.row, () => undefined, signal);
+    const second = served.publish("synthetic", ["a tensor both builds share", "the second build's own tensor, longer than the first's"]);
+    for (const digest of first.digests.filter((each) => !second.digests.includes(each))) served.served.delete(`/v2/library/synthetic/blobs/${digest.replace("-", ":")}`);
+    const manifest = join(dir, "models", "manifests", "registry.ollama.ai", "library", "synthetic", "1b");
+    const asked = served.asked.length;
+    await library.fetch(first.row, () => undefined, signal);
+    expect([served.asked.slice(asked), readFileSync(manifest)]).toEqual([[], first.bytes]);
+    rmSync(join(dir, "models", "blobs", first.digests.at(-1)!));
+    const sizes = new Set<number>();
+    await library.fetch(first.row, (_fetched, total) => { if (total !== undefined) sizes.add(total); }, signal);
+    expect([...sizes]).toEqual([OLLAMA.artifact.bytes + second.size]);
+    expect(second.size).not.toBe(first.size);
+    expect(readFileSync(manifest)).toEqual(second.bytes);
+    expect(readdirSync(join(dir, "models", "blobs")).sort()).toEqual([...second.digests].sort());
+    expect(await library.run(first.row, call("r-1", first.row.id), signal)).toMatchObject({ text: "A synthetic photo." });
+  });
+
+  it("is ready on a model it holds with the registry gone and no request made, and with none held fails as the registry did", async () => {
+    const dir = folder();
+    const served = await registry();
+    const { url } = await ollama(join(dir, "models"));
+    const { row, digests } = served.model("synthetic", ["the first tensor's bytes"]);
+    const away = { ...row, source: { ...row.source, registry: "http://127.0.0.1:1/v2/library/synthetic" } };
+    const library = ollamaLibrary(child(dir, async () => url));
+    await expect(library.fetch(away, () => undefined, signal)).rejects.toMatchObject({ name: "ArtifactError", reason: "offline" });
+    served.served.delete("/v2/library/synthetic/manifests/1b");
+    await expect(library.fetch(row, () => undefined, signal)).rejects.toMatchObject({ name: "ArtifactError", reason: "refused", status: 404 });
+    expect(existsSync(join(dir, "models", "manifests"))).toBe(false);
+    served.publish("synthetic", ["the first tensor's bytes"]);
+    await library.fetch(row, () => undefined, signal);
+    served.served.clear();
+    const asked = served.asked.length;
+    const restarted = ollamaLibrary(child(dir, async () => url));
+    await restarted.fetch(row, () => undefined, signal);
+    await restarted.fetch(away, () => undefined, signal);
+    expect(served.asked.slice(asked)).toEqual([]);
+    expect(readdirSync(join(dir, "models", "blobs")).sort()).toEqual([...digests].sort());
+    expect(await restarted.run(row, call("r-1", row.id), signal)).toMatchObject({ text: "A synthetic photo." });
+    served.served.set("/v2/library/synthetic/manifests/1b", Buffer.from("not a manifest"));
+    const other = ollamaLibrary(child(folder(), async () => url));
+    await expect(other.fetch(row, () => undefined, signal)).rejects.toMatchObject({ name: "ArtifactError", reason: "refused" });
+  });
+
+  it("refuses a manifest with a layer type its row does not name before it fetches a blob, as a failure, keeping the build it holds", async () => {
+    const dir = folder();
+    const served = await registry();
+    const { url } = await ollama(join(dir, "models"));
+    const { row, digests } = served.model("synthetic", ["the first tensor's bytes"]);
+    const library = ollamaLibrary(child(dir, async () => url));
+    served.publish("synthetic", ["a tensor of a newer engine"], "application/vnd.ollama.image.tensor");
+    const asked = served.asked.length;
+    const failed = await library.fetch(row, () => undefined, signal).catch((error: unknown) => error);
+    expect([failed instanceof Failed, (failed as Failed).reason, (failed as Error).message]).toEqual([true, "failed", expect.stringContaining("application/vnd.ollama.image.tensor")]);
+    expect(served.asked.slice(asked)).toEqual(["/v2/library/synthetic/manifests/1b"]);
+    expect(existsSync(join(dir, "models"))).toBe(false);
+    served.publish("synthetic", ["the first tensor's bytes"]);
+    await library.fetch(row, () => undefined, signal);
+    served.publish("synthetic", ["a tensor of a newer engine"], "application/vnd.ollama.image.tensor");
+    await library.fetch(row, () => undefined, signal);
+    expect(readdirSync(join(dir, "models", "blobs")).sort()).toEqual([...digests].sort());
+    expect(await library.run(row, call("r-1", row.id), signal)).toMatchObject({ text: "A synthetic photo." });
+  });
+
+  it("names a fetch's layers on disk before its first blob, so a fetch that ended after one blob leaves nothing behind its next fetch or its removal, after a restart too", async () => {
+    const layers = ["the first tensor's bytes", "the second tensor's bytes, cut short"];
+    const held = (dir: string): string[] => (existsSync(join(dir, "models", "blobs")) ? readdirSync(join(dir, "models", "blobs")).sort() : []);
+    const partials = (dir: string): string[] => readdirSync(join(dir, "models")).filter((name) => name.endsWith(".manifest.partial"));
+    for (const next of ["fetch", "remove"] as const) {
+      const dir = folder();
+      const served = await registry();
+      const { url } = await ollama(join(dir, "models"));
+      const { row, digests } = served.model("synthetic", layers);
+      served.cut.add(served.blobUrl("synthetic", layers[1]!));
+      await expect(ollamaLibrary(child(dir, async () => url)).fetch(row, () => undefined, signal)).rejects.toMatchObject({ name: "ArtifactError", reason: "offline" });
+      expect(held(dir)).toEqual([...digests.slice(0, 2), `${digests[2]}.partial`].sort());
+      expect(partials(dir)).toEqual([`${row.id}.manifest.partial`]);
+      const restarted = ollamaLibrary(child(dir, async () => url));
+      if (next === "remove") {
+        await restarted.remove(row, signal);
+        expect([held(dir), partials(dir)]).toEqual([[], []]);
+        continue;
+      }
+      const republished = served.publish("synthetic", ["a republished tensor"]);
+      await restarted.fetch(row, () => undefined, signal);
+      expect([held(dir), partials(dir)]).toEqual([[...republished.digests].sort(), []]);
+    }
+  });
+
+  it("keeps a layer a fetch in flight names when another model is removed meanwhile, and a removal started with a fetch leaves that fetch whole", async () => {
+    const dir = folder();
+    const served = await registry();
+    const { url } = await ollama(join(dir, "models"));
+    const shared = "a tensor two models share";
+    const own = "the first model's own tensor";
+    const one = served.model("one", [shared, own]);
+    const two = served.model("two", [shared]);
+    const library = ollamaLibrary(child(dir, async () => url));
+    const held = (): string[] => readdirSync(join(dir, "models", "blobs")).filter((name) => !name.endsWith(".lock")).sort();
+    await library.fetch(two.row, () => undefined, signal);
+    let open = (): void => undefined;
+    served.gates.set(served.blobUrl("one", own), new Promise((resolve) => { open = resolve; }));
+    const fetching = library.fetch(one.row, () => undefined, signal);
+    await until("the fetch asks for its gated blob", () => served.asked.includes(served.blobUrl("one", own)));
+    await library.remove(two.row, signal);
+    open();
+    await fetching;
+    expect(held()).toEqual([...one.digests].sort());
+    expect(await library.run(one.row, call("r-1", one.row.id), signal)).toMatchObject({ text: "A synthetic photo." });
+    await library.fetch(two.row, () => undefined, signal);
+    await Promise.all([library.remove(two.row, signal), library.fetch(one.row, () => undefined, signal)]);
+    await library.remove(one.row, signal);
+    await Promise.all([library.remove(two.row, signal), library.fetch(one.row, () => undefined, signal)]);
+    expect(held()).toEqual([...one.digests].sort());
+    expect(await library.run(one.row, call("r-2", one.row.id), signal)).toMatchObject({ text: "A synthetic photo." });
+  });
+
+  it("writes no manifest while a layer's bytes are not its digest's, never runs a model listed under another digest, and leaves a child that does not start the call's failure, its row not ready only when its build is not", async () => {
+    const dir = folder();
+    const served = await registry();
     const { url, state } = await ollama(join(dir, "models"));
-    const { row, served } = model(registry.url, "synthetic", { "a.weight": "the first tensor's bytes" });
-    const [config, layer] = [...served];
-    blobs.set(config![0], config![1]);
-    blobs.set(layer![0], Buffer.from("x".repeat(layer![1].length)));
+    const { row, manifest } = served.model("synthetic", ["the first tensor's bytes"]);
+    const layer = `/v2/library/synthetic/blobs/${manifest.layers[0]!.digest}`;
+    const good = served.served.get(layer)!;
+    served.served.set(layer, Buffer.from("x".repeat(good.length)));
     const library = ollamaLibrary(child(dir, async () => url));
     await expect(library.fetch(row, () => undefined, signal)).rejects.toMatchObject({ name: "ArtifactError", reason: "hash" });
     expect(existsSync(join(dir, "models", "manifests"))).toBe(false);
-    blobs.set(layer![0], layer![1]);
+    served.served.set(layer, good);
     await library.fetch(row, () => undefined, signal);
     writeFileSync(join(dir, "models", "manifests", "registry.ollama.ai", "library", "synthetic", "1b"), "{}");
     await expect(library.run(row, call("r-1", row.id), signal)).rejects.toBeInstanceOf(NotReady);
@@ -598,12 +753,10 @@ describe("the Ollama library", () => {
 
   it("embeds on a row that embeds: each text after its role's prompt, cut by Ollama at the row's tokens, each vector cut to the row's dimensions and unit length; refuses any other call, and runs none on a model not fetched", async () => {
     const dir = folder();
-    const blobs = new Map<string, Buffer>();
-    const registry = await files(blobs);
+    const served = await registry();
     const { url, state } = await ollama(join(dir, "models"));
     const embeds = { dimensions: 512, prompts: { query: "query: ", document: "text: " } };
-    const { row, served } = model(registry.url, "embedding", { "a.weight": "an embedding model's tensor" }, embeds);
-    for (const [path, bytes] of served) blobs.set(path, bytes);
+    const { row } = served.model("embedding", ["an embedding model's tensor"], embeds);
     const library = ollamaLibrary(child(dir, async () => url));
     const embedding = (id: string, role: string, texts: string[]): Call => ({ id, model: row.id, input: JSON.stringify({ role, texts }), attachments: [] });
     await expect(library.run(row, embedding("e-0", "document", ["a screen's text"]), signal)).rejects.toBeInstanceOf(NotReady);
@@ -628,12 +781,10 @@ describe("the Ollama library", () => {
 
   it("removes a model's manifest and every layer no other manifest names; with no model left, its child and its build go", async () => {
     const dir = folder();
-    const blobs = new Map<string, Buffer>();
-    const registry = await files(blobs);
+    const served = await registry();
     const shared = "a tensor two models share";
-    const one = model(registry.url, "one", { "shared.weight": shared, "one.weight": "the first model's own tensor" });
-    const two = model(registry.url, "two", { "shared.weight": shared });
-    for (const [path, bytes] of [...one.served, ...two.served]) blobs.set(path, bytes);
+    const one = served.model("one", [shared, "the first model's own tensor"]);
+    const two = served.model("two", [shared]);
     const playing = child(dir, async () => "http://127.0.0.1:1");
     const library = ollamaLibrary(playing);
     await library.fetch(one.row, () => undefined, signal);
@@ -641,7 +792,7 @@ describe("the Ollama library", () => {
     const held = (): string[] => readdirSync(join(dir, "models", "blobs")).sort();
     const of = (text: string): string => `sha256-${sha(text)}`;
     await library.remove(one.row, signal);
-    expect(held()).toEqual([of("config of two"), of(shared)].sort());
+    expect(held()).toEqual([of(`config of two: ${shared}`), of(shared)].sort());
     expect(playing.asked.removed).toBe(0);
     await library.remove(two.row, signal);
     expect(held()).toEqual([]);

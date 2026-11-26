@@ -444,10 +444,6 @@ public final class HomeLink: Sendable {
         telling()
     }
 
-    public func tell(network: NetworkCost) {
-        tell(network: network == .free ? MobileData.Allows.all : .now)
-    }
-
     public func mobile(pressed: Bool) -> MobileData.Moment {
         let home = (try? name())?.flatMap(\.host) ?? ""
         return MobileData.Moment(path: network?.facts?.cost ?? .costly, choice: choice,

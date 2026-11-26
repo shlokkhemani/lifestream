@@ -85,7 +85,7 @@ describe("the skeleton", () => {
       ["About", [["version", "Version", "info", "own", false], ["privacy-policy", "Privacy policy", "private", "own", false]]],
     ]);
     const phone = new Set(SETTINGS_INDEX.phone.flatMap((group) => group.entries.map((each) => each.id)));
-    for (const id of ["home", "recovery", "mac", "iphone", "chrome", "models", "privacy", "meaning", "updates"]) expect(phone.has(id), id).toBe(false);
+    for (const id of ["home", "recovery", "mac", "iphone", "chrome", "defaults", "providers", "privacy", "meaning", "updates"]) expect(phone.has(id), id).toBe(false);
   });
 
   it("gives the Mac the groups its Settings drew before, the same ids, labels and icons, Recovery key and Updates inside the Mac app alone", () => {
@@ -95,18 +95,21 @@ describe("the skeleton", () => {
         { id: "time", label: "Day and time", icon: "time" }, { id: "recovery", label: "Recovery key", icon: "private", mac: true },
       ] },
       { label: "Devices", pages: [{ id: "mac", label: "This Mac", icon: "work-mac" }, { id: "iphone", label: "iPhone", icon: "phone-screen" }, { id: "chrome", label: "Chrome extension", icon: "web" }] },
-      { label: "Models", pages: [{ id: "models", label: "AI models", icon: "ai" }, { id: "privacy", label: "Privacy", icon: "hidden" }, { id: "meaning", label: "Search by meaning", icon: "search" }] },
+      { label: "Models", pages: [
+        { id: "defaults", label: "Default models", icon: "ai" }, { id: "providers", label: "Providers", icon: "ai-apps" },
+        { id: "privacy", label: "Privacy", icon: "hidden" }, { id: "meaning", label: "Search by meaning", icon: "search" },
+      ] },
       { label: "App", pages: [{ id: "appearance", label: "Appearance", icon: "settings" }, { id: "updates", label: "Updates", icon: "update", mac: true }, { id: "advanced", label: "Advanced", icon: "filter" }] },
     ];
     expect(SETTINGS_INDEX.mac.map((group) => ({ label: group.label, pages: group.entries.map((each) => ({ id: each.id, label: each.label, icon: each.icon, ...(each.host ? { mac: true } : {}) })) })))
       .toEqual(before);
     const answers = Object.fromEntries(SETTINGS_INDEX.mac.flatMap((group) => group.entries.map((each) => [each.id, each.answer])));
-    expect(Object.entries(answers).filter(([, answer]) => answer !== "own")).toEqual([["storage", "storage"], ["time", "settingsPage"], ["models", "models"], ["advanced", "settingsPage"]]);
+    expect(Object.entries(answers).filter(([, answer]) => answer !== "own")).toEqual([["storage", "storage"], ["time", "settingsPage"], ["defaults", "modelDefaults"], ["providers", "modelProviders"], ["advanced", "settingsPage"]]);
   });
 
-  it("answers AI models with its own page answer, every entry's answer one of SETTINGS_ANSWERS, each a page answer's name but own", () => {
-    expect(SETTINGS_ANSWERS).toEqual(["settingsPage", "storage", "models", "own"]);
-    expect(PAGES.models.route).toBe("/v1/page/models");
+  it("answers Default models and Providers each with its own page answer, every entry's answer one of SETTINGS_ANSWERS, each a page answer's name but own", () => {
+    expect(SETTINGS_ANSWERS).toEqual(["settingsPage", "storage", "modelDefaults", "modelProviders", "own"]);
+    expect([PAGES.modelDefaults.route, PAGES.modelProviders.route]).toEqual(["/v1/page/models/defaults", "/v1/page/models/providers"]);
     for (const answer of SETTINGS_ANSWERS.filter((each) => each !== "own")) expect(Object.keys(PAGES), answer).toContain(answer);
     const used = new Set(Object.values(SETTINGS_INDEX).flatMap((groups) => groups.flatMap((group) => group.entries.map((each) => each.answer))));
     expect([...used].filter((answer) => !SETTINGS_ANSWERS.includes(answer))).toEqual([]);

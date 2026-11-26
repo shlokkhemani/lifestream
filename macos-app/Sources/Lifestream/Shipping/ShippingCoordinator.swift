@@ -64,7 +64,7 @@ import UserNotifications
             stores: stores,
             settle: { answer in await photos.run(answer) },
             keepAwake: { KeepAwake.hold() },
-            network: .system, scratch: scratch)), link: link, limits: limits)
+            scratch: scratch)), link: link, limits: limits)
     }
 
     init(shipper: Shipper, link: HomeLink, limits: MacLimits? = nil, notices: Notices = .system,

@@ -22,14 +22,15 @@ export function streamsScreens() {
   const FL = (/** @type {string} */ name, /** @type {string} */ title, /** @type {string} */ id, /** @type {any} */ state, more = {}) => ({ section: 'Flows', name, title, hash: flow(id), base: /** @type {const} */ ('home'), host: host(state), stub: base, ...more });
   const vault = (/** @type {string} */ state) => ({ vault: { state, saved_ms: null } });
   const login = (/** @type {any} */ more) => ({ ask_login: askLogin(more) });
-  const SUB = (/** @type {string} */ name, /** @type {string} */ title, /** @type {any} */ state) => S(name, title, dialog('settings/models'),
-    { host: host(state), stub: [...base, { url: 'api/page/models', json: MODELS_BARE }] });
-  const FILE = (/** @type {string} */ name, /** @type {string} */ title, /** @type {any} */ models) => S(name, title, dialog('settings/models'),
-    { host: host(login({})), stub: [...base, { url: 'api/page/models', json: models }], run: `await S.until('.ck-dialog'); await S.sleep(500);` });
+  const SUB = (/** @type {string} */ name, /** @type {string} */ title, /** @type {any} */ state) => S(name, title, dialog('settings/providers'),
+    { host: host(state), stub: [...base, { url: 'api/page/modelDefaults', json: MODELS_BARE }, { url: 'api/page/modelProviders', json: MODELS_BARE }] });
+  const FILE = (/** @type {string} */ name, /** @type {string} */ title, /** @type {any} */ models) => S(name, title, dialog('settings/providers'),
+    { host: host(login({})), stub: [...base, { url: 'api/page/modelDefaults', json: models }, { url: 'api/page/modelProviders', json: models }], run: `await S.until('.ck-dialog'); await S.sleep(500);` });
   const qwen = (/** @type {'absent' | 'fetching' | 'ready' | 'failed'} */ state, /** @type {string | null} */ line) => ({ ...MODELS_BARE,
     connections: MODELS_BARE.connections.map(each => each.kind !== 'runner' ? each
-      : { ...each, files: each.files.map((file, at) => at !== 0 ? file : { ...file, state, line,
-        acts: /** @type {('fetch' | 'remove' | 'cancel')[]} */ ([state === 'ready' ? 'remove' : state === 'fetching' ? 'cancel' : 'fetch']) }) }) });
+      : { ...each, files: each.files.map((file, at) => at !== 0 ? file : { ...file, state, line: line ?? 'Describes photos and sums up text · 4 GB',
+        working: state === 'fetching', words: state === 'ready' ? 'Downloaded' : null,
+        acts: [state === 'ready' ? { act: 'remove', words: 'Remove' } : state === 'fetching' ? { act: 'cancel', words: 'Cancel' } : { act: 'fetch', words: 'Download' }] }) }) });
   const CODE = subscription('signing_in', { attempt: 'login-1', code: 'QX4F-7KD2', url: 'https://auth.example.com/device' });
   const ANTHROPIC = subscription('signing_in', { attempt: '0f3a9c2e7b1d4a60', url: 'https://claude.example.com/oauth/authorize' });
   const PAIRING = { pairing: { link: 'lifestream://pair?code=ABCD2345', code: 'ABCD2345', qr: PAIR_QR, why: null, match: '4F7K', expires_ms: LATER }, phone_app: { link: 'https://testflight.example.com/join/AAAA0000', qr: PAIR_QR } };
@@ -106,16 +107,16 @@ export function streamsScreens() {
     FL('flow-vault-kept', 'Vault flow, kept', 'vault', vault('saved')),
     FL('flow-vault-unsaved', 'Vault flow, made and never kept', 'vault', vault('unsaved')),
     FL('flow-vault-locked', 'Vault flow, locked on this Mac', 'vault', vault('locked')),
-    SUB('settings-subscriptions-none', 'Settings, AI models: Subscriptions, none yet', login({})),
-    SUB('settings-subscriptions-fetching', 'Settings, AI models: Claude Code downloading', login({ claude: subscription('fetching', { bytes: 120_000_000, total: 324_000_000 }) })),
-    SUB('settings-subscriptions-code', 'Settings, AI models: the sign-in code', login({ chatgpt: CODE })),
-    SUB('settings-subscriptions-claude', 'Settings, AI models: Claude signing in, a code field', login({ claude: ANTHROPIC })),
-    SUB('settings-subscriptions-expired', 'Settings, AI models: the code ran out', login({ chatgpt: subscription('failed', { why: 'This code ran out.' }) })),
-    SUB('settings-subscriptions-signed-in', 'Settings, AI models: signed in to both plans', login({ chatgpt: subscription('signed_in', { account: 'person-a@example.com', plan: 'plus' }),
+    SUB('settings-subscriptions-none', 'Settings, Providers: Subscriptions, none yet', login({})),
+    SUB('settings-subscriptions-fetching', 'Settings, Providers: Claude Code downloading', login({ claude: subscription('fetching', { bytes: 120_000_000, total: 324_000_000 }) })),
+    SUB('settings-subscriptions-code', 'Settings, Providers: the sign-in code', login({ chatgpt: CODE })),
+    SUB('settings-subscriptions-claude', 'Settings, Providers: Claude signing in, a code field', login({ claude: ANTHROPIC })),
+    SUB('settings-subscriptions-expired', 'Settings, Providers: the code ran out', login({ chatgpt: subscription('failed', { why: 'This code ran out.' }) })),
+    SUB('settings-subscriptions-signed-in', 'Settings, Providers: signed in to both plans', login({ chatgpt: subscription('signed_in', { account: 'person-a@example.com', plan: 'plus' }),
       claude: subscription('signed_in', { account: 'person-a@example.com', plan: 'max' }) })),
-    FILE('settings-models-absent', 'Settings, AI models: a model file to download', MODELS_BARE),
-    FILE('settings-models-downloading', 'Settings, AI models: a model file downloading', qwen('fetching', 'Downloading, 0.9 of 4 GB')),
-    FILE('settings-models-ready', 'Settings, AI models: a model file downloaded', qwen('ready', null)),
+    FILE('settings-models-absent', 'Settings, Providers: a model file to download', MODELS_BARE),
+    FILE('settings-models-downloading', 'Settings, Providers: a model file downloading', qwen('fetching', 'Downloading · 3 min left')),
+    FILE('settings-models-ready', 'Settings, Providers: a model file downloaded', qwen('ready', null)),
     FL('flow-phone-first', 'iPhone flow, no phone yet: the pairing code, Get the app above it', 'phone', PAIRING, { stub: report(NOPHONE) }),
     FL('flow-phone-app', 'iPhone flow, Get the app pressed: the app’s code', 'phone', PAIRING, { stub: report(NOPHONE), run: `await S.sleep(500); await S.press('Get the app'); await S.sleep(600);` }),
     FL('flow-phone-no-wifi', 'iPhone flow, this Mac can’t listen', 'phone', { ...PAIRING, pairing: { ...PAIRING.pairing, link: null, code: null, qr: null, why: 'Lifestream can’t open its Wi-Fi connection.' } }, { stub: report(NOPHONE) }),

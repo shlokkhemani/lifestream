@@ -16,6 +16,7 @@ import { tip } from './tip.js';
  * @property {string} [tag]
  * @property {string} [about]
  * @property {string} [line]
+ * @property {boolean} [working]
  * @property {string} [tail]
  * @property {'warning' | 'caution' | ''} [tone]
  * @property {string} [does]
@@ -39,7 +40,7 @@ import { tip } from './tip.js';
  * @param {SettingRow} row
  * @param {{ menu?: boolean }} [options]
  */
-export function settingRowParts({ label, lead = '', tag = '', about = '', line = '', tail = '', tone = '', does = '', mark = '', signal = null,
+export function settingRowParts({ label, lead = '', tag = '', about = '', line = '', working = false, tail = '', tone = '', does = '', mark = '', signal = null,
   pulse = false, act = null, waiting = [], only = '', holds = '', dim = false, go = null, open = null, asking = false, hold = null,
   attrs = {} }, { menu = false } = {}) {
   const faces = hold?.faces ?? [];
@@ -54,7 +55,7 @@ export function settingRowParts({ label, lead = '', tag = '', about = '', line =
     : mark ? `<span class="ck-srow__mark" aria-hidden="true">${mark}</span>` : '';
   const said = !line ? '' : act ? `<button${attributes({ type: 'button', class: 'ck-srow__line ck-srow__act', ...act })}>${shapeOf(signal, pulse)}${esc(line)}</button>`
     : tail ? `<span class="ck-srow__line">${shapeOf(signal, pulse)}<span class="ck-srow__said">${esc(line)}</span><span class="ck-srow__tail"> · ${esc(tail)}</span></span>`
-    : `<span class="ck-srow__line">${shapeOf(signal, pulse)}${esc(line)}</span>`;
+    : `<span class="ck-srow__line">${shapeOf(signal, pulse)}${working ? `<span class="ck-shimmer">${esc(line)}</span>` : esc(line)}</span>`;
   const quiet = (waiting.length > 0 ? waiting : only ? [only] : [])
     .map(each => `<span class="ck-srow__wait">${esc(each)}</span>`).join('');
   const heldOf = (/** @type {string} */ markup) => markup ? `<span class="ck-srow__holds">${markup}</span>` : '';

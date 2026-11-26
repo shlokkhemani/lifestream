@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import HealthKit
+import HomeLink
 import LifestreamCaptureCore
 import OSLog
 
@@ -146,10 +147,12 @@ actor HealthRecorder {
     static let readsAllowedNotification = Notification.Name("HealthRecorder.readsAllowed")
 
     private let historyStart: @Sendable () async -> Date?
+    private let mobile: @Sendable () -> MobileData.Moment
 
-    init(store: CaptureStore, start: @escaping @Sendable () async -> Date?) {
+    init(store: CaptureStore, start: @escaping @Sendable () async -> Date?, mobile: @escaping @Sendable () -> MobileData.Moment) {
         self.store = store
         historyStart = start
+        self.mobile = mobile
     }
 
     func newestCheckInWake(now: Date) async -> Date? {
@@ -479,8 +482,11 @@ actor HealthRecorder {
             let from = HistoryStart.health(start: await historyStart(), since: covered ? try await store.since(.health) : nil)
             _ = try await HealthSweep.run(
                 store: store, type: type.identifier, start: from, anchor: try await storedAnchor(for: type),
+                past: mobile().decide(.later, bytes: 0),
                 read: { try await self.page(of: type, after: $0.flatMap(Self.queryAnchor), start: from) },
                 committed: { _, firstYield in await self.pageCommitted(firstYield: firstYield) })
+            return .succeeded
+        } catch LinkFailure.waits {
             return .succeeded
         } catch {
             if Self.unasked(error) { return .succeeded }

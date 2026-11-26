@@ -1,30 +1,19 @@
 // @ts-check
-/** @import { ModelConnection, ModelFile, ModelFileAct, Models, ModelUse } from '../../pages.js' */
+/** @import { ModelConnection, ModelFile, ModelUse } from '../../pages.js' */
+/** @import { Models } from '../../lib/model-menu.js' */
 /** @import { Flow, ModelItem } from '../flows/model.js' */
 /** @import { HostAct } from '../../lib/host.js' */
 /** @import { DetailPart, Menu, Opened, PanelRow } from './dialog.js' */
 /** @import { Act, Do } from './words.js' */
-import { foundRows, modelChoices, rowOf } from './dialog.js';
+import { foundPanels, modelChoices, panelOf, rowOf } from './dialog.js';
 import { thingKey } from './pending.js';
-import { part } from './settings-pages.js';
+import { panelPart, part } from './settings-pages.js';
 
 export const MODEL_FIELDS = { key: 'openrouter', url: 'address.url' };
 
 export const SUBSCRIPTIONS = /** @type {ModelItem[]} */ (['chatgpt', 'claude']);
 
 export const MORE_PAGE = 'more:';
-
-export const WORDS = {
-  accounts: 'Accounts',
-  uses: 'Uses',
-  address: 'Custom address',
-  addressLine: 'Any server that speaks the OpenAI API, such as Ollama or LM Studio. It lists its own models.',
-  run: 'Turn off to hold their work until you turn it back on.',
-  none: 'No models on this machine yet.',
-  thinking: 'Thinking',
-  thinkingLine: 'How long Chat’s model thinks before it answers.',
-  key: 'Pay per call with your own key.',
-};
 
 /** @param {HostAct} act @returns {Do} */
 const asking = act => ({ host: act });
@@ -95,11 +84,7 @@ export function morePage(models, opened, acts) {
   const asked = usesFinding(opened);
   const use = asked && models ? useOf(models, asked.use) : null;
   if (!asked || !use) return null;
-  const found = foundRows(opened.found ?? null, value => acts ? asking(defaultAct(use.use, value)) : null);
-  return { title: use.menu.more.words, parts: [
-    part({ rows: found.rows, note: found.note, add: { placeholder: found.placeholder, typed: opened.typed, finds: [], lit: 0, enter: null, end: null } }),
-    ...found.local ? [part({ label: found.local.label, rows: found.local.rows })] : [],
-  ] };
+  return { title: use.menu.more.words, parts: foundPanels(opened.found ?? null, opened.typed, value => acts ? asking(defaultAct(use.use, value)) : null).map(panelPart) };
 }
 
 /**
@@ -110,33 +95,27 @@ export function morePage(models, opened, acts) {
 function thinkingRow(use, acts) {
   const { thinking, value } = use;
   if (!thinking || value === null) return null;
-  if (!acts) return rowOf(WORDS.thinking, { inset: true, line: WORDS.thinkingLine, end: { words: thinking.words } });
-  return rowOf(WORDS.thinking, { inset: true, line: WORDS.thinkingLine, end: { menu: { id: `settings.use.${use.use}.thinking`,
-    busy: thingKey({ kind: 'default', of: use.use }), label: WORDS.thinking, words: thinking.words, find: '', date: null,
+  if (!acts) return rowOf(thinking.label, { inset: true, end: { words: thinking.words } });
+  return rowOf(thinking.label, { inset: true, end: { menu: { id: `settings.use.${use.use}.thinking`,
+    busy: thingKey({ kind: 'default', of: use.use }), label: thinking.label, words: thinking.words, find: '', date: null,
     choices: thinking.levels.map(level => ({ words: level.name, note: '', chosen: level.chosen, default: level.suggested,
       do: asking({ act: 'models', do: 'default', use: use.use, model: value, thinking: level.value }) })) } } });
 }
 
 /**
- * @param {Models} models
- * @param {boolean} acts
- * @returns {DetailPart}
+ * @param {{ models: Models | null, failed: boolean, acts: boolean }} read
+ * @returns {{ parts: DetailPart[], reading: boolean }}
  */
-function usesOf(models, acts) {
+export function defaultsParts({ models, failed, acts }) {
+  if (!models) return { parts: [], reading: !failed };
+  const acting = acts && !failed;
   const rows = models.uses.flatMap(use => {
-    const row = rowOf(use.label, { line: use.line ?? '', end: acts ? { menu: pickerOf(use) } : { words: use.words } });
-    const thinking = thinkingRow(use, acts);
+    const row = rowOf(use.label, { line: use.line ?? '', end: acting ? { menu: pickerOf(use) } : { words: use.words } });
+    const thinking = thinkingRow(use, acting);
     return thinking ? [row, thinking] : [row];
   });
-  return part({ label: WORDS.uses, rows });
+  return { parts: [part({ rows })], reading: false };
 }
-
-/** @type {Record<ModelFileAct, (file: ModelFile) => { label: string, to: 'fetch' | 'remove', look: Partial<Act> }>} */
-const FILE_ACTS = {
-  fetch: file => ({ label: file.state === 'failed' ? 'Try again' : 'Download', to: 'fetch', look: {} }),
-  remove: () => ({ label: 'Remove', to: 'remove', look: { variant: 'plain' } }),
-  cancel: () => ({ label: 'Cancel', to: 'remove', look: { variant: 'plain' } }),
-};
 
 /**
  * @param {string} unit
@@ -145,13 +124,21 @@ const FILE_ACTS = {
  * @returns {PanelRow}
  */
 export function fileRow(unit, file, acts) {
-  const ready = file.state === 'ready';
-  const shown = acts ? file.acts.map(each => FILE_ACTS[each](file)).map(({ label, to, look }) => /** @type {Act} */ ({ label,
-    variant: 'secondary', ...look, do: asking({ act: 'models', do: 'file', runner: unit, id: file.id, to }) })) : [];
-  const line = [file.size, file.about].filter(Boolean).join(' · ');
-  return rowOf(file.name, { line, only: file.line ?? '', dim: !file.fits,
-    end: shown.length ? { words: ready ? 'Downloaded' : '', done: ready, acts: shown } : ready ? { words: 'Downloaded', done: true } : null });
+  const shown = acts ? file.acts.map(each => /** @type {Act} */ ({ label: each.words, variant: each.act === 'fetch' ? 'secondary' : 'plain',
+    do: asking({ act: 'models', do: 'file', runner: unit, id: file.id, to: each.act === 'fetch' ? 'fetch' : 'remove' }) })) : [];
+  const done = file.words !== null;
+  return rowOf(file.name, { line: file.line, working: file.working, dim: !file.fits,
+    end: shown.length ? { words: file.words ?? '', done, acts: shown } : done ? { words: file.words ?? '', done } : null });
 }
+
+/**
+ * @param {NonNullable<Extract<ModelConnection, { kind: 'runner' }>['run']>} on
+ * @param {boolean} acts
+ * @param {HostAct} act
+ * @returns {PanelRow}
+ */
+const switchRow = (on, acts, act) => rowOf(on.label, { line: on.line ?? '',
+  end: acts ? { toggle: { on: on.on, label: on.label, do: asking(act) } } : { words: on.on ? 'On' : 'Off' } });
 
 /**
  * @param {Extract<ModelConnection, { kind: 'runner' }>} runner
@@ -159,91 +146,84 @@ export function fileRow(unit, file, acts) {
  * @returns {DetailPart[]}
  */
 function runnerParts(runner, acts) {
-  const { unit } = runner;
-  const away = runner.line !== null && !runner.paused;
-  const on = !runner.paused;
-  const held = !away && (runner.paused || runner.files.some(file => file.state === 'ready'));
-  const run = held ? [rowOf('Run models', { line: on ? WORDS.run : runner.line ?? '',
-    end: acts ? { toggle: { on, label: 'Run models', do: asking({ act: 'models', do: 'runner', runner: unit, to: on ? 'pause' : 'resume' }) } }
-      : { words: on ? 'On' : 'Off' } })] : [];
-  const { battery } = runner;
-  const saving = !away && battery ? [rowOf('Save battery', { line: battery.line,
-    end: acts ? { toggle: { on: battery.on, label: 'Save battery', do: asking({ act: 'models', do: 'battery', runner: unit,
-      to: battery.on ? 'spend' : 'save' }) } } : { words: battery.on ? 'On' : 'Off' } })] : [];
-  const files = runner.files.map(file => fileRow(unit, file, acts && !away));
-  const own = !files.length && !run.length ? part({ label: runner.place, rows: [rowOf(runner.line ?? WORDS.none)] })
-    : part({ label: runner.place, line: away ? runner.line ?? '' : '', rows: [...run, ...saving, ...files] });
+  const { unit, run, battery } = runner;
+  if (runner.none) return [part({ label: runner.place, rows: [rowOf(runner.none)] })];
+  const rows = [
+    ...run ? [switchRow(run, acts, { act: 'models', do: 'runner', runner: unit, to: run.on ? 'pause' : 'resume' })] : [],
+    ...battery ? [switchRow(battery, acts, { act: 'models', do: 'battery', runner: unit, to: battery.on ? 'spend' : 'save' })] : [],
+    ...runner.files.map(file => fileRow(unit, file, acts)),
+  ];
   const from = [...new Set(runner.found.map(each => each.from))];
-  return [own, ...from.map(place => part({ label: place,
+  return [part({ label: runner.place, line: runner.line ?? '', rows }), ...from.map(place => part({ label: place,
     rows: runner.found.filter(each => each.from === place).map(each => rowOf(each.name, { end: { words: each.size } })) }))];
 }
 
 /**
- * @param {ModelConnection[]} connections
+ * @param {Models} models
  * @param {Flow | null} flow
  * @param {boolean} acts
  * @param {Opened} opened
  * @returns {DetailPart[]}
  */
-function accountsOf(connections, flow, acts, opened) {
-  const plans = flow ? [/** @type {DetailPart} */ ({ label: WORDS.accounts, lines: [], panel: null, acts: [], flow })] : [];
-  const rows = connections.flatMap(connection => {
-    if (connection.kind === 'plan' && !flow) {
-      return [rowOf(connection.name, { line: connection.line ?? '', end: { words: connection.signed ? 'Signed in' : 'Not signed in',
-        done: connection.signed } })];
-    }
+function accountsOf(models, flow, acts, opened) {
+  const plans = flow ? [/** @type {DetailPart} */ ({ label: models.accounts, lines: [], panel: null, acts: [], flow })] : [];
+  const rows = models.connections.flatMap(connection => {
+    if (connection.kind === 'plan' && !flow) return [rowOf(connection.name, { line: connection.line ?? '', end: { words: connection.words, done: connection.signed } })];
     if (connection.kind !== 'key') return [];
-    const key = typed(opened, MODEL_FIELDS.key);
     if (connection.held) {
-      return [rowOf(connection.name, { line: connection.line ?? WORDS.key, end: { words: 'Connected', done: true,
-        acts: acts ? [{ label: 'Remove', variant: 'plain', do: asking({ act: 'seal', secret: 'openrouter', value: null }) }] : [] } })];
+      return [rowOf(connection.name, { line: connection.line ?? '', end: { words: connection.words ?? '', done: true,
+        acts: acts ? [{ label: connection.key.remove, variant: 'plain', do: asking({ act: 'seal', secret: 'openrouter', value: null }) }] : [] } })];
     }
-    return [rowOf(connection.name, { line: connection.line ?? WORDS.key,
-      end: acts ? { field: { key: MODEL_FIELDS.key, label: `${connection.name} key`, kind: 'secret', value: key, placeholder: 'sk-or-…' },
-        acts: [{ label: 'Save', variant: 'secondary', disabled: !key.trim(), do: { save: 'openrouter' } }] } : { words: 'Not set' } })];
+    const key = typed(opened, MODEL_FIELDS.key);
+    return [rowOf(connection.name, { line: connection.line ?? '',
+      end: acts ? { field: { key: MODEL_FIELDS.key, label: connection.key.label, kind: 'secret', value: key, placeholder: connection.key.placeholder },
+        acts: [{ label: connection.key.add, variant: 'secondary', disabled: !key.trim(), do: { save: 'openrouter' } }] } : null })];
   });
-  return rows.length ? [...plans, part({ label: plans.length ? '' : WORDS.accounts, rows })] : plans;
+  if (!rows.length) return plans;
+  return plans.length ? plans.map(each => ({ ...each, panel: panelOf({ rows }) })) : [part({ label: models.accounts, rows })];
 }
 
 /**
- * @param {ModelConnection[]} connections
+ * @param {Models} models
  * @param {boolean} acts
  * @returns {DetailPart[]}
  */
-function addressOf(connections, acts) {
-  const address = connections.find(each => each.kind === 'address');
-  if (!address) return [];
-  const row = address.url
-    ? rowOf(address.url, { line: WORDS.addressLine, only: address.line ?? '',
-      end: acts ? { acts: [{ label: 'Remove', variant: 'plain', do: asking({ act: 'models', do: 'address', none: true }) }] } : { words: 'Set' } })
-    : rowOf(WORDS.address, { line: WORDS.addressLine, end: { words: 'Not set',
-      acts: acts ? [{ label: 'Add address', variant: 'secondary', do: { page: 'address' } }] : [] } });
-  return [part({ label: WORDS.address, rows: [row] })];
+function serverOf(models, acts) {
+  const server = models.connections.find(each => each.kind === 'address');
+  if (!server) return [];
+  const { words } = server;
+  const row = server.url
+    ? rowOf(server.url, { line: words.about, only: server.line ?? '',
+      end: acts ? { acts: [{ label: words.remove, variant: 'plain', do: asking({ act: 'models', do: 'address', none: true }) }] } : null })
+    : rowOf(words.about, { end: acts ? { acts: [{ label: words.add, variant: 'secondary', do: { page: 'address' } }] } : null });
+  return [part({ label: server.label, rows: [row] })];
 }
 
 /**
  * @param {{ models: Models | null, failed: boolean, subscriptions: Flow | null, acts: boolean, opened: Opened }} read
  * @returns {{ parts: DetailPart[], reading: boolean }}
  */
-export function modelsParts({ models, failed, subscriptions, acts, opened }) {
+export function providersParts({ models, failed, subscriptions, acts, opened }) {
   if (!models) {
-    const plans = subscriptions ? [/** @type {DetailPart} */ ({ label: WORDS.accounts, lines: [], panel: null, acts: [], flow: subscriptions })] : [];
+    const plans = subscriptions ? [/** @type {DetailPart} */ ({ label: '', lines: [], panel: null, acts: [], flow: subscriptions })] : [];
     return { parts: plans, reading: !failed };
   }
   const acting = acts && !failed;
-  const { connections } = models;
-  const runners = connections.flatMap(each => each.kind === 'runner' ? runnerParts(each, acting) : []);
-  return { parts: [...runners, ...accountsOf(connections, subscriptions, acting, opened), ...addressOf(connections, acting),
-    usesOf(models, acting)], reading: false };
+  const runners = models.connections.flatMap(each => each.kind === 'runner' ? runnerParts(each, acting) : []);
+  return { parts: [...accountsOf(models, subscriptions, acting, opened), ...runners, ...serverOf(models, acting)], reading: false };
 }
 
 /**
+ * @param {Models | null} models
  * @param {Opened} opened
- * @returns {DetailPart}
+ * @returns {DetailPart | null}
  */
-export function addressPage(opened) {
-  return part({ label: WORDS.address, line: WORDS.addressLine,
-    acts: [{ label: 'Save', variant: 'primary', disabled: addressAct(opened) === null, do: { save: 'address' } }],
-    rows: [rowOf('Address', { end: { field: { key: MODEL_FIELDS.url, label: 'Address', kind: 'text', value: typed(opened, MODEL_FIELDS.url),
-      placeholder: 'http://127.0.0.1:11434/v1' } } })] });
+export function addressPage(models, opened) {
+  const server = models?.connections.find(each => each.kind === 'address');
+  if (!server) return null;
+  const { words } = server;
+  return part({ label: server.label, line: words.about,
+    acts: [{ label: words.save, variant: 'primary', disabled: addressAct(opened) === null, do: { save: 'address' } }],
+    rows: [rowOf(words.field, { end: { field: { key: MODEL_FIELDS.url, label: words.field, kind: 'text', value: typed(opened, MODEL_FIELDS.url),
+      placeholder: words.placeholder } } })] });
 }

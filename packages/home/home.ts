@@ -621,7 +621,7 @@ class HomeProcess implements Main {
   #copier!: Copier;
   #room: Room = "ok";
   #stated: Stated | null = null;
-  #metered: boolean | null = null;
+  #pastWaits: boolean | null = null;
   #network: { reading: boolean; again: boolean; next_ms: number } = { reading: false, again: false, next_ms: 0 };
   #reachNext_ms = 0;
   #restNext_ms = 0;
@@ -1268,15 +1268,15 @@ class HomeProcess implements Main {
       if (stated === null || this.#stopping) return;
       this.#stated = stated;
       const view = this.#db.view();
-      let metered: boolean;
+      let pastWaits: boolean;
       try {
-        metered = homeNetwork(view.tables, stated).metered;
+        pastWaits = homeNetwork(view.tables, stated).pastWaits;
       } finally {
         view.close();
       }
-      if (metered === this.#metered) return;
-      this.#metered = metered;
-      this.#log(JSON.stringify({ at: new Date(this.now()).toISOString(), network: metered ? "metered" : "free" }));
+      if (pastWaits === this.#pastWaits) return;
+      this.#pastWaits = pastWaits;
+      this.#log(JSON.stringify({ at: new Date(this.now()).toISOString(), past: pastWaits ? "waits" : "moves" }));
     }).catch(() => undefined).finally(() => {
       const again = this.#network.again;
       this.#network = { ...this.#network, reading: false, again: false };

@@ -30,7 +30,8 @@ final class PagesTests: XCTestCase {
         "settings": { _ = try JSONDecoder().decode(HomeLink.Pages.Settings.self, from: $0) },
         "settingsPage": { _ = try JSONDecoder().decode(HomeLink.Pages.SettingsPage.self, from: $0) },
         "storage": { _ = try JSONDecoder().decode(HomeLink.Pages.Storage.self, from: $0) },
-        "models": { _ = try JSONDecoder().decode(HomeLink.Pages.Models.self, from: $0) },
+        "modelDefaults": { _ = try JSONDecoder().decode(HomeLink.Pages.ModelDefaults.self, from: $0) },
+        "modelProviders": { _ = try JSONDecoder().decode(HomeLink.Pages.ModelProviders.self, from: $0) },
         "modelsFind": { _ = try JSONDecoder().decode(HomeLink.Pages.ModelsFind.self, from: $0) },
     ]
 

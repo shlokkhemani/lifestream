@@ -21,7 +21,7 @@
     {
       "id": "address",
       "kind": "address",
-      "name": "Custom address",
+      "name": "Other server",
       "line": "Chat needs the server to run a context window of 32,000 tokens or more"
     }
   ],

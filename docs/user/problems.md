@@ -97,13 +97,13 @@ others are these.
 | **Sign in to Claude again**, **Chat needs your Claude sign-in on your Mac.**, or the same for ChatGPT | The plan of Chat's model is signed out. Click **Sign in with Claude…** or **Sign in with ChatGPT…**, and sign in again. On your iPhone, sign in from Lifestream on your Mac. |
 | Another line over the box, such as **Add the key for OpenRouter** | The model you picked isn't ready, and the line says what it needs. Chat asks nothing until it is ready, or until you pick another model. Click **Open AI models** to set it up. |
 | *A model* **isn't offered now. Asking** *another model*. | No connection lists the model you picked any more, so Chat asks Chat's model instead. Pick another model. |
-| **Chat needs a model: choose one in Settings › AI models.** | No model that fits Chat is connected. Click **Connect a model…**. |
-| **Chat has no default model: choose one from the menu.** | No model is chosen for **Chat**. Pick one in Chat's model menu, or for **Chat** in **Settings** › **AI models** on your Mac. |
+| **Chat needs a model: choose one in Settings › Default models.** | No model that fits Chat is connected. Click **Connect a model…**. |
+| **Chat has no default model: choose one from the menu.** | No model is chosen for **Chat**. Pick one in Chat's model menu, or for **Chat** in **Settings** › **Default models** on your Mac. |
 | **This model's connection changed: ask again.** | Where the model sends your data changed while Chat asked it, so Chat sent nothing. Ask again. |
 | **Chat needs a paid ChatGPT plan.** | A free ChatGPT plan cannot answer in Chat. Use a paid plan, Claude or an OpenRouter key. |
 | **ChatGPT didn't answer: your plan is used up for now.** or the same for Claude | Your plan's limit is reached. Ask again after the time shown, or pick another model. |
 | *A model* **didn't answer: the account it runs on is out of credits. Add credits, then ask again.** | The account behind the model, such as your OpenRouter key, has no money left on it. Add credits, such as on openrouter.ai, then ask again. |
-| *A model* **holds too little text for this.** | The model's context window cannot hold your question with what Chat must send. Pick another model, or, for a model at a custom address, run it with a larger context window. |
+| *A model* **holds too little text for this.** | The model's context window cannot hold your question with what Chat must send. Pick another model, or, for a model on another server, run it with a larger context window. |
 | **Not saved yet: Chat can't write to your Mac's disk. It keeps trying.** | This shows under an answer. Chat answered, but could not write the answer to your Mac's disk, so Lifestream does not have it yet. Free some space on your Mac. Chat saves the answer once there is room. Asking again would ask the model twice. |
 | **Recent chats are not saved to Lifestream yet.** | An answer has waited an hour for Lifestream to take it. Chat keeps trying, and the line goes once Lifestream has it. |
 | **Chat restarted before it finished.** | Lifestream restarted, such as for an update, during the answer. Click **Try again**. |

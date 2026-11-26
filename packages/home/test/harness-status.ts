@@ -1,7 +1,7 @@
 import { openHomeFolder, readTables, type HomeFolder } from "@lifestreamprotocol/core";
 import { pauses } from "../jobs.js";
 import { storedModels } from "../models.js";
-import { modelsPage, type ModelsPage } from "../page-models.js";
+import { modelProviders, type ModelProviders } from "../page-models.js";
 import { HomeFile } from "../home-file.js";
 import { machine } from "../machine.js";
 import { effective } from "../settings.js";
@@ -30,15 +30,15 @@ export function streamsOf(root: string, options: { now_ms?: number; unit?: strin
   }))!);
 }
 
-export function modelsPageOf(root: string, now_ms = Date.now()): ModelsPage {
+export function providersOf(root: string, now_ms = Date.now()): ModelProviders {
   const folder = openHomeFolder(root);
   const { settings } = effective(folder);
-  return new HomeFile(folder, 5_000).read((db) => modelsPage({ stored: storedModels(readTables(db).meta), settings, pauses: pauses(db), now_ms, day: settings.day }))
-    ?? modelsPage({ stored: { routes: [], runners: [], connections: {} }, settings, pauses: [], now_ms, day: settings.day });
+  return new HomeFile(folder, 5_000).read((db) => modelProviders({ stored: storedModels(readTables(db).meta), settings, pauses: pauses(db), now_ms, day: settings.day }))
+    ?? modelProviders({ stored: { routes: [], runners: [], connections: {} }, settings, pauses: [], now_ms, day: settings.day });
 }
 
-export const runnerOf = (page: ModelsPage, unit: string) => {
+export const runnerOf = (page: ModelProviders, unit: string) => {
   const found = page.connections.find((each) => each.kind === "runner" && each.id === `runner:${unit}`);
-  if (found?.kind !== "runner") throw new Error(`the models page holds no runner ${unit}`);
+  if (found?.kind !== "runner") throw new Error(`the providers page holds no runner ${unit}`);
   return found;
 };

@@ -73,30 +73,16 @@ async function fetchInto(url: URL, artifact: Artifact, file: string, { signal, p
   const handle = await disk(() => open(partial, have > 0 ? "a" : "w"));
   let landed = have;
   try {
-    if (response.body === null) throw new ArtifactError("offline", `${artifact.url} answered no body`);
-    const reader = response.body.getReader();
-    for (;;) {
-      let chunk: Awaited<ReturnType<typeof reader.read>>;
-      try {
-        chunk = await stoppable(reader.read(), signal);
-      } catch (error) {
-        if (signal?.aborted) {
-          void reader.cancel().catch(() => undefined);
-          throw signal.reason;
-        }
-        throw new ArtifactError("offline", `${artifact.url} ended after ${landed} of ${artifact.bytes} bytes: ${causeText(error)}`, undefined, { cause: error });
-      }
-      if (chunk.done) break;
-      if (landed + chunk.value.byteLength > artifact.bytes) {
-        await reader.cancel().catch(() => undefined);
+    await readBody(response, signal, () => `${artifact.url} ended after ${landed} of ${artifact.bytes} bytes`, async (chunk) => {
+      if (landed + chunk.byteLength > artifact.bytes) {
         await handle.close();
         disk(() => rmSync(partial, { force: true }));
         throw new ArtifactError("hash", `${artifact.url} sent more than its ${artifact.bytes} bytes`);
       }
-      await write(handle, chunk.value);
-      landed += chunk.value.byteLength;
+      await write(handle, chunk);
+      landed += chunk.byteLength;
       progress?.(landed);
-    }
+    });
     await disk(() => handle.sync());
   } finally {
     await handle.close().catch(() => undefined);
@@ -107,6 +93,51 @@ async function fetchInto(url: URL, artifact: Artifact, file: string, { signal, p
     throw new ArtifactError("hash", `${artifact.url} is not the artifact published: its SHA-256 differs`);
   }
   await publish(partial, file);
+}
+
+export async function fetchDocument(address: string, options: { readonly accept: string; readonly most_bytes: number; readonly deadline_ms: number; readonly signal?: AbortSignal }): Promise<Buffer> {
+  const deadline = AbortSignal.timeout(options.deadline_ms);
+  const signal = options.signal === undefined ? deadline : AbortSignal.any([options.signal, deadline]);
+  const chunks: Uint8Array[] = [];
+  let landed = 0;
+  try {
+    const response = await request(allowed(address), 0, signal, options.accept);
+    if (response.status !== 200) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new ArtifactError("refused", `${address} answered HTTP ${response.status}`, response.status);
+    }
+    await readBody(response, signal, () => `${address} ended after ${landed} bytes`, (chunk) => {
+      landed += chunk.byteLength;
+      if (landed > options.most_bytes) throw new ArtifactError("refused", `${address} sent more than ${options.most_bytes} bytes`);
+      chunks.push(chunk);
+    });
+  } catch (error) {
+    if (options.signal?.aborted !== true && deadline.aborted) throw new ArtifactError("offline", `${address} did not answer whole within ${options.deadline_ms} ms`, undefined, { cause: error });
+    throw error;
+  }
+  return Buffer.concat(chunks);
+}
+
+async function readBody(response: Response, signal: AbortSignal | undefined, ended: () => string, take: (chunk: Uint8Array) => void | Promise<void>): Promise<void> {
+  if (response.body === null) throw new ArtifactError("offline", `${ended()}: no body`);
+  const reader = response.body.getReader();
+  for (;;) {
+    let chunk: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      chunk = await stoppable(reader.read(), signal);
+    } catch (error) {
+      void reader.cancel().catch(() => undefined);
+      if (signal?.aborted) throw signal.reason;
+      throw new ArtifactError("offline", `${ended()}: ${causeText(error)}`, undefined, { cause: error });
+    }
+    if (chunk.done) return;
+    try {
+      await take(chunk.value);
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    }
+  }
 }
 
 export async function oneWriter<T>(lock: string, signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
@@ -147,7 +178,7 @@ function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
   });
 }
 
-async function holdsArtifact(artifact: Artifact, file: string, signal: AbortSignal | undefined): Promise<boolean> {
+export async function holdsArtifact(artifact: Artifact, file: string, signal?: AbortSignal): Promise<boolean> {
   if (sizeOf(file) !== artifact.bytes) return false;
   return await sha256Of(file, signal) === artifact.sha256;
 }
@@ -173,12 +204,12 @@ async function publish(partial: string, file: string): Promise<void> {
   });
 }
 
-async function request(url: URL, from: number, signal: AbortSignal | undefined): Promise<Response> {
+async function request(url: URL, from: number, signal: AbortSignal | undefined, accept?: string): Promise<Response> {
   let at = url;
   for (let hop = 0; ; hop++) {
     let response: Response;
     try {
-      response = await fetch(at, { redirect: "manual", headers: { "accept-encoding": "identity", ...from > 0 ? { range: `bytes=${from}-` } : {} }, ...(signal === undefined ? {} : { signal }) });
+      response = await fetch(at, { redirect: "manual", headers: { "accept-encoding": "identity", ...from > 0 ? { range: `bytes=${from}-` } : {}, ...accept === undefined ? {} : { accept } }, ...(signal === undefined ? {} : { signal }) });
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
       throw new ArtifactError("offline", `${url.href} could not be reached: ${causeText(error)}`, undefined, { cause: error });

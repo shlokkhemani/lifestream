@@ -2,20 +2,24 @@
   "position": "1:1791968400000",
   "today": "2026-06-01",
   "placeholder": "Search",
-  "rows": [
+  "groups": [
     {
-      "value": "claude:claude-opus-5-5",
-      "name": "Claude Opus 5.5",
-      "account": null,
-      "chosen": false
-    },
-    {
-      "value": "claude:claude-haiku-5-5",
-      "name": "Claude Haiku 5.5",
-      "account": null,
-      "chosen": false
+      "label": "Claude",
+      "rows": [
+        {
+          "value": "claude:claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "account": null,
+          "chosen": false
+        },
+        {
+          "value": "claude:claude-haiku-5-5",
+          "name": "Claude Haiku 5.5",
+          "account": null,
+          "chosen": false
+        }
+      ]
     }
   ],
-  "local": null,
   "none": null
 }

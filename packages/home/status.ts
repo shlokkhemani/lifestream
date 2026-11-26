@@ -371,7 +371,7 @@ function limitNeeds(db: Database.Database, found: Found, root: string, passes: r
   if (stated === null) return;
   const devices = readTables(db).devices;
   const network = homeNetwork({ devices }, stated);
-  if (network.metered) {
+  if (network.pastWaits) {
     found.needs.push({ ...own("metered", "needs-you", "Lifestream is on a hotspot", network.since_ms), line: "History waits for Wi-Fi" });
   }
   const kinds = new Map(passes.map((pass) => [pass.id, pass.kind]));

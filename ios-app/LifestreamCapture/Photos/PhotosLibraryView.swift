@@ -68,7 +68,7 @@ final class PhotosServices: ObservableObject {
                 waiting = nil
                 continue
             }
-            let device = await ShippingService.device()
+            let device = await ShippingService.device(shipping.link)
             let report = await run(.wake(.foreground), device: device)
             if let report, !report.waited, let wanted = state.left?.wanted {
                 first = first ?? wanted
@@ -81,7 +81,7 @@ final class PhotosServices: ObservableObject {
                 stopped = words
                 return
             case .wait(let wait):
-                await BringInWait(volume: runtime.captureStore.volume, network: SystemNetwork.shared, phone: PhoneNeeds.name)
+                await BringInWait(volume: runtime.captureStore.volume, link: shipping.link, phone: PhoneNeeds.name)
                     .out(wait, spare: device.spare) { self.waiting = $0 }
                 waiting = nil
             case .again(let passes):
@@ -94,21 +94,29 @@ final class PhotosServices: ObservableObject {
 
 struct BringInWait: Sendable {
     let volume: Volume
-    let network: any NetworkWatch
+    let link: HomeLink
     let phone: String
     var pause: @Sendable () async -> Void = { try? await Task.sleep(for: .seconds(60)) }
 
     @MainActor func out(_ wait: Due.Wait, spare: Int64, say: (String) -> Void) async {
         switch wait {
         case .network:
-            for await facts in network.changes() {
-                guard let metered = facts.metered else { return }
-                say(metered.waiting)
+            let changes = link.mobileChanges()
+            guard var said = pastWait else { return }
+            say(said.words)
+            for await _ in changes {
+                guard let wait = pastWait else { return }
+                if wait != said { say(wait.words) }
+                said = wait
             }
         case .space:
             say(Self.space(volume.room, phone: phone))
             repeat { await pause() } while !Task.isCancelled && volume.spare <= spare
         }
+    }
+
+    private var pastWait: MobileData.Wait? {
+        if case .waits(let wait) = link.mobile(pressed: false).decide(.later, bytes: 0) { wait } else { nil }
     }
 
     static func space(_ room: Room, phone: String) -> String {

@@ -86,6 +86,7 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
     private var losing = false
     private var stated: [[String: Any]] = []
     private var statedThrough: [[String: Any]] = []
+    private var statedNetworks: [String] = []
     private var floor = "0.1.0"
     private var release: (version: String, generation: Int?) = ("0.2.0", nil)
     let clock: @Sendable () -> Date
@@ -196,6 +197,7 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
     func loseNextAnswer() { lock.withLock { losing = true } }
     var sendings: [[String: Any]] { lock.withLock { stated } }
     var throughs: [[String: Any]] { lock.withLock { statedThrough } }
+    var networks: [String] { lock.withLock { statedNetworks } }
 
     func silence() { lock.withLock { silentNow = true } }
     func speak() { lock.withLock { silentNow = false } }
@@ -289,6 +291,7 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
                 if case .json(let data) = request.body, let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     if let sending = body["sending"] as? [String: Any] { stated.append(sending) }
                     if let through = body["through"] as? [String: Any] { statedThrough.append(through) }
+                    if let network = body["network"] as? String { statedNetworks.append(network) }
                 }
                 return answer(200, pass)
             }
@@ -425,24 +428,20 @@ struct FakeSealFailure: Error, CustomStringConvertible {
 
 final class FakeNetwork: NetworkWatch, @unchecked Sendable {
     private let lock = NSLock()
-    private var now: Metered?
+    private var now: MobileData.Path
 
-    init(_ cost: Metered? = nil) { now = cost }
+    init(_ path: MobileData.Path = .free) { now = path }
 
-    var cost: Metered? {
+    var path: MobileData.Path {
         get { lock.withLock { now } }
         set { lock.withLock { now = newValue } }
     }
 
-    var facts: NetworkFacts? { NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1, metered: cost) }
+    var facts: NetworkFacts? { NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 1, cost: path) }
 
     func changes() -> AsyncStream<NetworkFacts> {
-        AsyncStream { $0.yield(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1, metered: cost)) }
+        AsyncStream { $0.yield(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, path: 1, cost: path)) }
     }
-}
-
-extension MacNetwork {
-    static var free: MacNetwork { MacNetwork(FakeNetwork()) }
 }
 
 final class FakeDomain: ShippingDomain, @unchecked Sendable {
@@ -599,9 +598,11 @@ enum ShippingFixture {
     static let name = "http://127.0.0.1:4680"
 
     static func link(_ home: FakeHome, folder: URL, version: String = "0.2.0", stamp: Int? = nil,
-                     credentials: any Credentials = MemoryCredentials(), at address: String = name) async throws -> HomeLink {
+                     credentials: any Credentials = MemoryCredentials(), at address: String = name,
+                     network: (any NetworkWatch)? = nil) async throws -> HomeLink {
         let link = HomeLink(device: HomeLink.Device(kind: .mac, version: version, model: "MacBook Pro", serial4: "0001", stamp: stamp),
-                            credentials: credentials, folder: folder, transport: home, clock: home.clock, files: DeviceFiles(.plain))
+                            credentials: credentials, folder: folder, transport: home, network: network, clock: home.clock,
+                            files: DeviceFiles(.plain))
         _ = try await link.pair(code: FakeHome.code, name: address)
         home.forgetRequests()
         return link

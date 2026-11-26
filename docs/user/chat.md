@@ -6,12 +6,12 @@ emails, photos and days it used, so you can open them and check.
 ## Before you start
 
 - Lifestream on your Mac. Chat runs there, and the iPhone app asks it there.
-- A model that can chat, connected in **Settings** › **AI models**: a ChatGPT or Claude plan, a
-  model through your OpenRouter key, or a model at a custom address, such as one your Mac runs.
+- A model that can chat, connected in **Settings** › **Providers**: a ChatGPT or Claude plan, a
+  model through your OpenRouter key, or a model on another server, such as one your Mac runs.
   [Connect a ChatGPT or Claude plan](./ai-models.md#connect-a-chatgpt-or-claude-plan) gives the
   steps. A free ChatGPT plan cannot answer in Chat.
 
-Chat answers with the model chosen for **Chat** in **Settings** › **AI models**. Lifestream chooses
+Chat answers with the model chosen for **Chat** in **Settings** › **Default models**. Lifestream chooses
 one whenever none is chosen and a model that fits is ready: Claude Opus 5.5 at **Medium** on your
 Claude plan, else GPT-6.2 Sol on your ChatGPT plan, else GPT-6 Luna through your OpenRouter key. To
 ask one question of another model, pick it in Chat's model menu. The menu lists the suggested models
@@ -60,8 +60,8 @@ model.
 
 To ask out loud, click the microphone and talk. Click the square or the arrow to send, or click
 **×** or press Esc to throw the note away. Lifestream writes out what you said under the note, with
-the model chosen for **Voice notes** in **Settings** › **AI models**. While no model is chosen, the
-microphone records nothing: it says **Choose a model for Voice notes**, with **Open AI models**. A note you throw away is deleted from Lifestream.
+the model chosen for **Voice notes** in **Settings** › **Default models**. While no model is chosen, the
+microphone records nothing: it says **Choose a model for Voice notes**, with **Open Providers**. A note you throw away is deleted from Lifestream.
 
 ## Stop an answer
 

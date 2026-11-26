@@ -499,6 +499,10 @@ import Shipping
         case .homeSetting(let setting):
             try await serially { try await self.home().set(setting) }
             return nil
+        case .mobileData(let key, let choice):
+            guard let link = MacLink.shared else { throw HostRefusal(LinkFailure.unpaired) }
+            if let refusal = Self.refusal(try await link.setHomeSetting(key: key, value: .string(choice.rawValue))) { throw refusal }
+            return nil
         case .deviceName(let unit, let name):
             try await serially {
                 let home = try await self.home()
@@ -1159,6 +1163,16 @@ import Shipping
             return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         } catch {
             throw Self.said(error)
+        }
+    }
+
+    nonisolated static func refusal(_ outcome: SettingOutcome) -> HostRefusal? {
+        switch outcome {
+        case .taken, .changed: nil
+        case .refused: HostRefusal(.refused(ReachWords.refused))
+        case .saving: HostRefusal(.saving)
+        case .unknown(let words): HostRefusal(.unknown(words))
+        case .unreachable: HostRefusal(.notSent)
         }
     }
 

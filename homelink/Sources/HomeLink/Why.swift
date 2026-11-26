@@ -17,19 +17,6 @@ public struct NetworkFacts: Sendable, Equatable {
         self.cost = cost
     }
 
-    public init(online: Bool, onLocalNetwork: Bool, tunnelUp: Bool, path: Int = 0, metered: Metered?) {
-        self.init(online: online, onLocalNetwork: onLocalNetwork, tunnelUp: tunnelUp, path: path,
-                  cost: metered.map { $0 == .lowDataMode ? .lowData : .costly } ?? .free)
-    }
-
-    public var metered: Metered? {
-        switch cost {
-        case .free: return nil
-        case .costly: return .expensive
-        case .lowData: return .lowDataMode
-        }
-    }
-
     public func changesRoad(from before: NetworkFacts) -> Bool {
         online && (before.online != online || before.onLocalNetwork != onLocalNetwork || before.tunnelUp != tunnelUp)
     }
@@ -67,17 +54,9 @@ public struct NetworkFacts: Sendable, Equatable {
     }
 }
 
-public enum Metered: Sendable, Equatable {
-    case expensive, lowDataMode
-}
-
 public protocol NetworkWatch: Sendable {
     var facts: NetworkFacts? { get }
     func changes() -> AsyncStream<NetworkFacts>
-}
-
-extension NetworkWatch {
-    public var metered: Bool { facts.map { $0.metered != nil } ?? true }
 }
 
 public final class SystemNetwork: NetworkWatch, @unchecked Sendable {

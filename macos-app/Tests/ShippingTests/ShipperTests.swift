@@ -40,7 +40,7 @@ final class ShipperTests: XCTestCase {
                              link: HomeLink? = nil, clock: FixedClock? = nil, fullDiskAccess: Bool = true,
                              grants: (@Sendable () -> [String: String]?)? = nil,
                              found: (@Sendable () -> [String]?)? = nil,
-                             network: FakeNetwork = FakeNetwork(), stores: DeclaredStores? = nil) -> Shipper {
+                             stores: DeclaredStores? = nil) -> Shipper {
         let built = self.built!, rows = self.rows!, rotations = self.rotations!
         let words = MacSettings.JSON.string(MacSettings.words(refresh))
         let settings = given ?? MacSettings(file: DomainFixtures.settingsFile, defaults: ["machine": ["refresh": words], "imessage": ["refresh": words],
@@ -59,7 +59,7 @@ final class ShipperTests: XCTestCase {
             grants: grants ?? { nil },
             found: found ?? { nil },
             stores: stores,
-            network: MacNetwork(network), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+            scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
     }
 
     private func machineDomain(_ seals: [FakeDomain.Seal], gate: (@Sendable () -> Void)? = nil) -> FakeDomain {
@@ -248,15 +248,16 @@ final class ShipperTests: XCTestCase {
         XCTAssertEqual(home.custody(ShippingFixture.machineSource).received, 1)
     }
 
-    func testANetworkThatTurnsMeteredMidRunIsReadOnceAndTheRunMovesWhatItBeganOnAFreeOne() async throws {
-        let away = try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680")
+    func testABundleIsJudgedOnTheNetworkItIsSentOn() async throws {
         let network = FakeNetwork()
+        let away = try await away(network)
         let domain = FakeDomain(sourceId: ShippingFixture.messagesSource, name: "imessage", seals: [.sealedLater, .nothingNew],
-                                holdingSealAt: { network.cost = .expensive })
+                                holdingSealAt: { network.path = .costly })
 
-        let report = await makeShipper([domain], link: away, network: network).run(.timer)
-        XCTAssertEqual(report.rows.map(\.summary), ["shipped"], "the network as the run began, never held METERED by a change mid-run")
-        XCTAssertEqual(home.deliveries.map(\.seal), [1])
+        let report = await makeShipper([domain], link: away).run(.timer)
+        XCTAssertTrue(report.rows.contains { $0.summary == "held past" }, "the past sealed on Wi-Fi waits once the network costs, and says why")
+        XCTAssertEqual(report.waitsFor, .past)
+        XCTAssertEqual(home.deliveries.map(\.seal), [], "nothing crossed the network that costs")
     }
 
     func testAPassTheHomeDoesNotKnowIsARefusalAndSealsNothing() async throws {
@@ -892,67 +893,73 @@ final class ShipperTests: XCTestCase {
                        "a live bundle is new, a history page later")
     }
 
-    func testAMeteredMacShipsEverythingToItsHomeOverLoopback() async throws {
+    func testTheHomesMacOnAHotspotShipsEverythingOverLoopbackAndStatesNow() async throws {
+        let here = try await ShippingFixture.link(home, folder: root.appendingPathComponent("here"), network: FakeNetwork(.costly))
         let domain = messagesDomain([.sealedWithPage])
-        let shipper = makeShipper([domain], refresh: 60, network: FakeNetwork(.expensive))
+        let shipper = makeShipper([domain], refresh: 60, link: here)
         let report = await shipper.run(.timer)
         XCTAssertEqual(report.outcome, "shipped")
         XCTAssertEqual(home.deliveries.map(\.kind), ["new", "later"], "loopback crosses no network: nothing waits for it")
         XCTAssertEqual(domain.requests.first?.custody.history, true, "its history pages on")
         clock.move(by: 60)
         let next = await shipper.run(.timer)
-        XCTAssertFalse((report.rows + next.rows).contains { $0.code == "METERED" }, "a home on this Mac never waits for Wi-Fi")
-        XCTAssertFalse(report.waitsForNetwork || next.waitsForNetwork)
+        XCTAssertFalse((report.rows + next.rows).contains { Shipper.heldForNetwork($0) != nil }, "a home on this Mac never waits for Wi-Fi")
+        XCTAssertNil(report.waitsFor ?? next.waitsFor)
+
+        let telling = Task { await MacNetwork.tell(here) }
+        defer { telling.cancel() }
+        try await until("the hotspot stated") { home.networks.contains("now") }
+        XCTAssertEqual(Set(home.networks), ["now"], "the home's own past waits for this Mac's Wi-Fi, though its sends do not")
     }
 
-    func testAMeteredMacSendsNewDataAndLetsAPageGoUntilTheNetworkIsFree() async throws {
-        let away = try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680")
+    func testAMacOnAHotspotSendsNewDataAndLetsAPageGoUntilTheNetworkIsFree() async throws {
         let network = FakeNetwork()
+        let away = try await away(network)
         let gate = home
         let opened = Toggle(false)
         let domain = FakeDomain(sourceId: ShippingFixture.messagesSource, name: "imessage",
                                 seals: [.sealedWithPage, .sealedWithPage, .sealedWithPage, .nothingNew],
                                 holdingSealAt: { if !opened.value { opened.value = true; gate?.answerNext(503) } })
-        let shipper = makeShipper([domain], refresh: 60, link: away, network: network)
+        let shipper = makeShipper([domain], refresh: 60, link: away)
         let first = await shipper.run(.timer)
         XCTAssertEqual(first.outcome, "unreachable")
         XCTAssertEqual(try state.pendingBundles().map(\.sidecar.write), [.new, .later])
 
-        network.cost = .expensive
+        network.path = .costly
         clock.move(by: Shipper.retryInterval)
         let held = await shipper.run(.timer)
         XCTAssertEqual(home.deliveries.map { "\($0.seal ?? 0) \($0.kind ?? "none")" }, ["1 new", "2 new"],
-                       "new data moves on a metered network, and its source's next seal is never behind the page")
-        XCTAssertTrue(held.rows.contains { $0.summary == "held METERED" && $0.seal == 2 }, "the page waits, and says why")
+                       "new data moves on mobile data, and its source's next seal is never behind the page")
+        XCTAssertTrue(held.rows.contains { $0.summary == "held past" && $0.seal == 2 }, "the page waits, and says why")
         XCTAssertEqual(domain.requests.last?.custody.history, false, "no page is sealed while it would wait")
         XCTAssertEqual(try state.pendingBundles(), [], "nothing parked stands in front of the source")
-        XCTAssertTrue(held.waitsForNetwork, "the menu says the wait for Wi-Fi")
+        XCTAssertEqual(held.waitsFor, .past, "the menu says the wait for Wi-Fi")
         XCTAssertEqual(held.outcome, "shipped", "the network's wait is no outcome")
         try ShippingFixture.artifact("metered-mac.json", ["deliveries": home.deliveries.map { [$0.kind ?? "none", "\($0.seal ?? 0)"] },
                                                      "rows": held.rows.map(\.summary)])
 
-        network.cost = nil
+        network.path = .free
         clock.move(by: Shipper.retryInterval)
         let free = await shipper.run(.timer)
-        XCTAssertFalse(free.waitsForNetwork)
+        XCTAssertNil(free.waitsFor)
         XCTAssertEqual(home.deliveries.map { "\($0.seal ?? 0) \($0.kind ?? "none")" }, ["1 new", "2 new", "3 new", "4 later"])
         XCTAssertEqual(try state.pendingBundles(), [])
     }
 
-    private func away() async throws -> HomeLink {
-        try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680")
+    private func away(_ network: FakeNetwork) async throws -> HomeLink {
+        try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680", network: network)
     }
 
     private func awayOnAHotspot(_ messages: FakeDomain, _ machine: FakeDomain, network: FakeNetwork,
                                 link: HomeLink? = nil) async throws -> Shipper {
         let every = { (seconds: TimeInterval) in ["refresh": MacSettings.JSON.string(MacSettings.words(seconds))] }
         let settings = MacSettings(file: DomainFixtures.settingsFile, defaults: ["machine": every(60), "imessage": every(300)], files: DeviceFiles(.plain))
-        let link = if let link { link } else { try await away() }
-        return makeShipper([messages, machine], settings: settings, link: link, network: network)
+        let link = if let link { link } else { try await away(network) }
+        return makeShipper([messages, machine], settings: settings, link: link)
     }
 
     func testTheWaitForWiFiIsEveryRunsWhileOwedHistoryWaitsAndNoneOnceTheNetworkIsFree() async throws {
-        let network = FakeNetwork(.expensive)
+        let network = FakeNetwork(.costly)
         let messages = messagesDomain([.sealedWithPage])
         let shipper = try await awayOnAHotspot(messages, machineDomain([.sealed()]), network: network)
         var reports = [await shipper.run(.timer)]
@@ -962,17 +969,17 @@ final class ShipperTests: XCTestCase {
             clock.move(by: 60)
         }
         XCTAssertEqual(messages.seals, 2, "four of the runs never asked the source that owes history")
-        XCTAssertEqual(reports.map(\.waitsForNetwork), Array(repeating: true, count: 6), "the wait is every run's while it lasts")
+        XCTAssertEqual(reports.map(\.waitsFor), Array(repeating: .past, count: 6), "the wait is every run's while it lasts")
         XCTAssertEqual(reports.map(\.outcome), Array(repeating: "shipped", count: 6), "and no run's outcome")
         XCTAssertFalse(reports.suffix(4).flatMap(\.rows).contains { $0.source == ShippingFixture.messagesSource },
                        "no row for a source that took no step")
         XCTAssertFalse(home.deliveries.contains { $0.kind == "later" }, "no page crossed the hotspot")
 
-        network.cost = nil
+        network.path = .free
         let free = await shipper.run(.timer)
-        XCTAssertFalse(free.waitsForNetwork, "a free network ends the wait at its next run")
+        XCTAssertNil(free.waitsFor, "a free network ends the wait at its next run")
         XCTAssertEqual(home.deliveries.last(where: { $0.source == ShippingFixture.messagesSource })?.kind, "later", "and the page goes")
-        try ShippingFixture.artifact("metered-wait.json", ["waits": (reports + [free]).map(\.waitsForNetwork)])
+        try ShippingFixture.artifact("metered-wait.json", ["waits": (reports + [free]).map { $0.waitsFor?.rawValue ?? "none" }])
     }
 
     func testASourceWhoseLastPageWentOnWiFiOwesNothingOnAHotspot() async throws {
@@ -984,80 +991,79 @@ final class ShipperTests: XCTestCase {
         _ = await shipper.run(.timer)
         XCTAssertEqual(home.deliveries.filter { $0.kind == "later" }.count, 2, "both pages went on Wi-Fi, the last of its history")
 
-        network.cost = .expensive
+        network.path = .costly
         clock.move(by: 60)
         let hotspot = await shipper.run(.timer)
         XCTAssertEqual(messages.seals, 2, "the source was not due")
-        XCTAssertFalse(hotspot.waitsForNetwork, "nothing is owed, so nothing waits")
+        XCTAssertNil(hotspot.waitsFor, "nothing is owed, so nothing waits")
     }
 
     func testASourceThisMacNoLongerBuildsSaysNoWaitForWiFi() async throws {
-        let network = FakeNetwork(.expensive)
+        let network = FakeNetwork(.costly)
         let machine = machineDomain([.sealed()])
-        let link = try await away()
+        let link = try await away(network)
         let before = try await awayOnAHotspot(messagesDomain([.sealedWithPage]), machine, network: network, link: link)
         let held = await before.run(.timer)
-        XCTAssertTrue(held.waitsForNetwork)
+        XCTAssertEqual(held.waitsFor, .past)
 
-        let after = makeShipper([machine], refresh: 60, link: link, network: network)
+        let after = makeShipper([machine], refresh: 60, link: link)
         clock.move(by: 60)
         let next = await after.run(.timer)
         XCTAssertEqual(built.all.last?.contains(ShippingFixture.messagesSource), true, "the home still lists it")
-        XCTAssertFalse(next.waitsForNetwork, "a source this run cannot move waits for nothing")
+        XCTAssertNil(next.waitsFor, "a source this run cannot move waits for nothing")
     }
 
     func testASourceWhoseSealIsRefusedSaysNoWaitForWiFi() async throws {
         let messages = messagesDomain([.sealedWithPage, .failure])
-        let shipper = try await awayOnAHotspot(messages, machineDomain([.sealed()]), network: FakeNetwork(.expensive))
+        let shipper = try await awayOnAHotspot(messages, machineDomain([.sealed()]), network: FakeNetwork(.costly))
         let held = await shipper.run(.timer)
-        XCTAssertTrue(held.waitsForNetwork)
+        XCTAssertEqual(held.waitsFor, .past)
         clock.move(by: Shipper.youngFor)
         let refused = await shipper.run(.timer)
         XCTAssertEqual(messages.seals, 2)
         XCTAssertTrue(refused.rows.contains { $0.source == ShippingFixture.messagesSource && $0.summary == "refused LOCAL_ACCESS" })
-        XCTAssertFalse(refused.waitsForNetwork, "a source whose seal is refused moves nothing: its wait is the refusal's")
+        XCTAssertNil(refused.waitsFor, "a source whose seal is refused moves nothing: its wait is the refusal's")
     }
 
     func testARelaunchedMacOnAHotspotSaysTheWaitAtItsFirstRun() async throws {
-        let network = FakeNetwork(.expensive)
+        let network = FakeNetwork(.costly)
         let messages = messagesDomain([.sealedWithPage])
         let machine = machineDomain([.sealed()])
-        let link = try await away()
+        let link = try await away(network)
         let before = try await awayOnAHotspot(messages, machine, network: network, link: link)
         let held = await before.run(.timer)
-        XCTAssertTrue(held.waitsForNetwork)
+        XCTAssertEqual(held.waitsFor, .past)
 
         let after = try await awayOnAHotspot(messages, machine, network: network, link: link)
         let status = await after.status()
-        XCTAssertTrue(status.waitsForNetwork, "the menu says it before any run")
+        XCTAssertEqual(status.waitsFor, .past, "the menu says it before any run")
         clock.move(by: 10)
         let first = await after.run(.timer)
         XCTAssertEqual(messages.seals, 1, "the source was not due")
-        XCTAssertTrue(first.waitsForNetwork, "the first run says the wait")
+        XCTAssertEqual(first.waitsFor, .past, "the first run says the wait")
     }
 
     func testATroubleToActOnIsTheOutcomeWhileHistoryWaitsForWiFi() async throws {
         let shipper = try await awayOnAHotspot(messagesDomain([.sealedWithPage]), machineDomain([.failure]),
-                                               network: FakeNetwork(.lowDataMode))
+                                               network: FakeNetwork(.lowData))
         let report = await shipper.run(.timer)
         XCTAssertEqual(report.outcome, "refused LOCAL_ACCESS", "the person must act on it: the network mends itself")
-        XCTAssertTrue(report.waitsForNetwork)
+        XCTAssertEqual(report.waitsFor, .lowData)
     }
 
     func testAWaitForRoomAtTheHomeIsSaidOverAWaitForWiFi() async throws {
-        let away = try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680")
-        let shipper = makeShipper([messagesDomain([.sealedWithPage]), machineDomain([.sealed()])], refresh: 60, link: away,
-                                  network: FakeNetwork(.expensive))
+        let away = try await away(FakeNetwork(.costly))
+        let shipper = makeShipper([messagesDomain([.sealedWithPage]), machineDomain([.sealed()])], refresh: 60, link: away)
         home.noRoomFor = ["new", "later"]
         let report = await shipper.run(.timer)
-        XCTAssertTrue(report.waitsForNetwork, "the history waits for Wi-Fi too")
+        XCTAssertEqual(report.waitsFor, .past, "the history waits for Wi-Fi too")
         XCTAssertEqual(report.outcome, "held DISK_LOW", "the home's disk is the person's to free; the network mends itself")
     }
 
-    func testSyncNowSendsWhatAMeteredNetworkHolds() async throws {
-        let away = try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680")
+    func testSyncNowSendsWhatLowDataModeHolds() async throws {
+        let away = try await away(FakeNetwork(.lowData))
         let domain = messagesDomain([.sealedWithPage, .sealedWithPage, .nothingNew])
-        let shipper = makeShipper([domain], refresh: 60, link: away, network: FakeNetwork(.lowDataMode))
+        let shipper = makeShipper([domain], refresh: 60, link: away)
         _ = await shipper.run(.timer)
         XCTAssertEqual(home.deliveries.map(\.kind), ["new"], "Low Data Mode holds what a hotspot holds")
         clock.move(by: 60)
@@ -1162,16 +1168,16 @@ final class ShipperTests: XCTestCase {
     }
 
     func testWhatChangedThatItsSourceStillHoldsGoesWhileTheHomeHoldsItsPastBack() async throws {
-        let away = try await ShippingFixture.link(home, folder: root.appendingPathComponent("away"), at: "http://100.100.1.1:4680")
-        let network = FakeNetwork(.expensive)
+        let network = FakeNetwork(.costly)
+        let away = try await away(network)
         let photos = FakeDomain(sourceId: ShippingFixture.inputSource, name: "photos", seals: [.sealedLater, .sealedLater, .nothingNew])
-        let shipper = makeShipper([photos], refresh: 60, link: away, network: network)
+        let shipper = makeShipper([photos], refresh: 60, link: away)
         let first = await shipper.run(.timer)
-        XCTAssertTrue(first.rows.contains { $0.summary == "held METERED" })
+        XCTAssertTrue(first.rows.contains { $0.summary == "held past" })
         XCTAssertEqual(try state.pendingBundles().map(\.sidecar.write), [.later])
 
         home.holdingBack = [ShippingFixture.inputSource]
-        network.cost = nil
+        network.path = .free
         clock.move(by: Shipper.retryInterval)
         let back = await shipper.run(.timer)
         XCTAssertFalse(back.rows.contains { $0.summary == "held HISTORY" })
@@ -1194,11 +1200,11 @@ final class ShipperTests: XCTestCase {
         func outcome(_ summaries: [(String, String?)]) -> String {
             Shipper.outcome(of: summaries.map { ShipperRunRow(outcome: $0.0, code: $0.1) })
         }
-        XCTAssertEqual(outcome([("held", "METERED"), ("held", "DISK_LOW"), ("shipped", nil)]), "held DISK_LOW")
-        XCTAssertEqual(outcome([("held", "METERED"), ("held", "DISK_FULL"), ("held", "DISK_LOW")]), "held DISK_FULL")
-        XCTAssertEqual(outcome([("shipped", nil), ("nothing_new", nil), ("held", "METERED")]), "nothing_new",
+        XCTAssertEqual(outcome([("held", "past"), ("held", "DISK_LOW"), ("shipped", nil)]), "held DISK_LOW")
+        XCTAssertEqual(outcome([("held", "large"), ("held", "DISK_FULL"), ("held", "DISK_LOW")]), "held DISK_FULL")
+        XCTAssertEqual(outcome([("shipped", nil), ("nothing_new", nil), ("held", "past")]), "nothing_new",
                        "a wait for a free network is no outcome, though it is the last row")
-        XCTAssertEqual(outcome([("refused", "LOCAL_ACCESS"), ("held", "METERED")]), "refused LOCAL_ACCESS")
+        XCTAssertEqual(outcome([("refused", "LOCAL_ACCESS"), ("held", "low-data")]), "refused LOCAL_ACCESS")
         XCTAssertEqual(outcome([("held", "HISTORY"), ("shipped", nil)]), "shipped", "the home's own words say why the past waits")
         XCTAssertEqual(outcome([]), "nothing_due")
     }

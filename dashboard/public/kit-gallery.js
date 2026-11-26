@@ -25,7 +25,7 @@ import { pageOf } from './ui/connectors/page.js';
 import { detailOf, OPENED } from './ui/connectors/dialog.js';
 import { AT_REST, bodyMarkup, menusMarkup, sideMarkup } from './ui/connectors/view.js';
 import { detailMarkup } from './ui/connectors/detail.js';
-import { ENTRIES as SETTINGS_ENTRIES, NO_PRIVACY, SETTINGS_MODELS, SETTINGS_PRIVACY, settingsDetail } from './ui/connectors/settings.js';
+import { ENTRIES as SETTINGS_ENTRIES, NO_PRIVACY, SETTINGS_DEFAULTS, SETTINGS_PRIVACY, SETTINGS_PROVIDERS, settingsDetail } from './ui/connectors/settings.js';
 import { SUBSCRIPTIONS } from './ui/connectors/settings-models.js';
 import { flowOf, sessionOf } from './ui/flows/model.js';
 import { BATTERY_SPENT, DESCRIBED, LLM_REPORT, MODELS, MODELS_BARE, ON_BATTERY, SHAPED, SUBSCRIBED, TRANSCRIBED } from './kit-gallery-llm.js';
@@ -421,9 +421,13 @@ const pickRow = (/** @type {string} */ value, /** @type {string} */ name, accoun
 const PICK_MENU = { default: null, rows: [pickRow('claude/opus', 'Opus 5.5'), pickRow('codex/sol', 'GPT-6.2 Sol'), pickRow('openrouter/gemini', 'Gemini 3.8 Flash')],
   local: { label: 'Local', rows: [pickRow('runner/qwen', 'Qwen 3.5 9B')] }, more: { words: 'More', use: /** @type {const} */ ('chat'), work: null }, off: null };
 const LEVEL_CHOICES = ['low', 'medium', 'high', 'xhigh'].map(value => ({ value, label: { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high' }[value] ?? value }));
-const PICK_FIND = { placeholder: 'Search', found: { rows: [], local: null }, none: '' };
-const PICK_FOUND = { ...PICK_FIND, found: { rows: [pickRow('claude/opus', 'Opus 5.5', 'Claude'), pickRow('openrouter/opus', 'Opus 5.5', 'OpenRouter')],
-  local: { label: 'Local', rows: [pickRow('runner/qwen-27b', 'Qwen 3.5 27B')] } } };
+/** @type {import('./pages.js').ModelsFind} */
+const FOUND_QWEN = { position: '1:0', today: '2026-10-28', placeholder: 'Search', none: null, groups: [
+  { label: 'OpenRouter', rows: [pickRow('openrouter/qwen-max', 'Qwen4 Max'), pickRow('openrouter/qwen-vl', 'Qwen 3 VL')] },
+  { label: 'Local', rows: [pickRow('runner/qwen', 'Qwen 3.5 9B')] }] };
+const PICK_FIND = { placeholder: 'Search', found: /** @type {import('./pages.js').ModelGroup[]} */ ([]), none: '' };
+const PICK_FOUND = { ...PICK_FIND, found: [{ label: 'Claude', rows: [pickRow('claude/opus', 'Opus 5.5')] },
+  { label: 'OpenRouter', rows: [pickRow('openrouter/opus', 'Opus 5.5'), pickRow('openrouter/qwen-max', 'Qwen4 Max')] }, { label: 'Local', rows: [pickRow('runner/qwen-27b', 'Qwen 3.5 27B')] }] };
 /** @param {{ active?: number, page?: 'models' | 'voice' | 'other', voice?: Parameters<typeof askPick>[0]['voice'], find?: Parameters<typeof askPick>[0]['find'] }} [open] */
 const pick = (open = {}) => askPick({ model: 'Opus 5.5', level: 'Medium', levels: LEVEL_CHOICES, thinking: 'medium', menu: PICK_MENU,
   chosen: 'claude/opus', reset: true, find: PICK_FIND, ...open });
@@ -481,7 +485,7 @@ const ask = () => !wants('Chat', 'Composer', 'Question', 'Starters', 'Steps line
   group('Composer · menus', '<div class="gallery__ask-col gallery__ask-menus">' + [
     specimen('The pick chip’s menu: Thinking, then Model ›', `<div class="gallery__ask-menu">${pick({ active: 2 })}</div>`),
     specimen('Model ›: each model its name, local ones under Local, then More', `<div class="gallery__ask-menu">${pick({ active: 12, page: 'models' })}</div>`),
-    specimen('More: what was typed finds any model that fits Chat; a name found twice says its account', `<div class="gallery__ask-menu">${pick({ active: 12, page: 'other', find: PICK_FOUND })}</div>`),
+    specimen('More: what was typed finds any model that fits Chat, under where each comes from', `<div class="gallery__ask-menu">${pick({ active: 12, page: 'other', find: PICK_FOUND })}</div>`),
     specimen('The level chip’s menu: Sensitive information, the three levels, the one kept checked',
       `<div class="gallery__ask-menu">${askLevel({ level: 'names', active: 2 })}</div>`),
     specimen('The + menu', `<div class="gallery__ask-menu">${composerAttach({ active: 0 })}</div>`),
@@ -619,7 +623,7 @@ const onboarding = () => !wants('Action', 'Status', 'Offer', 'List rows', 'AppIc
 /** @type {import('./lib/reach.js').Drawn} */
 const READ_FAILED = { kind: 'lack', words: null, retry: true };
 
-/** @param {{ label: string, shot: string, id: string, state?: HostState | null, report?: import('./types.js').StreamsReport | null, models?: import('./pages.js').Models | null, failed?: import('./lib/reach.js').Drawn | null, unread?: boolean, opened?: Partial<import('./ui/connectors/dialog.js').Opened>, asking?: string, query?: string, size?: [number, number], privacy?: import('./ui/connectors/settings.js').PrivacyReads, storage?: import('./ui/connectors/settings.js').StorageReads, answers?: import('./ui/connectors/settings.js').SettingsReads }} shown */
+/** @param {{ label: string, shot: string, id: string, state?: HostState | null, report?: import('./types.js').StreamsReport | null, models?: import('./lib/model-menu.js').Models | null, failed?: import('./lib/reach.js').Drawn | null, unread?: boolean, opened?: Partial<import('./ui/connectors/dialog.js').Opened>, asking?: string, query?: string, size?: [number, number], privacy?: import('./ui/connectors/settings.js').PrivacyReads, storage?: import('./ui/connectors/settings.js').StorageReads, answers?: import('./ui/connectors/settings.js').SettingsReads }} shown */
 const settingsWindow = ({ label, shot, id, state = HOST_STATE, report = REPORT, models = MODELS, failed = null, unread = false,
   opened = {}, asking = '', query = '', size = [1100, 860], privacy = SHOWN_PRIVACY,
   storage = { read: STORAGE_YEAR, drawn: null }, answers = SETTINGS_ANSWERS }) => {
@@ -665,7 +669,7 @@ const settingsPages = () => [
     settingsWindow({ label: 'Reading: Home before the report', shot: 'settings-home-reading', id: 'settings/home', report: null }),
     settingsWindow({ label: 'Reading: Advanced before its answer', shot: 'settings-advanced-reading', id: 'settings/advanced',
       answers: { ...SETTINGS_ANSWERS, pages: {} } }),
-    settingsWindow({ label: 'Reading: AI models before its read', shot: 'settings-models-reading', id: 'settings/models', models: null }),
+    settingsWindow({ label: 'Reading: Providers before its read', shot: 'settings-models-reading', id: SETTINGS_PROVIDERS, models: null }),
     settingsWindow({ label: 'The home does not answer: Home, from the host', shot: 'settings-home-away', id: 'settings/home',
       state: AWAY_STATE, report: null, unread: true }),
     settingsWindow({ label: 'The home does not answer: Advanced, what it last held', shot: 'settings-advanced-away', id: 'settings/advanced',
@@ -684,7 +688,7 @@ const settingsPages = () => [
       asking: 'retire:iphone-17-pro-aa01' }),
     settingsWindow({ label: 'Lifestream paused: its status in its words, Pause Lifestream on', shot: 'settings-home-paused', id: 'settings/home',
       report: PAUSED_HOME }),
-    settingsWindow({ label: 'Custom server, a page inside AI models', shot: 'settings-models-address', id: 'settings/models',
+    settingsWindow({ label: 'Other server, a page inside Providers', shot: 'settings-models-address', id: SETTINGS_PROVIDERS,
       models: MODELS_BARE, opened: { pages: ['address'] } }),
     settingsWindow({ label: 'Search: “port”', shot: 'settings-search', id: 'settings/advanced', query: 'port' }),
     settingsWindow({ label: 'Search that finds nothing', shot: 'settings-search-none', id: 'settings/home', query: 'zzz' }),
@@ -698,7 +702,7 @@ const settingsPages = () => [
       state: { ...HOST_STATE, general: { login: true, auto_update: false, version: '2026.11.10', update: null,
         by_hand: 'This build does not update itself. A new build is installed by hand.' } } }),
     settingsWindow({ label: 'The smallest window (900 × 600): This Mac', shot: 'settings-mac-small', id: 'settings/mac', size: [900, 600] }),
-    settingsWindow({ label: 'The smallest window (900 × 600): AI models', shot: 'settings-models-small', id: 'settings/models', size: [900, 600] }),
+    settingsWindow({ label: 'The smallest window (900 × 600): Providers', shot: 'settings-models-small', id: SETTINGS_PROVIDERS, size: [900, 600] }),
   ].join('') + '</div>'),
 ].join('');
 
@@ -789,21 +793,25 @@ const llm = () => [
     everyDialog(HOST_STATE, { ids: SHAPED, report: LLM_REPORT }))
     + specimen('In a browser: the words alone', streamDialogs(null, [{ id: 'whatsapp' }, { id: 'gmail' }],
       LLM_REPORT))),
-  group('Settings · AI models', '<div class="gallery__windows">' + [
-    settingsWindow({ label: 'A key, a server and three Macs’ models', shot: 'settings-models-full', id: SETTINGS_MODELS }),
-    settingsWindow({ label: 'This Mac on battery: Save battery holds older work, the part says why', shot: 'settings-models-battery', id: SETTINGS_MODELS, models: ON_BATTERY }),
-    settingsWindow({ label: 'Save battery off: every item runs on battery', shot: 'settings-models-battery-off', id: SETTINGS_MODELS, models: BATTERY_SPENT }),
-    settingsWindow({ label: 'In a browser: Save battery in words', shot: 'settings-models-battery-browser', id: SETTINGS_MODELS, models: ON_BATTERY, state: null }),
-    settingsWindow({ label: 'Nothing connected yet', shot: 'settings-models-bare', id: SETTINGS_MODELS, models: MODELS_BARE }),
-    settingsWindow({ label: 'The read failed', shot: 'settings-models-failed', id: SETTINGS_MODELS, models: null, failed: READ_FAILED }),
+  group('Settings · Default models and Providers', '<div class="gallery__windows">' + [
+    settingsWindow({ label: 'Default models: each use and its model, Thinking under Chat', shot: 'settings-defaults-full', id: SETTINGS_DEFAULTS }),
+    settingsWindow({ label: 'Default models › More: the field on top, what was typed found under where each model comes from', shot: 'settings-defaults-more',
+      id: SETTINGS_DEFAULTS, opened: { pages: ['more:pictures'], typed: 'qwen', found: { key: 'use:pictures\nqwen', failed: '', answer: FOUND_QWEN } } }),
+    settingsWindow({ label: 'Default models, nothing connected yet', shot: 'settings-defaults-bare', id: SETTINGS_DEFAULTS, models: MODELS_BARE }),
+    settingsWindow({ label: 'Providers: the accounts, three Macs’ models, a file downloading, the other server', shot: 'settings-models-full', id: SETTINGS_PROVIDERS }),
+    settingsWindow({ label: 'This Mac on battery: Save battery holds older work, the part says why', shot: 'settings-models-battery', id: SETTINGS_PROVIDERS, models: ON_BATTERY }),
+    settingsWindow({ label: 'Save battery off: every item runs on battery', shot: 'settings-models-battery-off', id: SETTINGS_PROVIDERS, models: BATTERY_SPENT }),
+    settingsWindow({ label: 'In a browser: Save battery in words', shot: 'settings-models-battery-browser', id: SETTINGS_PROVIDERS, models: ON_BATTERY, state: null }),
+    settingsWindow({ label: 'Nothing connected yet', shot: 'settings-models-bare', id: SETTINGS_PROVIDERS, models: MODELS_BARE }),
+    settingsWindow({ label: 'The read failed', shot: 'settings-models-failed', id: SETTINGS_PROVIDERS, models: null, failed: READ_FAILED }),
   ].join('') + '</div>'),
   group('Settings · Subscriptions, the model flow’s items', '<div class="gallery__windows">' + [
-    settingsWindow({ label: 'Neither connected', shot: 'settings-subs-none', id: SETTINGS_MODELS, state: { ...HOST_STATE, ask_login: SUBSCRIBED.none } }),
-    settingsWindow({ label: 'ChatGPT downloading, Claude signed in', shot: 'settings-subs-mixed', id: SETTINGS_MODELS,
+    settingsWindow({ label: 'Neither connected', shot: 'settings-subs-none', id: SETTINGS_PROVIDERS, state: { ...HOST_STATE, ask_login: SUBSCRIBED.none } }),
+    settingsWindow({ label: 'ChatGPT downloading, Claude signed in', shot: 'settings-subs-mixed', id: SETTINGS_PROVIDERS,
       state: { ...HOST_STATE, ask_login: SUBSCRIBED.mixed } }),
-    settingsWindow({ label: 'Both signing in: ChatGPT’s code, Claude’s approval', shot: 'settings-subs-signing', id: SETTINGS_MODELS,
+    settingsWindow({ label: 'Both signing in: ChatGPT’s code, Claude’s approval', shot: 'settings-subs-signing', id: SETTINGS_PROVIDERS,
       state: { ...HOST_STATE, ask_login: SUBSCRIBED.signing } }),
-    settingsWindow({ label: 'Signed out, and a sign-in that failed', shot: 'settings-subs-failed', id: SETTINGS_MODELS,
+    settingsWindow({ label: 'Signed out, and a sign-in that failed', shot: 'settings-subs-failed', id: SETTINGS_PROVIDERS,
       state: { ...HOST_STATE, ask_login: SUBSCRIBED.failed } }),
   ].join('') + '</div>'),
   group('Made · a voice note’s transcript', '<div class="gallery__rows">' + [

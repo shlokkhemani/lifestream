@@ -20,7 +20,11 @@ final class Rig {
         get { clock.at }
         set { clock.at = newValue }
     }
-    var metered: Metered?
+    let network = RigNetwork()
+    var path: MobileData.Path {
+        get { network.path }
+        set { network.path = newValue }
+    }
     let power = OnPower()
     var onPower: Bool {
         get { power.on }
@@ -77,8 +81,8 @@ final class Rig {
     }
 
     func launch(build: BuildLife? = nil) -> PhoneShipper {
-        let link = HomeLink(device: device, credentials: credentials, folder: exports, transport: transport, clock: clock.now,
-                            pacer: Rig.still)
+        let link = HomeLink(device: device, credentials: credentials, folder: exports, transport: transport, network: network,
+                            clock: clock.now, pacer: Rig.still)
         let custody = custody
         let alarms = Alarms()
         self.alarms = alarms
@@ -87,7 +91,7 @@ final class Rig {
             warnings: HomeWarnings(center: warnings, build: build, now: { self.date }), now: { self.date }, hardware: { hardware },
             appVersion: "1.0.0",
             ledger: ledger,
-            conditions: { PhoneShipper.Conditions(metered: self.metered, long: self.long) },
+            conditions: { PhoneShipper.Conditions(long: self.long) },
             clear: { answer in
                 self.cleared += 1
                 try await custody.clearImportedPhotos(answer)
@@ -201,7 +205,10 @@ final class Rig {
         var all = (try? JSONSerialization.jsonObject(with: Data(contentsOf: file))) as? [String: Any] ?? [:]
         all[name] = [
             "sendings": try home.sendings.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) },
-            "puts": home.puts.map { ["bundle": $0.bundle, "metered": $0.metered, "kind": $0.kind ?? "", "stopped": $0.stopped] },
+            "puts": home.puts.map { put -> [String: Any] in
+                ["bundle": put.bundle, "bytes": put.bytes, "costly": put.crossing.costly, "lowData": put.crossing.lowData,
+                 "kind": put.kind ?? "", "stopped": put.stopped]
+            },
             "answered": home.answered,
             "received": home.receivedAll,
         ]
@@ -298,6 +305,41 @@ final class Events: @unchecked Sendable {
     func add(_ what: String) { lock.withLock { said.append(what) } }
 }
 
+final class RigNetwork: NetworkWatch, @unchecked Sendable {
+    private let lock = NSLock()
+    private var now = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, cost: .free)
+    private var readers: [UUID: AsyncStream<NetworkFacts>.Continuation] = [:]
+
+    var facts: NetworkFacts? { lock.withLock { now } }
+
+    var path: MobileData.Path {
+        get { lock.withLock { now.cost } }
+        set {
+            let (facts, readers) = lock.withLock {
+                now = NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true, cost: newValue)
+                return (now, Array(self.readers.values))
+            }
+            for reader in readers { reader.yield(facts) }
+        }
+    }
+
+    func changes() -> AsyncStream<NetworkFacts> {
+        AsyncStream { continuation in
+            let id = UUID()
+            let first = lock.withLock { () -> NetworkFacts in
+                readers[id] = continuation
+                return now
+            }
+            continuation.onTermination = { [weak self] _ in self?.drop(id) }
+            continuation.yield(first)
+        }
+    }
+
+    private func drop(_ id: UUID) {
+        lock.withLock { readers[id] = nil }
+    }
+}
+
 struct RigTransport: HomeTransport {
     let home: Home
     let session: URLSessionTransport
@@ -349,7 +391,7 @@ final class ShippingTests: XCTestCase {
         try await rig.capture()
         await shipper.reconcile(.wake)
         XCTAssertEqual(rig.home.received(Home.location), 2)
-        XCTAssertEqual(rig.home.puts.map(\.metered), [true, true], "small bundles take any network")
+        XCTAssertEqual(rig.home.puts.map(\.crossing), [.any, .any], "small bundles take any network")
         XCTAssertEqual(rig.home.puts.map(\.kind), ["new", "new"], "what the phone records is new: lost if it is not sent")
         let recorded = try await outcomes(rig)
         XCTAssertEqual(recorded, ["shipped"], "noted once: the outcome did not change kind")
@@ -411,7 +453,7 @@ final class ShippingTests: XCTestCase {
         try rig.artifact("beside-a-held-upload")
     }
 
-    func testABundleOfTenMegabytesWaitsForALongWakeAndOneOfFiftyNeverGoesOnAMeteredNetworkButOnShipNow() async throws {
+    func testABundleOfTenMegabytesWaitsForALongWakeAndOneOfFiftyAsksTheModuleOnEachPathButShipNowMovesIt() async throws {
         let rig = try await rig()
         try await rig.capture(.photos, bytes: Data(repeating: 0x71, count: 10 * Self.megabyte))
         let shipper = rig.launch()
@@ -428,35 +470,30 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(rig.home.received(Home.photos), 1, "a wake that is long sends it")
 
         try await rig.capture(.photos, bytes: Data(repeating: 0x72, count: 50 * Self.megabyte))
-        rig.metered = .expensive
+        rig.path = .lowData
         await shipper.reconcile(.foreground)
-        XCTAssertEqual(rig.puts(of: Home.photos).count, 1, "50 MB waits while the network costs money")
-        XCTAssertEqual(shipper.waits, [.network(.expensive)])
-        XCTAssertEqual(shipper.shippingDescription, "Large files wait for Wi-Fi.", "Your home's line for the network, alone")
+        XCTAssertEqual(rig.puts(of: Home.photos).count, 1, "50 MB waits while Low Data Mode is on")
+        XCTAssertEqual(shipper.waits, [.network(.lowData)])
+        XCTAssertEqual(shipper.shippingDescription, MobileData.Wait.lowData.words, "Your home's line for the network, alone")
         let waiting = await shipper.unsent()
-        XCTAssertTrue(waiting.waitsForWiFi, "the clock sends once the network changes")
-        rig.metered = .lowDataMode
-        _ = await shipper.unsent()
-        XCTAssertEqual(shipper.waits, [.network(.lowDataMode)])
-        XCTAssertEqual(shipper.shippingDescription, "Large files wait: Low Data Mode is on.")
-        rig.metered = .expensive
+        XCTAssertTrue(waiting.waitsForNetwork, "the clock sends once the path or the choice changes")
         rig.long = false
         _ = await shipper.unsent()
-        XCTAssertEqual(shipper.waits, [.longWake, .network(.expensive)])
+        XCTAssertEqual(shipper.waits, [.longWake, .network(.lowData)])
         XCTAssertEqual(shipper.shippingDescription,
-                       "Large files wait to send until this iPhone charges or the app is open.\nLarge files wait for Wi-Fi.")
+                       "Large files wait to send until this iPhone charges or the app is open.\n" + MobileData.Wait.lowData.words)
         rig.long = true
-        rig.metered = nil
+        rig.path = .costly
         await shipper.reconcile(.foreground)
-        XCTAssertEqual(rig.puts(of: Home.photos).count, 2)
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.metered, false,
-                       "its request may use no metered path, so no change of network moves it onto one")
+        XCTAssertEqual(rig.puts(of: Home.photos).count, 2, "what the phone records goes over mobile data at any size")
+        XCTAssertEqual(rig.puts(of: Home.photos).last?.crossing, MobileData.Crossing(costly: true, lowData: false),
+                       "its request may not cross onto Low Data Mode, so no change of path moves it onto one")
         XCTAssertEqual(rig.home.received(Home.photos), 2)
 
         try await rig.capture(.photos, bytes: Data(repeating: 0x73, count: 50 * Self.megabyte))
-        rig.metered = .expensive
+        rig.path = .lowData
         await shipper.reconcile(.manual)
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.metered, true, "the person pressed it")
+        XCTAssertEqual(rig.puts(of: Home.photos).last?.crossing, .any, "the person pressed it")
         XCTAssertEqual(rig.puts(of: Home.photos).last?.kind, "new")
         XCTAssertEqual(rig.home.received(Home.photos), 3)
         try rig.artifact("by-size")
@@ -2238,7 +2275,8 @@ final class Home: HomeTransport, @unchecked Sendable {
 
     final class Put: @unchecked Sendable {
         let bundle: String
-        let metered: Bool
+        let bytes: Int64
+        let crossing: MobileData.Crossing
         let kind: String?
         let sources: Set<String>
         fileprivate let load: HomeProtocol
@@ -2247,8 +2285,9 @@ final class Home: HomeTransport, @unchecked Sendable {
         private var isStopped = false
         var stopped: Bool { lock.withLock { isStopped } }
         fileprivate func stop() { lock.withLock { isStopped = true } }
-        fileprivate init(bundle: String, metered: Bool, kind: String?, sources: Set<String>, load: HomeProtocol, thread: Thread) {
-            self.bundle = bundle; self.metered = metered; self.kind = kind; self.sources = sources; self.load = load
+        fileprivate init(bundle: String, bytes: Int64, crossing: MobileData.Crossing, kind: String?, sources: Set<String>,
+                         load: HomeProtocol, thread: Thread) {
+            self.bundle = bundle; self.bytes = bytes; self.crossing = crossing; self.kind = kind; self.sources = sources; self.load = load
             self.thread = thread
         }
         func answer(_ reply: Reply) {
@@ -2316,6 +2355,8 @@ final class Home: HomeTransport, @unchecked Sendable {
     private var loseAnswer = false
     private var wanting: [String: Any]?
     private var wantedAsks = 0
+    private var chosen: String?
+    private var settingsSaid = 0
     private var stating: [Sending] = []
     private var running: (version: String, generation: Int?) = ("0.3.0", nil)
     var exports: URL?
@@ -2370,6 +2411,11 @@ final class Home: HomeTransport, @unchecked Sendable {
         set { lock.withLock { wanting = newValue } }
     }
     var wantedAsked: Int { lock.withLock { wantedAsks } }
+    var mobileData: String? {
+        get { lock.withLock { chosen } }
+        set { lock.withLock { chosen = newValue } }
+    }
+    var settingsPosted: Int { lock.withLock { settingsSaid } }
     func received(_ source: String) -> Int { lock.withLock { received[source] ?? 0 } }
     func refusePass() { lock.withLock { refused = pass; pass = nil } }
     func takeBack() { lock.withLock { pass = refused } }
@@ -2435,6 +2481,12 @@ final class Home: HomeTransport, @unchecked Sendable {
             guard let wanting else { return HomeResponse(status: 404, body: Self.json(["code": "ROUTE", "message": "no"])) }
             return HomeResponse(status: 200, body: Self.json(wanting))
         }
+        if request.method == "POST", request.url.path == "/v1/settings", case .json(let data) = request.body {
+            settingsSaid += 1
+            let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            if let value = body["devices.iphone-aa00.mobile_data"] as? String { chosen = value }
+            return HomeResponse(status: 200, body: Self.json([:]))
+        }
         guard request.method == "POST", request.url.path == "/v1/exchange" else {
             return HomeResponse(status: 404, body: Self.json(["code": "ROUTE", "message": "no"]))
         }
@@ -2452,6 +2504,13 @@ final class Home: HomeTransport, @unchecked Sendable {
         didRevoke = true
         if loseAnswer { throw URLError(.networkConnectionLost) }
         return HomeResponse(status: 200, body: Self.json(reply))
+    }
+
+    fileprivate func size(_ id: String) -> Int64 {
+        lock.withLock {
+            guard let exports else { return 0 }
+            return Int64((try? FileDurability.regularFileSize(at: exports.appendingPathComponent(CaptureExporter.filename(for: id)))) ?? 0)
+        }
     }
 
     fileprivate func custody(_ id: String) -> [String: SourceCustody] {
@@ -2500,6 +2559,7 @@ final class Home: HomeTransport, @unchecked Sendable {
         var answer: [String: Any] = ["home": home, "pass": "p-0001", "unit": "iphone-aa00", "sources": sources, "owner": [String](),
                                      "needs": stated, "calls": [], "settings": [String: Any](), "turn": ["run": Self.run, "n": turnN]]
         if let replacedAt { answer["replaced"] = replacedAt }
+        if let chosen { answer["mobile_data"] = chosen }
         return answer
     }
 
@@ -2522,8 +2582,9 @@ final class HomeProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         guard let url = request.url, let home = Home.current else { return fail() }
-        let put = Home.Put(bundle: url.lastPathComponent,
-                           metered: request.allowsExpensiveNetworkAccess && request.allowsConstrainedNetworkAccess,
+        let put = Home.Put(bundle: url.lastPathComponent, bytes: home.size(url.lastPathComponent),
+                           crossing: MobileData.Crossing(costly: request.allowsExpensiveNetworkAccess,
+                                                         lowData: request.allowsConstrainedNetworkAccess),
                            kind: request.value(forHTTPHeaderField: HomeLink.kindHeader),
                            sources: Set(home.custody(url.lastPathComponent).keys), load: self, thread: .current)
         self.put = put

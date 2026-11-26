@@ -1,6 +1,7 @@
 // @ts-check
 /** @import { ConnectorReport, Made, MemberState, Processing, Step, StreamsReport } from './types.js' */
-/** @import { ModelConnection, ModelFile, ModelMenu, ModelRow, Models, ModelUse } from './pages.js' */
+/** @import { ModelConnection, ModelFile, ModelMenu, ModelRow, ModelUse } from './pages.js' */
+/** @import { Models } from './lib/model-menu.js' */
 import FIXTURE_MADE from '../../homelink/Tests/Fixtures/made.json' with { type: 'json' };
 import FIXTURE_MODELS from '../../homelink/Tests/Fixtures/models.json' with { type: 'json' };
 import { REPORT } from './kit-gallery-report.js';
@@ -140,29 +141,36 @@ export const LONGEST = 'whatsapp';
 
 const MAC = 'runner-macbook-pro-0001';
 
-export const SAVE_BATTERY = 'Runs only today\'s and yesterday\'s items on battery; the rest wait until it\'s plugged in.';
+const SAID = {
+  run: 'Run local models', runOff: 'Local work waits until you turn this on.', battery: 'Save battery', batteryLine: 'On battery, only recent items run.',
+  local: 'Local models', on: (/** @type {string} */ name) => `Local models on ${name}`, recommended: 'Recommended',
+};
+
+/** @type {Record<'fetch' | 'again' | 'remove' | 'cancel', ModelFile['acts'][number]>} */
+const ACTS = { fetch: { act: 'fetch', words: 'Download' }, again: { act: 'fetch', words: 'Try again' }, remove: { act: 'remove', words: 'Remove' },
+  cancel: { act: 'cancel', words: 'Cancel' } };
 
 /**
  * @param {string} id
  * @param {string} name
- * @param {string} about
- * @param {string} size
+ * @param {string} line
  * @param {Partial<ModelFile>} [said]
  * @returns {ModelFile}
  */
-const fileOf = (id, name, about, size, said = {}) => ({ id, name, about, size, state: 'absent', line: null, suggested: false, fits: true,
-  acts: ['fetch'], ...said });
+const fileOf = (id, name, line, said = {}) => ({ id, name, line, working: false, state: 'absent', fits: true, words: null, acts: [ACTS.fetch], ...said });
+
+/** @param {Partial<ModelFile>} said @returns {Partial<ModelFile>} */
+const ready = (said = {}) => ({ state: 'ready', words: 'Downloaded', acts: [ACTS.remove], ...said });
 
 const FILES = {
-  qwen: fileOf('qwen3.5-4b', 'Qwen 3.5 4B', 'Describes photos and sums up text · suggested for this Mac\'s 24 GB', '4.0 GB',
-    { state: 'ready', suggested: true, acts: ['remove'] }),
-  parakeet: fileOf('parakeet-unified-en-0.6b', 'Parakeet', 'Transcribes voice notes in English', '0.7 GB',
-    { state: 'fetching', line: 'Downloading, 0.3 of 0.7 GB', suggested: true, acts: ['cancel'] }),
-  nemotron: fileOf('nemotron-3.5-asr-0.6b', 'Nemotron Speech', 'Transcribes voice notes in English and Hindi', '0.7 GB'),
-  large: fileOf('qwen3.5-35b-a3b', 'Qwen 3.5 35B-A3B', 'Describes photos and sums up text · Needs a Mac with 48 GB', '21 GB',
-    { fits: false, acts: [] }),
-  meaning: fileOf('embeddinggemma-2-q8-512', 'EmbeddingGemma 2', 'Search by meaning', '0.3 GB', { state: 'ready', acts: ['remove'] }),
+  qwen: fileOf('qwen3.5-4b', 'Qwen 3.5 4B', `Describes photos and sums up text · 4 GB · ${SAID.recommended}`, ready()),
+  parakeet: fileOf('parakeet-unified-en-0.6b', 'Parakeet', 'Downloading · 3 min left', { state: 'fetching', working: true, acts: [ACTS.cancel] }),
+  nemotron: fileOf('nemotron-3.5-asr-0.6b', 'Nemotron Speech', 'Transcribes voice notes in English and Hindi · 0.7 GB'),
+  large: fileOf('qwen3.5-35b-a3b', 'Qwen 3.5 35B-A3B', 'Needs 48 GB of memory', { fits: false, acts: [] }),
+  meaning: fileOf('embeddinggemma-2-q8-512', 'EmbeddingGemma 2', 'Search by meaning · 0.3 GB', ready()),
 };
+
+const BATTERY = { label: SAID.battery, on: true, line: SAID.batteryLine };
 
 /**
  * @param {string} unit
@@ -170,8 +178,26 @@ const FILES = {
  * @param {Partial<Extract<ModelConnection, { kind: 'runner' }>>} said
  * @returns {ModelConnection}
  */
-const runnerOf = (unit, name, said) => ({ kind: 'runner', id: `runner:${unit}`, unit, place: unit === MAC ? 'On this Mac' : `On ${name}`, name,
-  line: null, files: [], found: [], battery: null, paused: false, ...said });
+const runnerOf = (unit, name, said) => ({ kind: 'runner', id: `runner:${unit}`, unit, place: SAID.on(name), name,
+  line: null, none: null, run: { label: SAID.run, on: true, line: null }, battery: null, files: [], found: [], paused: false, ...said });
+
+const KEY = { label: 'OpenRouter key', placeholder: 'sk-or-…', add: 'Add key', remove: 'Remove' };
+const SERVER = { about: 'Any OpenAI-compatible server, like vLLM or another Mac.', add: 'Add server', remove: 'Remove', field: 'Server URL',
+  placeholder: 'http://localhost:11434/v1', save: 'Save' };
+
+/**
+ * @param {boolean} held
+ * @returns {ModelConnection}
+ */
+const keyOf = held => ({ kind: 'key', id: 'openrouter', name: 'OpenRouter', line: 'Hundreds of models with one key.', held, words: held ? 'Connected' : null, key: KEY });
+
+/**
+ * @param {string} id
+ * @param {string} name
+ * @param {boolean} signed
+ * @returns {ModelConnection}
+ */
+const planOf = (id, name, signed) => ({ kind: 'plan', id, name, line: null, signed, words: signed ? 'Signed in' : 'Not signed in' });
 
 /** @typedef {Listed & { line: string | null }} Choice */
 
@@ -185,7 +211,7 @@ const choiceOf = (value, name, line = null) => ({ value, name, local: value.star
 
 const CHOICES = {
   qwen: choiceOf(`runner:${MAC}/qwen3.5-4b`, 'Qwen 3.5 4B'),
-  parakeet: choiceOf(`runner:${MAC}/parakeet-unified-en-0.6b`, 'Parakeet', 'Downloading, 0.3 of 0.7 GB'),
+  parakeet: choiceOf(`runner:${MAC}/parakeet-unified-en-0.6b`, 'Parakeet', 'Downloading · 3 min left'),
   nemotron: choiceOf(`runner:${MAC}/nemotron-3.5-asr-0.6b`, 'Nemotron Speech'),
   meaning: choiceOf(`runner:${MAC}/embeddinggemma-2-q8-512`, 'EmbeddingGemma 2'),
   hiding: choiceOf(`runner:${MAC}/privacy-filter`, 'Privacy Filter'),
@@ -212,67 +238,68 @@ const useOf = (use, label, choices, value, said = {}) => {
 
 /** @type {Models} */
 export const MODELS = {
-  position: '1:0',
-  today: NEW,
   uses: [
-    useOf('pictures', 'Photos', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.vision.value, {
-      places: [{ place: 'Claude', value: CHOICES.plan.value, line: null, ready: true, leaves: true },
-        { place: 'On this Mac', value: CHOICES.qwen.value, line: null, ready: true, leaves: false }] }),
-    useOf('audio', 'Voice notes', [CHOICES.parakeet, CHOICES.nemotron, CHOICES.plan], null, {
-      places: [{ place: 'Claude', value: CHOICES.plan.value, line: null, ready: true, leaves: true },
-        { place: 'On this Mac', value: CHOICES.parakeet.value, line: CHOICES.parakeet.line, ready: false, leaves: false }] }),
-    useOf('text', 'Text', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.qwen.value),
     useOf('chat', 'Chat', [CHOICES.planChat, CHOICES.chat], CHOICES.planChat.value, {
-      thinking: { value: 'medium', words: 'Medium', levels: [
+      thinking: { label: 'Thinking', value: 'medium', words: 'Medium', levels: [
         { value: 'low', name: 'Low', chosen: false, suggested: false },
         { value: 'medium', name: 'Medium', chosen: true, suggested: true },
         { value: 'high', name: 'High', chosen: false, suggested: false },
       ] } }),
+    useOf('pictures', 'Photos', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.vision.value, {
+      places: [{ place: 'Claude', value: CHOICES.plan.value, line: null, working: false, ready: true, leaves: true },
+        { place: 'On this Mac', value: CHOICES.qwen.value, line: null, working: false, ready: true, leaves: false }] }),
+    useOf('audio', 'Voice notes', [CHOICES.parakeet, CHOICES.nemotron, CHOICES.plan], null, {
+      places: [{ place: 'Claude', value: CHOICES.plan.value, line: null, working: false, ready: true, leaves: true },
+        { place: 'On this Mac', value: CHOICES.parakeet.value, line: CHOICES.parakeet.line, working: true, ready: true, leaves: false }] }),
+    useOf('text', 'Text', [CHOICES.qwen, CHOICES.plan, CHOICES.vision], CHOICES.qwen.value),
     useOf('search', 'Search by meaning', [CHOICES.meaning], CHOICES.meaning.value),
     useOf('hiding', 'Hiding details', [CHOICES.hiding], null),
   ],
+  position: '1:0',
+  today: NEW,
+  accounts: 'Accounts',
   connections: [
-    runnerOf(MAC, ON_MAC, { files: [FILES.qwen, FILES.parakeet, FILES.nemotron, FILES.large, FILES.meaning],
-      battery: { on: true, line: SAVE_BATTERY } }),
-    runnerOf('runner-mac-mini-bb17', 'Mac mini', { paused: true, line: 'Paused by you · since 14:02', files: [
-      { ...FILES.qwen, state: 'failed', line: 'The download stopped: this Mac has 2 GB free.', acts: ['fetch'] },
+    planOf('claude', 'Claude', true),
+    planOf('codex', 'ChatGPT', false),
+    keyOf(true),
+    runnerOf(MAC, ON_MAC, { files: [FILES.qwen, FILES.parakeet, FILES.nemotron, FILES.large, FILES.meaning], battery: BATTERY }),
+    runnerOf('runner-mac-mini-bb17', 'Mac mini', { paused: true, run: { label: SAID.run, on: false, line: SAID.runOff }, files: [
+      { ...FILES.qwen, state: 'failed', line: 'Not enough disk space', words: null, acts: [ACTS.again] },
     ] }),
-    runnerOf('runner-imac-cc31', 'iMac', { line: 'iMac\'s runner is not running' }),
-    { kind: 'plan', id: 'claude', name: 'Claude', line: null, signed: true },
-    { kind: 'plan', id: 'codex', name: 'ChatGPT', line: null, signed: false },
-    { kind: 'key', id: 'openrouter', name: 'OpenRouter', line: null, held: true },
-    { kind: 'address', id: 'address', url: 'http://127.0.0.1:11434/v1', line: null },
+    runnerOf('runner-imac-cc31', 'iMac', { line: 'iMac\'s runner is not running', run: null, none: 'iMac\'s runner is not running' }),
+    { kind: 'address', id: 'address', label: 'Other server', url: 'http://127.0.0.1:11434/v1', line: null, words: SERVER },
   ],
 };
 
 /**
- * @param {{ on: boolean, line: string }} battery
+ * @param {{ label: string, on: boolean, line: string }} battery
  * @returns {Models}
  */
-const withBattery = battery => ({ ...MODELS, connections: MODELS.connections.map((each, at) => at === 0 && each.kind === 'runner'
+const withBattery = battery => ({ ...MODELS, connections: MODELS.connections.map((each, at) => each.kind === 'runner' && each.unit === MAC
   ? { ...each, battery } : each) });
-export const ON_BATTERY = withBattery({ on: true, line: 'On battery · older items wait until it\'s plugged in' });
-export const BATTERY_SPENT = withBattery({ on: false, line: SAVE_BATTERY });
+export const ON_BATTERY = withBattery(BATTERY);
+export const BATTERY_SPENT = withBattery({ ...BATTERY, on: false });
 
 /** @type {Models} */
 export const MODELS_BARE = {
-  position: '1:0',
-  today: NEW,
   uses: [
+    useOf('chat', 'Chat', [], null),
     useOf('pictures', 'Photos', [], null),
     useOf('audio', 'Voice notes', [], null),
     useOf('text', 'Text', [CHOICES.qwen], null),
-    useOf('chat', 'Chat', [], null),
     useOf('search', 'Search by meaning', [], null),
     useOf('hiding', 'Hiding details', [], null),
   ],
+  position: '1:0',
+  today: NEW,
+  accounts: 'Accounts',
   connections: [
-    runnerOf(MAC, ON_MAC, { files: [{ ...FILES.qwen, state: 'absent', acts: ['fetch'] }, { ...FILES.parakeet, state: 'absent', line: null,
-      acts: ['fetch'] }, { ...FILES.nemotron, suggested: true }], battery: { on: true, line: SAVE_BATTERY } }),
-    { kind: 'plan', id: 'claude', name: 'Claude', line: null, signed: false },
-    { kind: 'plan', id: 'codex', name: 'ChatGPT', line: null, signed: false },
-    { kind: 'key', id: 'openrouter', name: 'OpenRouter', line: null, held: false },
-    { kind: 'address', id: 'address', url: null, line: null },
+    planOf('claude', 'Claude', false),
+    planOf('codex', 'ChatGPT', false),
+    keyOf(false),
+    runnerOf(MAC, ON_MAC, { place: SAID.local, run: null, files: [{ ...FILES.qwen, state: 'absent', words: null, acts: [ACTS.fetch] },
+      { ...FILES.parakeet, state: 'absent', line: 'Transcribes voice notes in English · 0.7 GB', working: false, acts: [ACTS.fetch] }, FILES.nemotron], battery: BATTERY }),
+    { kind: 'address', id: 'address', label: 'Other server', url: null, line: null, words: SERVER },
   ],
 };
 

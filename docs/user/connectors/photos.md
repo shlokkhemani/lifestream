@@ -17,8 +17,9 @@ once, and asks your Mac for its files first.
 Your past is your library from the connector's start on, newest first: each device lists every
 photo, then sends the files Lifestream lacks of those taken from the start on. On your iPhone, **New photos go at once, the rest on Wi-Fi.** On either
 device, the files of older photos wait while it is on cellular, a phone's hotspot or a network
-with Low Data Mode on. They also wait while the device, or the disk that holds Lifestream, has
-less than 5 GB free. A file only iCloud holds is downloaded while the device is plugged in.
+with Low Data Mode on, unless its **Settings** › **Mobile data** says **Everything, including my
+past**. **Bring in all photos** sends them on any network. They also wait while the device, or the
+disk that holds Lifestream, has less than 5 GB free. A file only iCloud holds is downloaded while the device is plugged in.
 
 ## Before you start
 
@@ -121,10 +122,6 @@ for an hour. Open Lifestream on it to see why.
 
 **A photo pass failed, so bringing in your photos stopped. Try again later.**\
 Your iPhone could not read its library. Tap **Bring in all photos** again later.
-
-**Waiting for Wi-Fi** or **Waiting: Low Data Mode is on**\
-**Bring in all photos** waits while your iPhone is on cellular or a hotspot, or while its Wi-Fi
-has Low Data Mode on. It goes on by itself once your iPhone is on Wi-Fi with Low Data Mode off.
 
 *Your iPhone's name* **is almost full. Older photos wait until it has 5 GB free.**\
 **Bring in all photos** waits for space on your iPhone. Free some space, and it goes on by itself.

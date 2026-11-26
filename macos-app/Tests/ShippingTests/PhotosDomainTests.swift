@@ -7,7 +7,7 @@ import XCTest
 
 final class PhotosDomainTests: XCTestCase {
     static let source = "apple-photos:person-a@example.com:unit-0001"
-    static let mac = Device(metered: false, charging: true, spare: 95_000_000_000,
+    static let mac = Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000,
                             changeRoom: nil)
     static let day = ShippingFixture.instant("2026-09-22T06:00:00.000Z")
     static let still = PhotoResource(typeRaw: 1, uti: "public.heic", originalFilename: "IMG_0001.HEIC")
@@ -59,7 +59,7 @@ final class PhotosDomainTests: XCTestCase {
                                             home: domain.home(answer, link: link, settings: settings))
                 return domain.settled(report, failing: await pass.state().failing, pass: answer.pass, link: link, at: clock.now)
                     .map { [$0] } ?? []
-            }, network: .free, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+            }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         return Rig(home: home, domain: domain, library: library, shipper: shipper, clock: clock, rows: rows)
     }
 
@@ -365,7 +365,7 @@ final class PhotosDomainTests: XCTestCase {
         for _ in 0..<4 {
             rig.clock.move(by: 300)
             let asks = rig.home.asked.count
-            waits.append(await rig.shipper.run(.timer).waitsForNetwork)
+            waits.append(await rig.shipper.run(.timer).waitsFor != nil)
             asked.append(rig.home.asked.count > asks)
             rig.home.importAll()
         }
@@ -373,8 +373,8 @@ final class PhotosDomainTests: XCTestCase {
         return (asked, waits, blobs, rig)
     }
 
-    func testAMeteredWayHomeAsksNothingAndSaysNothing() async throws {
-        let away = Device(metered: true, charging: true, spare: Self.mac.spare, changeRoom: nil)
+    func testAWayHomeThatHoldsThePastAsksNothingAndSaysNothing() async throws {
+        let away = Device(pastMoves: false, iCloud: false, charging: true, spare: Self.mac.spare, changeRoom: nil)
         let (asked, waits, blobs, rig) = try await metered(away, wanting: ["P1/L0/001"]) {
             $0.put(Self.photo("P1/L0/001", minutes: 0), files: [.inCloud(Data("synthetic cloud bytes".utf8))])
         }
@@ -384,14 +384,14 @@ final class PhotosDomainTests: XCTestCase {
     }
 
     func testAFileOnDiskGoesToAHomeOnThisMacWhileICloudsWaitForAFreeInternet() async throws {
-        let here = Device(homeMetered: false, internetMetered: true, charging: true, spare: Self.mac.spare, changeRoom: nil)
+        let here = Device(pastMoves: true, iCloud: false, charging: true, spare: Self.mac.spare, changeRoom: nil)
         let (asked, waits, blobs, rig) = try await metered(here, wanting: ["DISK/L0/001", "CLOUD/L0/001"]) {
             $0.put(Self.photo("DISK/L0/001", minutes: 1))
             $0.put(Self.photo("CLOUD/L0/001", minutes: 0), files: [.inCloud(Data("synthetic cloud bytes".utf8))])
         }
         XCTAssertEqual(blobs, 1, "the file on this Mac's disk goes over loopback")
         XCTAssertEqual(rig.library.downloads, 0, "the one only iCloud holds waits for a free internet")
-        XCTAssertTrue(asked.contains(true), "a home on this Mac is asked on a metered network")
+        XCTAssertTrue(asked.contains(true), "a home on this Mac is asked on mobile data")
         XCTAssertEqual(waits, [false, false, false, false], "the photo pass says no wait in the menu")
     }
 
@@ -411,7 +411,7 @@ final class PhotosDomainTests: XCTestCase {
         let pass = PhotoPass(library: PhotoLibrary(library), store: domain.photos, now: clock.read)
         func run(wanting wanted: [String] = []) async {
             clock.move(by: 60)
-            let home = PhotoPass.Home(caughtUp: true, wanted: {
+            let home = PhotoPass.Home(caughtUp: true, wanted: { _ in
                 PhotosWanted(photos: wanted.map { .init(asset: $0, files: ["photo", "video", "fullSizePhoto"]) },
                              left: .init(wanted: wanted.count, unavailable: 0, bytes: 0))
             })

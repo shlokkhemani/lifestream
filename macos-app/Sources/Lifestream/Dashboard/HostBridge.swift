@@ -130,6 +130,7 @@ enum HostAct: Equatable {
     case pauseHome
     case resumePause(target: String)
     case homeSetting(HomeSetting)
+    case mobileData(key: String, choice: MobileData.Choice)
     case deviceName(unit: String, name: String)
     case setting(connector: String, member: String, value: HomeLink.JSON, was: HomeLink.JSON? = nil)
     case seal(connector: String, member: String, value: String)
@@ -565,6 +566,8 @@ enum HostAct: Equatable {
                 return whole(body["value"]).map { .homeSetting(.modelCap($0)) }
             case "history.start":
                 return start(body["value"]).map { .homeSetting(.historyStart($0)) }
+            case let key? where mobileDataKey(key):
+                return (body["value"] as? String).flatMap(MobileData.Choice.init(rawValue:)).map { .mobileData(key: key, choice: $0) }
             default:
                 return nil
             }
@@ -652,6 +655,11 @@ enum HostAct: Equatable {
               let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys]),
               data.count <= valueLimit + 2 else { return nil }
         return (try? JSONDecoder().decode([HomeLink.JSON].self, from: data))?.first
+    }
+
+    private static func mobileDataKey(_ key: String) -> Bool {
+        let parts = key.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 3 && parts[0] == "devices" && parts[2] == "mobile_data" && id(String(parts[1])) != nil
     }
 
     private static func id(_ value: Any?) -> String? {

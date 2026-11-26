@@ -1,7 +1,8 @@
 // @ts-check
 /** @import { HostAct, HostReply } from '../../lib/host.js' */
 /** @import { StreamsReport } from '../../types.js' */
-/** @import { ModelConnection, Models, ModelUseId } from '../../pages.js' */
+/** @import { ModelConnection, ModelUseId } from '../../pages.js' */
+/** @import { Models } from '../../lib/model-menu.js' */
 import { settingKey } from './view.js';
 
 export const OFF = 'none';

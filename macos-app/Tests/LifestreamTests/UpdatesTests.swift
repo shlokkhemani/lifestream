@@ -28,7 +28,7 @@ final class UpdatesTests: XCTestCase {
 
     private func updates(locked: @escaping () -> Bool = { false }, clock: Clock = Clock()) -> Updates {
         let updates = Updates(defaults: defaults)
-        updates.network = MacNetwork(ReportedNetwork(reporting: nil))
+        updates.mobile = { MobileData.Moment(path: .free, choice: .now, loopback: false, pressed: false) }
         updates.locked = locked
         updates.now = { clock.now }
         updates.after = { clock.scheduled.append(($0, $1)) }
@@ -168,19 +168,25 @@ final class UpdatesTests: XCTestCase {
         }
     }
 
-    func testOnAMeteredNetworkTheHourlyCheckWaitsAndAPressDownloads() throws {
+    func testOnAHotspotTheHourlyCheckWaitsAndAPressDownloads() throws {
         let updates = updates()
-        let network = ReportedNetwork()
-        updates.network = MacNetwork(network)
-        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "the hourly check downloads before the network is known")
-        network.report(.expensive)
-        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "the hourly check downloads on a metered network")
+        var moment: MobileData.Moment?
+        updates.mobile = { moment }
+        let here = { (path: MobileData.Path, choice: MobileData.Choice) in
+            MobileData.Moment(path: path, choice: choice, loopback: true, pressed: false)
+        }
+        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "the hourly check waits while there is no link to ask")
+        moment = here(.costly, .now)
+        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground),
+                             "a hotspot holds the hourly check, though the home is on this Mac: an update comes over the internet")
         XCTAssertNoThrow(try updates.mayCheck(.updates), "Check for Updates… is a press: it downloads on any network")
         XCTAssertNoThrow(try updates.mayCheck(.updateInformation))
-        network.report(nil)
+        moment = here(.free, .now)
         XCTAssertNoThrow(try updates.mayCheck(.updatesInBackground), "on a free network the hourly check goes on by itself")
-        network.report(.lowDataMode)
-        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "Low Data Mode holds it as a hotspot does")
+        moment = here(.costly, .everything)
+        XCTAssertNoThrow(try updates.mayCheck(.updatesInBackground), "Everything, including my past, lets it cross a hotspot")
+        moment = here(.lowData, .everything)
+        XCTAssertThrowsError(try updates.mayCheck(.updatesInBackground), "Low Data Mode holds it whatever the choice")
         updates.downloaded("1812", install: {})
         XCTAssertNoThrow(try updates.mayCheck(.updatesInBackground), "with one ready nothing more downloads: nothing waits")
         updates.aborted(Updates.deferred)

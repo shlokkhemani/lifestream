@@ -1,0 +1,22 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-06-01",
+  "accounts": "Accounts",
+  "connections": [
+    {
+      "id": "address",
+      "label": "Other server",
+      "url": null,
+      "line": null,
+      "words": {
+        "about": "Any OpenAI-compatible server, like vLLM or another Mac.",
+        "add": "Add server",
+        "remove": "Remove",
+        "field": "Server URL",
+        "placeholder": "http://localhost:11434/v1",
+        "save": "Save"
+      },
+      "kind": "address"
+    }
+  ]
+}

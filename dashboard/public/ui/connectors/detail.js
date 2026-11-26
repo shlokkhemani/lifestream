@@ -4,7 +4,7 @@
 /** @import { View } from './view.js' */
 import { attributes, esc } from '../../lib/html.js';
 import {
-  accessFoot, addRow, amountBar, appIcon, ARRIVES, askBody, pickSection, boldLine, callout, checkedRow, dialog, differsFace, differsFold, dropZone, factChip,
+  accessFoot, addRow, findRow, amountBar, appIcon, ARRIVES, askBody, pickSection, boldLine, callout, checkedRow, dialog, differsFace, differsFold, dropZone, factChip,
   factChips, filterChips, icon, iconButton, lines, menuButton, noneLine, progressLine, readFailure, searchField, sectionLabel,
   segmented, settingMenuRow, settingRow, settingsSection, settingTile, settingTime, settingValue, signalShape, stateShape, stepField, stepper, steps, toggle,
   weekFigure,
@@ -140,7 +140,7 @@ function panelRow(row, view) {
   const menu = row.menu ? { id: row.menu.id, label: row.menu.label, words: row.menu.words, choices: menuChoices(row.menu),
     busy: row.menu.busy !== '' && view.busy.has(row.menu.busy) } : null;
   /** @type {import('../kit/setting-row.js').SettingRow} */
-  const fields = { label: row.label, lead: leadMarkup(row.lead), does: row.does, line: row.line, tail: row.tail ?? '', tone: row.tone ?? '',
+  const fields = { label: row.label, lead: leadMarkup(row.lead), does: row.does, line: row.line, working: row.working === true, tail: row.tail ?? '', tone: row.tone ?? '',
     tag: row.tag ?? '',
     mark: leadMarkup(row.mark, 'xs'), signal: row.signal ?? null, pulse: row.pulse === true, act: row.act ? doAttrs({ label: '', do: row.act }) : null,
     waiting: row.waiting, only: row.only, holds: row.progress ? progressLine(row.progress) : '', end: endMarkup(row.end, view), dim: row.dim,
@@ -157,7 +157,10 @@ function panelRow(row, view) {
  */
 export const panelMarkup = (panel, view, { card = false } = {}) => settingsSection({ heading: panel.label, line: panel.lede || panel.about, note: panel.note,
   attrs: card ? { class: 'ck-ssection--card' } : {},
-  rows: [...panel.rows.map(row => panelRow(row, view)), ...panel.add ? [addMarkup(panel.add, view)] : []] });
+  rows: [...panel.find ? [findMarkup(panel.find)] : [], ...panel.rows.map(row => panelRow(row, view)), ...panel.add ? [addMarkup(panel.add, view)] : []] });
+
+/** @param {import('./dialog.js').Finding} find */
+const findMarkup = find => findRow({ placeholder: find.placeholder, value: find.typed, input: { 'data-cn-add': '' } });
 
 /**
  * @param {NonNullable<Panel['add']>} add
@@ -207,7 +210,7 @@ const signInMarkup = (signin, view) => steps([
   { title: signin.last, mark: /** @type {const} */ ('here'), body: signin.fields.map(field => stepField({ label: field.label, why: field.why,
     note: field.note, input: { type: field.kind === 'secret' ? 'password' : field.kind, value: field.value,
       placeholder: field.placeholder || null, 'data-cn-field': field.key } })).join('') }])
-  + (signin.rows.length ? panelMarkup({ label: '', about: '', lede: '', rows: signin.rows, add: null, note: '' }, view) : '');
+  + (signin.rows.length ? panelMarkup({ label: '', about: '', lede: '', find: null, rows: signin.rows, add: null, note: '' }, view) : '');
 
 /**
  * @param {import('./imports.js').Guide} guide
@@ -278,7 +281,7 @@ function footMarkup(detail, view) {
  * @param {View} view
  */
 function settingsPart(part, view) {
-  if (part.flow) return settingsSection({ heading: part.label, rows: flowPageRows(part.flow) });
+  if (part.flow) return settingsSection({ heading: part.label, rows: [...flowPageRows(part.flow), ...(part.panel?.rows ?? []).map(row => panelRow(row, view))] });
   if (part.button) {
     const asked = part.confirm && view.asking === part.confirm.ask ? part.confirm : null;
     return asked ? settingsSection({ rows: [settingRow({ asking: true, label: asked.question, line: asked.detail,
@@ -312,8 +315,9 @@ function settingsPart(part, view) {
   if (part.said) return settingsSection({ heading: part.label, body: boldLine(part.said) });
   const panel = part.panel;
   const add = panel?.add ? addMarkup(panel.add, view) : '';
+  const find = panel?.find ? findMarkup(panel.find) : '';
   const rows = (panel?.rows ?? []).map(row => panelRow(row, view));
-  const alone = !rows.length && !add && !part.list?.length && part.text === undefined && part.lines.length > 0;
+  const alone = !rows.length && !add && !find && !part.list?.length && part.text === undefined && part.lines.length > 0;
   const body = part.list?.length ? `<ul class="cn-set__list mac-body">${part.list.map(each => `<li>${esc(each)}</li>`).join('')}</ul>`
     : part.text !== undefined ? `<pre class="cn-set__text mac-mono-data">${esc(part.text)}</pre>`
       : alone ? `<p class="cn-set__said mac-body">${esc(part.lines.join(' '))}</p>` : '';
@@ -322,7 +326,7 @@ function settingsPart(part, view) {
       'aria-pressed': chip.lit ? 'true' : 'false', disabled: busyWith({ label: chip.label, do: chip.do }, view),
       ...doAttrs({ label: chip.label, do: chip.do }) })}>${esc(chip.label)}</button>`).join('') + '</div></li>' : '';
   return settingsSection({ heading: part.label, line: alone ? '' : part.lines.join(' '), aside: part.aside ?? [],
-    rows: [...chips ? [chips] : [], ...rows, ...add ? [add] : []],
+    rows: [...find ? [find] : [], ...chips ? [chips] : [], ...rows, ...add ? [add] : []],
     ...body ? { body } : {}, act: part.acts.map(act => actButton(act, view)).join(''), note: panel?.note ?? '',
     attrs: { ...part.id ? { 'data-set-at': part.id } : {}, ...part.card ? { class: 'ck-ssection--card' } : {} } });
 }

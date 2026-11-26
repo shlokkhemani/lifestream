@@ -1,4 +1,5 @@
 import HealthKit
+import HomeLink
 import LifestreamCaptureCore
 import Synchronization
 import XCTest
@@ -17,7 +18,8 @@ final class AppSmokeTests: XCTestCase {
             .appendingPathComponent("health-recorder-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try await CaptureStore.restored(root: root)
-        let recorder = HealthRecorder(store: store, start: { nil })
+        let recorder = HealthRecorder(store: store, start: { nil },
+                                      mobile: { MobileData.Moment(path: .free, choice: .now, loopback: false, pressed: false) })
         let identifiers = Set(await recorder.configuredSampleTypeIdentifiers())
         let required: Set<String> = [
             HKObjectType.workoutType().identifier,
@@ -92,7 +94,8 @@ final class AppSmokeTests: XCTestCase {
             .appendingPathComponent("health-mind-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try await CaptureStore.restored(root: root)
-        let recorder = HealthRecorder(store: store, start: { nil })
+        let recorder = HealthRecorder(store: store, start: { nil },
+                                      mobile: { MobileData.Moment(path: .free, choice: .now, loopback: false, pressed: false) })
         let date = Date(timeIntervalSince1970: 1_700_000_000.25)
         let mind = HKStateOfMind(
             date: date, kind: .dailyMood, valence: 0.25,
@@ -135,14 +138,15 @@ final class AppSmokeTests: XCTestCase {
             .appendingPathComponent("health-yield-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try await CaptureStore.restored(root: root)
-        let recorder = HealthRecorder(store: store, start: { nil })
+        let recorder = HealthRecorder(store: store, start: { nil },
+                                      mobile: { MobileData.Moment(path: .free, choice: .now, loopback: false, pressed: false) })
         var firstYields: [Bool] = []
         for type in ["HKQuantityTypeIdentifierStepCount", "HKQuantityTypeIdentifierHeartRate"] {
             var pages = [HealthPage(
                 drafts: [.init(kind: "sample", observedAt: "2026-08-14T10:00:00Z", payload: .object(["uuid": .string(type)]))],
                 samples: 1, deletions: 0, anchor: Data([1]))]
             _ = try await HealthSweep.run(
-                store: store, type: type, start: nil, anchor: nil,
+                store: store, type: type, start: nil, anchor: nil, past: .moves(.any),
                 read: { _ in pages.isEmpty ? HealthPage(drafts: [], samples: 0, deletions: 0, anchor: Data([2])) : pages.removeFirst() },
                 committed: { _, first in firstYields.append(first) })
         }

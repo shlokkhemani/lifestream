@@ -178,9 +178,9 @@ export function routed(ask: Ask, route: Pick<ModelRoute, "transport" | "model" |
 
 export type RoutingTables = Pick<ReadTables, "meta" | "sources" | "itemRoutes">;
 
-export type HeldRunner = RunnerListing & { below: string | null };
+export type HeldRunner = RunnerListing & { below: string | null; left?: Readonly<Record<string, number>> };
 
-export type StoredRunner = Pick<HeldRunner, "unit" | "name" | "present" | "power" | "memory_gb" | "files" | "below">;
+export type StoredRunner = Pick<HeldRunner, "unit" | "name" | "present" | "power" | "memory_gb" | "files" | "below" | "left">;
 
 export const UNNAMED_RUNNER = "A runner";
 
@@ -298,19 +298,42 @@ const FAILURE_WORDS: Readonly<Record<FileFailure, string>> = {
   failed: "Couldn't download",
 };
 
-export function fileLine(file: Pick<RunnerFile, "state" | "bytes" | "fetched_bytes" | "failure">): string | null {
+export const DOWNLOADING = "Downloading";
+
+export function leftWords(seconds: number): string {
+  if (seconds < 60) return "less than a minute left";
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes} min left` : `about ${Math.round(seconds / 3600)} hr left`;
+}
+
+export function fileLine(file: Pick<RunnerFile, "state" | "failure">, left?: number): string | null {
   switch (file.state) {
     case "ready": return null;
     case "absent": return "Not downloaded";
-    case "fetching": return `Downloading, ${gigabytes(file.fetched_bytes, false)} of ${gigabytes(file.bytes)}`;
+    case "fetching": return left === undefined ? DOWNLOADING : `${DOWNLOADING} · ${leftWords(left)}`;
     case "failed": return FAILURE_WORDS[file.failure ?? "failed"];
   }
 }
 
-export function gigabytes(bytes: number, unit = true): string {
+export function gigabytes(bytes: number): string {
   const rounded = Math.round(bytes / 1e8) / 10;
-  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${unit ? " GB" : ""}`;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)} GB`;
 }
+
+export interface Fetch {
+  at_ms: number;
+  bytes: number;
+}
+
+export function secondsLeft(file: Pick<RunnerFile, "bytes" | "fetched_bytes">, since: Fetch, now_ms: number): number | undefined {
+  const fetched = file.fetched_bytes - since.bytes;
+  const spent = now_ms - since.at_ms;
+  return fetched > 0 && spent > 0 ? (file.bytes - file.fetched_bytes) * spent / fetched / 1000 : undefined;
+}
+
+const MAKER = /^[^:]+: (?<name>.+)$/u;
+
+export const routeName = (transport: string, listed: string): string => transport === "openrouter" ? MAKER.exec(listed)?.groups?.name ?? listed : listed;
 
 interface TransportRead {
   name: string;
@@ -323,7 +346,7 @@ interface TransportRead {
   models: ListedModel[];
 }
 
-function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly RunnerListing[], resting: ReadonlyMap<string, Rest>, paused: ReadonlySet<string>, now_ms: number, day: DaySettings): ModelRoute {
+function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly HeldRunner[], resting: ReadonlyMap<string, Rest>, paused: ReadonlySet<string>, now_ms: number, day: DaySettings): ModelRoute {
   const asked = offer.request ?? read.defaults;
   const runner = offer.runner ?? null;
   const on = restsOf({ transport: read.name, model: offer.model, runner: runner?.unit });
@@ -332,8 +355,9 @@ function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly
     const each = key === null ? undefined : resting.get(key);
     if (each !== undefined && (rest === null || each.until_ms > rest.until_ms)) rest = each;
   }
+  const name = routeName(read.name, offer.name);
   const route = {
-    id: on.route, transport: read.name, model: offer.model, name: offer.name, input: offer.input, output: offer.output, tools: offer.tools,
+    id: on.route, transport: read.name, model: offer.model, name, input: offer.input, output: offer.output, tools: offer.tools,
     context_tokens: offer.context_tokens, thinking: offer.thinking, chat: read.chat, suggested: offer.suggested ?? [], offered: true, runner,
     leaves: read.leaves, where: whereWords(read.leaves, runner), cost: read.cost,
     request: { effort: asked.effort, sampling: asked.sampling ?? null, timeout_ms: read.defaults.timeout_ms },
@@ -343,7 +367,7 @@ function offeredRoute(read: TransportRead, offer: ListedModel, runners: readonly
     const listed = runner === null ? undefined : runners.find((each) => each.unit === runner.unit);
     const file = listed?.files.find((each) => each.id === offer.model);
     if (listed !== undefined && !listed.present) return { ...route, state: "waiting", line: runnerLine(listed)! };
-    return { ...route, state: "unavailable", line: (file === undefined ? null : fileLine(file)) ?? `${offer.name} isn't ready` };
+    return { ...route, state: "unavailable", line: (file === undefined ? null : fileLine(file, listed?.left?.[file.id])) ?? `${name} isn't ready` };
   }
   if (runner !== null && paused.has(runner.unit)) return { ...route, state: "waiting", line: "Paused" };
   if (rest !== null) return { ...route, state: "waiting", line: restWords(read, runner, rest, now_ms, day) };
@@ -389,6 +413,7 @@ export class Models {
   readonly #ok = new Map<string, boolean>();
   #address: string | null = null;
   #runners: readonly HeldRunner[] = [];
+  readonly #fetches = new Map<string, Fetch>();
   #read_ms = -Infinity;
   #reading: Promise<void> | null = null;
   readonly #names = new Map<string, string>();
@@ -508,7 +533,7 @@ export class Models {
       const defaults = narrowed === undefined ? transport.defaults : { ...transport.defaults, concurrency: Math.min(narrowed, transport.defaults.concurrency) };
       return { name, provider: transport.provider, cost: transport.cost, leaves: transport.leaves, chat: transport.chat, defaults, available, models };
     }));
-    this.#runners = runners;
+    this.#runners = runners.map((runner) => this.#timed(runner));
     this.#transports = transports;
     this.#read_ms = this.options.clock();
     for (const [transport, read] of transports.map((each, index) => [each, this.#reads[index]!] as const)) {
@@ -528,6 +553,24 @@ export class Models {
       if (first !== undefined) taken[use] = first.id;
     }
     if (Object.keys(taken).length > 0) this.options.fill(taken);
+  }
+
+  #timed(runner: HeldRunner): HeldRunner {
+    if (!runner.present) return runner;
+    const now = this.options.clock();
+    const left: Record<string, number> = {};
+    for (const file of runner.files) {
+      const key = `${runner.unit}\n${file.id}`;
+      if (file.state !== "fetching") {
+        this.#fetches.delete(key);
+        continue;
+      }
+      const since = this.#fetches.get(key) ?? { at_ms: now, bytes: file.fetched_bytes };
+      this.#fetches.set(key, since);
+      const seconds = secondsLeft(file, since, now);
+      if (seconds !== undefined) left[file.id] = seconds;
+    }
+    return { ...runner, left };
   }
 
   start(tx: Tx): void {
@@ -553,7 +596,7 @@ export class Models {
     const routing = this.routing(tx);
     if (this.#reads.length === 0) return routing;
     for (const route of Object.values(routing.routes)) if (route.offered) this.#names.set(route.id, route.name);
-    const runners = this.#runners.map(({ unit, name, present, power, memory_gb, files, below }): StoredRunner => ({ unit, name, present, power, memory_gb, files, below }));
+    const runners = this.#runners.map(({ unit, name, present, power, memory_gb, files, below, left }): StoredRunner => ({ unit, name, present, power, memory_gb, files, below, ...left === undefined ? {} : { left } }));
     const stored = JSON.stringify({ routes: Object.values(routing.routes), runners, connections: this.#lists } satisfies StoredModels);
     if (stored !== this.#stored) {
       if (tx.tables.meta.get(MODELS_META) !== stored) tx.tables.meta.set(MODELS_META, stored);

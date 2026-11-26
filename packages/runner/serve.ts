@@ -33,6 +33,7 @@ export const DRAIN_MS = 5_000;
 
 interface FileOf {
   state: RunnerFileState;
+  bytes: number;
   fetched_bytes: number;
   failure: FileFailure | null;
   doing: { readonly op: "fetch" | "remove"; readonly stop: AbortController; readonly done: Promise<void> } | null;
@@ -73,7 +74,7 @@ export async function serve(options: RunnerOptions): Promise<void> {
   const restMs = options.rest_ms ?? REST_MS;
   const boot = randomBytes(8).toString("hex");
   const memory_gb = Math.round(totalmem() / 1024 ** 3);
-  const files = new Map<string, FileOf>(rows.map((row) => [row.id, { state: "absent", fetched_bytes: 0, failure: null, doing: null, failed: null, owed: false }]));
+  const files = new Map<string, FileOf>(rows.map((row) => [row.id, { state: "absent", bytes: row.bytes, fetched_bytes: 0, failure: null, doing: null, failed: null, owed: false }]));
   const fileOf = (row: Row): FileOf => files.get(row.id)!;
   const running = new Map<string, Running>();
   let outbox: RunnerResult[] = [];
@@ -104,10 +105,10 @@ export async function serve(options: RunnerOptions): Promise<void> {
     if (Date.now() - thermal.at > POWER_MS) thermal = { at: Date.now(), value: await (options.thermal ?? thermalState)() };
     const idle_s = await (options.idle ?? idleSeconds)();
     const stating = rows.map((row): RunnerFile => {
-      const { state, fetched_bytes, failure } = fileOf(row);
+      const { state, bytes, fetched_bytes, failure } = fileOf(row);
       return {
         id: row.id, name: row.name, input: row.input, output: row.output, tools: row.tools, context_tokens: row.context_tokens, thinking: row.thinking,
-        bytes: row.bytes, languages: row.languages, memory_gb: row.memory_gb, state, fetched_bytes, failure,
+        bytes, languages: row.languages, memory_gb: row.memory_gb, state, fetched_bytes, failure,
         ...(row.library === "detector" ? { detector: row.key } : {}),
       };
     });
@@ -163,9 +164,12 @@ export async function serve(options: RunnerOptions): Promise<void> {
     const stop = new AbortController();
     const library = options.libraries[row.library];
     Object.assign(file, op === "fetch" ? { state: "fetching", fetched_bytes: 0, failure: null } : { state: "absent", fetched_bytes: 0, failure: null, owed: true });
-    const work = op === "fetch" ? library.fetch(row, (bytes) => { file.fetched_bytes = bytes; }, stop.signal) : library.remove(row, stop.signal);
+    const work = op === "fetch" ? library.fetch(row, (fetched, bytes) => {
+      file.fetched_bytes = fetched;
+      if (bytes !== undefined) file.bytes = bytes;
+    }, stop.signal) : library.remove(row, stop.signal);
     const done = keep(work.then(() => {
-      Object.assign(file, op === "fetch" ? { state: "ready", fetched_bytes: row.bytes } : {}, { failed: null, owed: false });
+      Object.assign(file, op === "fetch" ? { state: "ready", fetched_bytes: file.bytes } : {}, { failed: null, owed: false });
     }, (error: unknown) => {
       if (stop.signal.aborted) {
         if (op === "fetch") Object.assign(file, { state: "absent", fetched_bytes: 0, owed: true });

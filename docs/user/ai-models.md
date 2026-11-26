@@ -2,15 +2,15 @@
 
 AI models describe your photos, write out your voice notes, sum up your emails and screen, answer
 in Chat, search your screen by meaning and find personal details to hide. This guide connects the
-models you want, picks which model does each of these jobs, and turns them off. You set them in
-**Settings** › **AI models**: press ⌘, in Lifestream on your Mac.
+models you want, picks which model does each of these jobs, and turns them off. Two pages of
+**Settings** hold them, under **Models**: press ⌘, in Lifestream on your Mac.
 
-## Connections and uses
+## Providers and default models
 
-**AI models** holds two things. A connection is an account or an address that reaches models: your
-ChatGPT or Claude plan, your OpenRouter key, the models on your Mac, or a custom address. Each
-connection lists the models it reaches. A use is one job Lifestream gives a model, and each use runs
-on one model.
+**Providers** is where models come from: your ChatGPT or Claude plan and your OpenRouter key under
+**Accounts**, the models on your Mac under **Local models**, and an **Other server**. Each lists the
+models it reaches. **Default models** says which model does each job Lifestream gives a model, one
+model for each.
 
 Any model can do any use it fits. A use asks something of its model, and a model that cannot do it
 is not offered for that use:
@@ -30,12 +30,12 @@ picked and one that fits is ready. After that it never changes your pick: a mode
 **Off**, stays.
 
 OpenRouter is a service that sells access to many AI models, paid as you go. Another computer that
-runs models for Lifestream has its own part, **On** *its name*.
+runs models for Lifestream has its own part, **Local models on** *its name*.
 [What leaves your Mac](./what-leaves-your-mac.md) names every receiver and what each one gets.
 
 ## Connect a ChatGPT or Claude plan
 
-1. Open **Settings** › **AI models**. If Chat shows **Sign in with ChatGPT…**,
+1. Open **Settings** › **Providers**. If Chat shows **Sign in with ChatGPT…**,
    **Sign in with Claude…** or **Connect a model…**, you can click that instead.
 2. Under **Accounts**, click **Connect** beside **ChatGPT** or **Claude**. If the button says
    **Sign in**, click that. Lifestream first downloads the program the plan needs: Codex for
@@ -46,31 +46,33 @@ runs models for Lifestream has its own part, **On** *its name*.
    - For Claude, approve on Anthropic's page. If it shows a code, paste it into
      **Code from Anthropic**, and press Return.
 
-When it worked, the plan's line shows your account, and the plan's models are in the menus under
-**Uses**. During setup, **Connect your AI** takes the same steps.
+When it worked, the plan's line shows your account, and the plan's models are in the menus of
+**Default models**. During setup, **Connect your AI** takes the same steps.
 
 ## Use an OpenRouter key
 
 1. Make a key at [openrouter.ai/keys](https://openrouter.ai/keys).
-2. Open **Settings** › **AI models**, and find **OpenRouter** under **Accounts**.
-3. Paste the key into **OpenRouter key**, and click **Save**.
+2. Open **Settings** › **Providers**, and find **OpenRouter** under **Accounts**.
+3. Paste the key into **OpenRouter key**, and click **Add key**.
 
-The line then says **Connected**, and the models OpenRouter offers are in the menus under **Uses**.
+The line then says **Connected**, and the models OpenRouter offers are in the menus of
+**Default models**.
 Lifestream keeps the key locked in your vault.
 
 ## Use a model on your Mac
 
-Models on the Mac need a Mac with Apple silicon. On a Mac with an Intel processor, **On this Mac**
+Models on the Mac need a Mac with Apple silicon. On a Mac with an Intel processor, **Local models**
 lists only Parakeet and Nemotron Speech.
 
-1. Open **Settings** › **AI models**.
-2. Under **Uses**, open the menu of the use, such as **Photos**.
+1. Open **Settings** › **Default models**.
+2. Open the menu of the use, such as **Photos**.
 3. Pick the model. A model not yet on your Mac says what picking it does, such as
-   "Download Qwen 3.5 · 4.2 GB".
+   "Download Qwen 3.5 · 3.5 GB".
 
-Picking a model on your Mac downloads it, in setup and in Settings alike. The line under the use
-shows how far it is, such as "Downloading, 1.2 of 4.2 GB". To download a model before you pick it,
-click **Download** beside it under **On this Mac**, and **Cancel** to stop it. When the model is
+Picking a model on your Mac downloads it, in setup and in Settings alike. While it downloads, its
+line under **Local models** in **Providers** says how long is left, such as "Downloading · 3 min
+left". To download a model before you pick it, click **Download** beside it under **Local models**,
+and **Cancel** to stop it. When the model is
 ready, it says **Downloaded**, and its button says **Remove**.
 
 | Model | What it does | Needs a Mac with |
@@ -81,50 +83,51 @@ ready, it says **Downloaded**, and its button says **Remove**.
 | EmbeddingGemma 2 | Finds moments on your screen by meaning, for **Search by meaning** | 8 GB of memory |
 | Privacy Filter | Finds personal details to hide, for **Hiding details** | 8 GB of memory |
 
-Privacy Filter is not listed under **On this Mac**: it downloads when you pick it for
+Privacy Filter is not listed under **Local models**: it downloads when you pick it for
 **Hiding details**, and is removed when you pick another model or **Off**.
 
-Each model's line gives its size and what it does. The model your Mac's memory suits best for a use
-says so, such as "suggested for this Mac's 24 GB". A model too large for your Mac says
-"Needs a Mac with 16 GB", and has no **Download**.
+Each model's line says what it does and its size, such as "Describes photos · 6.1 GB". The model
+your Mac's memory suits best for a use says **Recommended**. A model too large for your Mac says
+"Needs 16 GB of memory", and has no **Download**.
 
 While your Mac runs on battery, a model on it works only on today's and yesterday's items. The rest
 waits until your Mac is plugged in, and the connector says so, such as "1,200 photos wait until
-MacBook Pro is plugged in". This is **Save battery**, under your Mac's models, on unless you turn it
+MacBook Pro is plugged in". This is **Save battery**, under **Local models**, on unless you turn it
 off. Turn it off to run everything on battery.
 
-To stop your Mac running its models for a while, turn off **Run models** under them. Their work
-waits until you turn it on again.
+To stop your Mac running its models for a while, turn off **Run local models**. Their work waits
+until you turn it on again.
 
-## Use a model at your own address
+## Use a model on another server
 
-The address must take requests the way OpenAI's chat API does, as Ollama's and LM Studio's do.
+The server must take requests the way OpenAI's chat API does, as vLLM, Ollama and LM Studio do.
 
-1. Open **Settings** › **AI models**, and click **Add address** beside **Custom address**.
-2. In **Address**, type the address, such as `http://127.0.0.1:11434/v1`.
+1. Open **Settings** › **Providers**, and click **Add server** under **Other server**.
+2. In **Server URL**, type its address, such as `http://localhost:11434/v1`.
 3. Click **Save**.
 
-**Custom address** then shows the address, and the menus under **Uses** list the models it serves.
-Click **Remove** to stop using it.
+**Other server** then shows the address, and the menus of **Default models** list the models it
+serves. Click **Remove** to stop using it.
 
-Lifestream takes a model at your address to read text only, and never picks one for a use by itself.
+Lifestream takes a model on your server to read text only, and never picks one for a use by itself.
 For Chat, run the model in that server with a context window of 32,000 tokens or more: Chat sends
-it that much, with room for its answer, since the address does not say how much its model holds.
+it that much, with room for its answer, since the server does not say how much its model holds.
 The row says **Chat needs the server to run a context window of 32,000 tokens or more**.
 
-A model at an address on this Mac keeps your data on this Mac. Lifestream hides nothing in what it
+A model on a server on this Mac keeps your data on this Mac. Lifestream hides nothing in what it
 sends to such a model, since nothing leaves.
 
 ## Pick a model for each use
 
-Under **Uses**, each use has a menu. It lists the models suggested for the use and the ones in use,
-each by its name. Models that run on your own machines, on a Mac's runner or at your custom address,
-are under **Local**; the rest are above it. A menu lists only the models you can use now: a model
+In **Default models**, each use has a menu. It lists the models suggested for the use and the ones
+in use, each by its name. Models that run on your own machines, on a Mac's runner or on your other
+server, are under **Local**; the rest are above it. A menu lists only the models you can use now: a model
 whose account isn't signed in, or that your Mac is too small for, isn't listed. A model your Mac
 can run but hasn't downloaded yet is listed, and picking it downloads it. When one model comes
 through two accounts, each row names its account after the model, such as **Opus 5.5 OpenRouter**.
-To pick another model, choose **More** and type part of its name or id: it lists up to 20 models
-that fit the use, or **No matches**.
+To pick another model, choose **More** and type part of its name or id in the search field at the
+top: it lists up to 20 models that fit the use, under where each comes from (**Claude**,
+**ChatGPT**, **OpenRouter**, **Local**), or **No matches**.
 
 Under **Chat**, **Thinking** picks how long Chat's model thinks before it answers, such as
 **Medium**.
@@ -155,10 +158,10 @@ work waits until you pick another model.
 
 Open **Connectors**, then the connector. Under **AI**, click a job, such as **Email summaries**. Its
 **Model** is **Default**, a model that fits the job, or **Off**. **Default** follows the job's use in
-**AI models**, and names its model, such as **Default · Qwen 3.5**, or **Default · None** when the
+**Default models**, and names its model, such as **Default · Qwen 3.5**, or **Default · None** when the
 use has none. The menu lists the models suggested for the job and the ones in use, local ones
 under **Local**. To pick another, choose **More** and type part of its name or id: it lists up to
-20 models that fit the job. [Connectors](./connectors/README.md#settings-every-connector-has) says how these
+20 models that fit the job, under where each comes from. [Connectors](./connectors/README.md#settings-every-connector-has) says how these
 settings and **Read back to** work.
 
 A model that sends what it reads away gets each item with its personal details hidden, unless you
@@ -169,8 +172,8 @@ a screen summary sends.
 
 ## Keep your data on your Mac
 
-In every model menu, the models under **Local** run on your own machines: a Mac's runner, or the
-server at your custom address. Every model above **Local** sends what it reads to the company that
+In every model menu, the models under **Local** run on your own machines: a Mac's runner, or your
+other server. Every model above **Local** sends what it reads to the company that
 runs it, such as OpenAI. To keep a connector's items on your machines, give each of its jobs a
 model under **Local**, or set it to **Off**. **Search by meaning** and **Hiding details** only offer
 models that run on a Mac.
@@ -179,10 +182,10 @@ models that run on a Mac.
 
 - To stop one job of one connector, click it under the connector's **AI**, and set **Model** to
   **Off**.
-- To stop using a plan, click **Sign out** beside it under **Accounts**. To stop using a key or a
-  custom address, click **Remove**.
-- To stop the models on your Mac, turn off **Run models** under them, or click **Remove** beside
-  each one.
+- To stop using a plan, click **Sign out** beside it under **Accounts**. To stop using a key or an
+  other server, click **Remove**.
+- To stop the models on your Mac, turn off **Run local models**, or click **Remove** beside each
+  one.
 
 A use or setting that names a model you signed out of or removed keeps it, and says
 *the model* **isn't offered now** when no connection lists it. Its work waits until the model is

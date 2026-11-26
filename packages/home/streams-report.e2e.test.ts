@@ -1560,7 +1560,7 @@ describe("the streams report", () => {
           { id: runner, kind: "runner", name: "MacBook Pro", line: null },
           { id: "openrouter", kind: "key", name: "OpenRouter", line: null },
           { id: "claude", kind: "plan", name: "Claude", line: PLAN_LINE },
-          { id: "address", kind: "address", name: "Custom address", line: ADDRESS_WINDOW },
+          { id: "address", kind: "address", name: "Other server", line: ADDRESS_WINDOW },
         ],
         uses: {
           pictures: use("pictures", [QWEN, VISION, PLAN], VISION.id, [VISION], [QWEN]), audio: use("audio", [PLAN, PARAKEET, NEMOTRON]), text: use("text", [VISION, PLAN, QWEN], null, [VISION]),

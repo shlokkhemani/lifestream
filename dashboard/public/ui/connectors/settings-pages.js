@@ -23,6 +23,12 @@ export const part = ({ label = '', line = '', rows, add = null, acts = [], note 
   panel: panelOf({ rows, add, note }), acts, ...id ? { id } : {} });
 
 /**
+ * @param {Panel} panel
+ * @returns {DetailPart}
+ */
+export const panelPart = panel => ({ label: panel.label, lines: [], panel, acts: [] });
+
+/**
  * @param {HostAct} act
  * @returns {Do}
  */

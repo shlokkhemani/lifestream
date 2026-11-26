@@ -724,7 +724,7 @@ describe("a runner below the release's floor", () => {
     } finally {
       db.close();
     }
-    const page = await get(url, "/v1/page/models", { authorization: `Bearer ${at.tokens.reader}` });
+    const page = await get(url, "/v1/page/models/providers", { authorization: `Bearer ${at.tokens.reader}` });
     const runners = (page.body.connections as { kind: string; id: string; line: string | null; files?: { id: string }[] }[]).filter((each) => each.kind === "runner");
     expect(runners.map((each) => [each.id, each.line, each.files!.map((held) => held.id)])).toEqual([[`runner:${UNIT}`, "Update this runner", ["qwen3.5-4b"]]]);
 
@@ -902,14 +902,14 @@ describe("the models read", () => {
     } finally { await fake.close(); }
   });
 
-  it("the page answer of Settings › AI models answers from what is held while the notice is held back, and the home receives the notice", async () => {
+  it("the page answer of Settings › Default models answers from what is held while the notice is held back, and the home receives the notice", async () => {
     const at = home();
     makeHomeDb(join(at.root, "home.db")).close();
     const { url } = await serve(at);
     const fake = await fakeHome(testSocket(at.root).path, (request) => (request.verb === "models-list" ? "hold" : "result"));
     try {
-      const page = await get(url, "/v1/page/models", auth(at, "reader"));
-      expect([page.status, (page.body.uses as { use: string }[]).map((each) => each.use)]).toEqual([200, ["pictures", "audio", "text", "chat", "search", "hiding"]]);
+      const page = await get(url, "/v1/page/models/defaults", auth(at, "reader"));
+      expect([page.status, (page.body.uses as { use: string }[]).map((each) => each.use)]).toEqual([200, ["chat", "pictures", "audio", "text", "search", "hiding"]]);
       await until("the home received the notice", () => fake.asked.some((request) => request.verb === "models-list"));
       expect(fake.asked.filter((request) => request.verb === "models-list")).toEqual([{ verb: "models-list", folder: at.root }]);
     } finally { await fake.close(); }

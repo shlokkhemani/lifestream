@@ -125,5 +125,5 @@ tell apart, as [Choose what is recorded](../choose-what-is-recorded.md#private-w
 The model set for **Screen summaries** cannot take a whole part of a sitting. The model Lifestream
 downloads for you, Qwen 3.5, is too small for it, so the **Screen summaries** menu does not offer
 it. Choose your ChatGPT or Claude plan, a model through a key, or a model you run yourself at a
-**Custom address** (see [Choose which AI models read your data](../ai-models.md)). Or set **Screen
+**Other server** (see [Choose which AI models read your data](../ai-models.md)). Or set **Screen
 summaries** to **Off**.

@@ -616,11 +616,6 @@ export interface Mail {
   day: string | null;
 }
 
-export interface ModelBattery {
-  on: boolean;
-  line: string;
-}
-
 export type ModelConnection =
   | {
     kind: "plan";
@@ -628,6 +623,7 @@ export type ModelConnection =
     name: string;
     line: string | null;
     signed: boolean;
+    words: string;
   }
   | {
     kind: "key";
@@ -635,6 +631,8 @@ export type ModelConnection =
     name: string;
     line: string | null;
     held: boolean;
+    words: string | null;
+    key: ModelKeyField;
   }
   | {
     kind: "runner";
@@ -643,31 +641,39 @@ export type ModelConnection =
     place: string;
     name: string;
     line: string | null;
+    none: string | null;
+    run: ModelSwitch | null;
+    battery: ModelSwitch | null;
     files: ModelFile[];
     found: ModelFound[];
-    battery: ModelBattery | null;
     paused: boolean;
   }
   | {
     kind: "address";
     id: string;
+    label: string;
     url: string | null;
     line: string | null;
+    words: ModelServerWords;
   };
 
 export interface ModelFile {
   id: string;
   name: string;
-  about: string;
-  size: string;
+  line: string;
+  working: boolean;
   state: ModelFileState;
-  line: string | null;
-  suggested: boolean;
   fits: boolean;
+  words: string | null;
   acts: ModelFileAct[];
 }
 
-export type ModelFileAct = "fetch" | "remove" | "cancel";
+export interface ModelFileAct {
+  act: ModelFileDo;
+  words: string;
+}
+
+export type ModelFileDo = "fetch" | "remove" | "cancel";
 
 export type ModelFileState = "absent" | "fetching" | "ready" | "failed";
 
@@ -677,6 +683,18 @@ export interface ModelFound {
   from: string;
 }
 
+export interface ModelGroup {
+  label: string;
+  rows: ModelRow[];
+}
+
+export interface ModelKeyField {
+  label: string;
+  placeholder: string;
+  add: string;
+  remove: string;
+}
+
 export interface ModelLevel {
   value: string;
   name: string;
@@ -684,15 +702,10 @@ export interface ModelLevel {
   suggested: boolean;
 }
 
-export interface ModelLocal {
-  label: string;
-  rows: ModelRow[];
-}
-
 export interface ModelMenu {
   default: ModelRow | null;
   rows: ModelRow[];
-  local: ModelLocal | null;
+  local: ModelGroup | null;
   more: ModelMore;
   off: ModelRow | null;
 }
@@ -707,6 +720,7 @@ export interface ModelPlace {
   place: string;
   value: string | null;
   line: string | null;
+  working: boolean;
   ready: boolean;
   leaves: boolean;
 }
@@ -718,7 +732,23 @@ export interface ModelRow {
   chosen: boolean;
 }
 
+export interface ModelServerWords {
+  about: string;
+  add: string;
+  remove: string;
+  field: string;
+  placeholder: string;
+  save: string;
+}
+
+export interface ModelSwitch {
+  label: string;
+  on: boolean;
+  line: string | null;
+}
+
 export interface ModelThinking {
+  label: string;
   value: string;
   words: string;
   levels: ModelLevel[];
@@ -2014,10 +2044,16 @@ export interface Storage {
   };
 }
 
-export interface Models {
+export interface ModelDefaults {
   position: string;
   today: string;
   uses: ModelUse[];
+}
+
+export interface ModelProviders {
+  position: string;
+  today: string;
+  accounts: string;
   connections: ModelConnection[];
 }
 
@@ -2025,8 +2061,7 @@ export interface ModelsFind {
   position: string;
   today: string;
   placeholder: string;
-  rows: ModelRow[];
-  local: ModelLocal | null;
+  groups: ModelGroup[];
   none: string | null;
 }
 
@@ -2052,6 +2087,7 @@ export interface Pages {
   settings: Settings;
   settingsPage: SettingsPage;
   storage: Storage;
-  models: Models;
+  modelDefaults: ModelDefaults;
+  modelProviders: ModelProviders;
   modelsFind: ModelsFind;
 }

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BATTERY_SPENT, DESCRIBED, LLM_REPORT, MODELS, MODELS_BARE, ON_BATTERY, RANGE_STEP, SAVE_BATTERY, SHAPED, SUBSCRIBED, TRANSCRIBED } from '../public/kit-gallery-llm.js';
+import { BATTERY_SPENT, DESCRIBED, LLM_REPORT, MODELS, MODELS_BARE, ON_BATTERY, RANGE_STEP, SHAPED, SUBSCRIBED, TRANSCRIBED } from '../public/kit-gallery-llm.js';
 import { HOST_STATE, REPORT } from '../public/kit-gallery-report.js';
 import { AI_PAGE, detailOf, MODEL_PAGE, modelFinding, OPENED } from '../public/ui/connectors/dialog.js';
 import { detailMarkup } from '../public/ui/connectors/detail.js';
 import { LACKS } from '../public/ui/connectors/changes.js';
-import { isSettings, NOTES, savedAct, SETTINGS_MODELS, SETTINGS_PRIVACY, settingsDetail, shownPage, TYPED } from '../public/ui/connectors/settings.js';
+import { isSettings, NOTES, savedAct, SETTINGS_DEFAULTS, SETTINGS_PRIVACY, SETTINGS_PROVIDERS, settingsDetail, shownPage, TYPED } from '../public/ui/connectors/settings.js';
 import { SUBSCRIPTIONS } from '../public/ui/connectors/settings-models.js';
 import { AT_REST } from '../public/ui/connectors/view.js';
 import { actKey, keyOf, landedOf, pendingOf, settled, thingKey } from '../public/ui/connectors/pending.js';
@@ -54,7 +54,7 @@ const plansOf = state => flowOf('model', { state, report: null }, { ...sessionOf
 /** @type {import('../public/lib/reach.js').Drawn} */
 const READ_FAILED = { kind: 'lack', words: null, retry: true };
 /** @param {Partial<Parameters<typeof settingsDetail>[0]>} read */
-const settings = read => settingsDetail({ report: REPORT, models: MODELS, failed: null, state: HOST_STATE, id: SETTINGS_MODELS, opened: OPENED,
+const settings = read => settingsDetail({ report: REPORT, models: MODELS, failed: null, state: HOST_STATE, id: SETTINGS_PROVIDERS, opened: OPENED,
   subscriptions: plansOf(read.state === undefined ? HOST_STATE : read.state), ...read });
 /** @param {Detail} detail */
 const partLabels = detail => detail.parts.map(each => each.label);
@@ -66,12 +66,13 @@ const rowIn = (detail, partLabel, rowLabel) => part(detail, partLabel)?.panel?.r
 const endActs = row => (row?.end?.acts ?? []).map((/** @type {any} */ act) => [act.label, act.do]);
 /** @typedef {Extract<import('../public/pages.js').ModelConnection, { kind: 'runner' }>} Runner */
 const RUNNERS = /** @type {Runner[]} */ (MODELS.connections.filter(each => each.kind === 'runner'));
-/** @param {Partial<Runner>} said @returns {import('../public/pages.js').Models} */
-const withRunner = said => ({ ...MODELS, connections: MODELS.connections.map((each, at) => at === 0 && each.kind === 'runner' ? { ...each, ...said } : each) });
+const [MAC_AT, MINI_AT, IMAC_AT] = RUNNERS.map(each => each.place);
+/** @param {Partial<Runner>} said @returns {import('../public/lib/model-menu.js').Models} */
+const withRunner = said => ({ ...MODELS, connections: MODELS.connections.map(each => each === RUNNERS[0] ? { ...each, ...said } : each) });
 /** @param {Detail} detail @param {string} label */
 const rowsOf = (detail, label) => part(detail, label)?.panel?.rows ?? [];
 const BARRED = /\b(?:work|route|kind|floor|family|grant)s?\b/iu;
-const RUN_LINE = 'Turn off to hold their work until you turn it back on.';
+const RUN_LINE = 'Local work waits until you turn this on.';
 
 test('L1: AI its own section after Settings and before History, a row per work, each work\'s sentence on its own page; none for a connector without one', () => {
   for (const id of SHAPED) {
@@ -109,7 +110,7 @@ test('L1: AI its own section after Settings and before History, a row per work, 
  */
 const memberOf = (id, key) => /** @type {import('../public/types.js').MemberState} */ (connectorOf(id).members.find(each => each.key === key));
 
-test('L2, L3: a row per work pushing its page, Range last; on the page its model drawn as every member is, the line and mark the work\'s, the needs line opening AI models', () => {
+test('L2, L3: a row per work pushing its page, Range last; on the page its model drawn as every member is, the line and mark the work\'s, the needs line opening Providers', () => {
   const MARKS = { off: null, needs: { look: 'needs-you' }, waiting: { status: 'waiting' }, running: { status: 'running' },
     done: { status: 'done' } };
   const seen = new Set();
@@ -133,7 +134,7 @@ test('L2, L3: a row per work pushing its page, Range last; on the page its model
       assert.equal(each.label, 'Model');
       assert.deepEqual([each.does ?? '', each.line], row.line ? [member.about ?? '', row.line] : ['', member.about ?? '']);
       assert.deepEqual(each.mark, MARKS[row.shape], `${id} ${row.member}: its shape's mark`);
-      assert.deepEqual(each.act, row.shape === 'needs' ? { open: SETTINGS_MODELS } : row.privacy?.waiting ? { open: SETTINGS_PRIVACY } : null);
+      assert.deepEqual(each.act, row.shape === 'needs' ? { open: SETTINGS_PROVIDERS } : row.privacy?.waiting ? { open: SETTINGS_PRIVACY } : null);
       assert.deepEqual(each.waiting, (member.waiting ?? []).map(wait => wait.line));
       const menu = menuOf(each.end);
       assert.equal(menu.words, member.words);
@@ -152,11 +153,11 @@ test('L2, L3: a row per work pushing its page, Range last; on the page its model
     : { ...each, members: each.members.filter(member => member.key !== 'llm.mail') }) };
   assert.deepEqual(/** @type {Panel} */ (panel(/** @type {Detail} */ (detailOf(gone, HOST_STATE, 'gmail', OPENED)), 'AI')).rows
     .map(row => row.label), [memberOf('gmail', 'llm.range').label]);
-  assert.equal(SETTINGS_MODELS, 'settings/models');
-  assert.ok(isSettings(SETTINGS_MODELS));
+  assert.deepEqual([SETTINGS_DEFAULTS, SETTINGS_PROVIDERS], ['settings/defaults', 'settings/providers']);
+  assert.ok(isSettings(SETTINGS_DEFAULTS) && isSettings(SETTINGS_PROVIDERS));
 });
 
-test('L4b: More opens a page of its own: the home\'s field and the rows it found, each set as a step is, the chosen one marked, local ones under Local; in a browser no act', () => {
+test('L4b: More opens a page of its own: the home\'s search field first, then the rows it found under the home\'s headers, each set as a step is, the chosen one marked; in a browser no act', () => {
   const id = SHAPED[0];
   const row = worksOf(id)[0];
   const member = memberOf(id, row.member);
@@ -166,18 +167,20 @@ test('L4b: More opens a page of its own: the home\'s field and the rows it found
   assert.equal(modelFinding(LLM_REPORT, id, { ...OPENED, pages: pages.slice(0, 1) }), null, 'only on its own page');
   const one = { value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false };
   const found = { key: '', failed: '', answer: { position: '1:1', today: '2026-06-01', placeholder: 'Search', none: null,
-    rows: [one, { ...one, value: String(member.value), name: 'Held', chosen: true }], local: { label: 'Local', rows: [{ ...one, value: 'runner:mac/two', name: 'Two' }] } } };
+    groups: [{ label: 'OpenRouter', rows: [one, { ...one, value: String(member.value), name: 'Held', chosen: true }] },
+      { label: 'Local', rows: [{ ...one, value: 'runner:mac/two', name: 'Two' }] }] } };
   const page = /** @type {Detail} */ (detailOf(LLM_REPORT, HOST_STATE, id, { ...OPENED, pages, typed: 'model', found }));
   assert.equal(page.name, member.menu.more.words);
   /** @param {string} value */
   const sets = value => ({ host: { act: 'setting', connector: id, member: row.member, value } });
   assert.deepEqual(page.panels.map(panelShown => [panelShown.label, panelShown.rows.map(each => [each.label, each.line, each.act, each.end])]), [
-    ['', [['Model One', '', sets(one.value), null], ['Held', '', sets(String(member.value)), { words: '', done: true }]]],
+    ['', []],
+    ['OpenRouter', [['Model One', '', sets(one.value), null], ['Held', '', sets(String(member.value)), { words: '', done: true }]]],
     ['Local', [['Two', '', sets('runner:mac/two'), null]]]]);
-  assert.deepEqual([page.panels[0].add?.placeholder, page.panels[0].add?.typed, page.panels[0].note], ['Search', 'model', '']);
+  assert.deepEqual([page.panels[0].find, page.panels[0].add, page.panels[0].note], [{ placeholder: 'Search', typed: 'model' }, null, '']);
   const none = /** @type {Detail} */ (detailOf(LLM_REPORT, HOST_STATE, id, { ...OPENED, pages, typed: 'zzz',
-    found: { ...found, answer: { ...found.answer, rows: [], local: null, none: 'No matches' } } }));
-  assert.deepEqual([none.panels.length, none.panels[0].note], [1, 'No matches']);
+    found: { ...found, answer: { ...found.answer, groups: [], none: 'No matches' } } }));
+  assert.deepEqual([none.panels.length, none.panels[0].note, none.panels[0].find?.typed], [1, 'No matches', 'zzz']);
   const browser = /** @type {Detail} */ (detailOf(LLM_REPORT, null, id, { ...OPENED, pages, typed: 'model', found }));
   assert.ok(browser.panels.flatMap(each => each.rows).every(each => each.act === null), 'no act in a browser');
 });
@@ -231,25 +234,28 @@ test('L5: a change settles once a report read after it holds the value the home 
   assert.equal(settled(sent, reads(moved('llm.photos', 'default'))), true);
 });
 
-test('L6: Settings opens at the page its id names, AI models marked in its list; AI models in its order, reading, failed', () => {
+test('L6: Settings opens at the page its id names, Providers marked in its list; Providers in its order, Default models its uses, reading, failed', () => {
   assert.equal(shownPage('settings'), 'home', 'Settings alone is Home');
-  assert.equal(shownPage(SETTINGS_MODELS), 'models');
+  assert.deepEqual([shownPage(SETTINGS_DEFAULTS), shownPage(SETTINGS_PROVIDERS)], ['defaults', 'providers']);
   assert.equal(shownPage('settings/general'), '', 'General is gone, with no redirect');
-  for (const id of ['settings', SETTINGS_MODELS]) assert.ok(isSettings(id));
+  for (const id of ['settings', SETTINGS_DEFAULTS, SETTINGS_PROVIDERS]) assert.ok(isSettings(id));
   assert.equal(isSettings('screen'), false);
 
   const models = settings({});
-  assert.equal(models.name, 'AI models');
+  assert.equal(models.name, 'Providers');
   const items = models.nav?.groups.flatMap(group => group.items) ?? [];
-  assert.deepEqual(items.filter(each => each.on).map(each => [each.label, each.do]), [['AI models', { open: SETTINGS_MODELS }]]);
-  assert.deepEqual(partLabels(models), ['On this Mac', 'On Mac mini', 'On iMac', 'Accounts', '', 'Custom address', 'Uses'],
-    'connections by place, runners first, then the uses');
+  assert.deepEqual(items.filter(each => each.on).map(each => [each.label, each.do]), [['Providers', { open: SETTINGS_PROVIDERS }]]);
+  assert.deepEqual(partLabels(models), ['Accounts', ...RUNNERS.map(each => each.place), 'Other server'],
+    'the accounts, then each Mac\'s local models, then the other server');
+  const defaults = settings({ id: SETTINGS_DEFAULTS });
+  assert.deepEqual([defaults.name, partLabels(defaults), rowsOf(defaults, '').map(row => row.label)], ['Default models', [''],
+    ['Chat', 'Thinking', 'Photos', 'Voice notes', 'Text', 'Search by meaning', 'Hiding details']], 'one part, no heading, Thinking under Chat');
   assert.equal(models.foot, null);
   assert.equal(settings({ id: 'settings/general' }), null);
 
   const reading = settings({ models: null });
   assert.equal(reading.reading, true);
-  assert.deepEqual(partLabels(reading), ['Accounts'], 'the host\'s, drawn while the models read is not');
+  assert.deepEqual(partLabels(reading), [''], 'the host\'s, drawn while the models read is not');
   const failed = settings({ models: null, failed: READ_FAILED });
   assert.equal(failed.reading, false);
   assert.equal(failed.readFailed?.drawn, READ_FAILED);
@@ -263,67 +269,63 @@ test('L6: Settings opens at the page its id names, AI models marked in its list;
     [['Claude', 'Signed in'], ['ChatGPT', 'Not signed in'], ['OpenRouter', 'Connected']], 'with no flow the plans are the home\'s rows');
 });
 
-test('L7: OpenRouter typed and saved, Connected and Remove; the custom address is its URL, on its page, set and removed', () => {
+test('L7: OpenRouter typed and added, Connected and Remove; the other server is its URL, on its page, set and removed', () => {
   const bare = settings({ models: MODELS_BARE });
-  const openrouter = rowsOf(bare, '').find(row => row.label === 'OpenRouter');
-  assert.equal(openrouter?.line, 'Pay per call with your own key.');
+  const openrouter = rowsOf(bare, 'Accounts').find(row => row.label === 'OpenRouter');
+  assert.equal(openrouter?.line, 'Hundreds of models with one key.');
   const end = /** @type {any} */ (openrouter?.end);
   assert.deepEqual([end.field.key, end.field.kind, end.field.value], [TYPED.key, 'secret', '']);
-  assert.deepEqual(end.acts.map((/** @type {any} */ act) => [act.label, act.disabled, act.do]), [['Save', true, { save: 'openrouter' }]]);
+  assert.deepEqual(end.acts.map((/** @type {any} */ act) => [act.label, act.disabled, act.do]), [['Add key', true, { save: 'openrouter' }]]);
   const typed = { ...OPENED, fields: { [TYPED.key]: ' sk-or-example ' } };
-  const filled = rowsOf(settings({ models: MODELS_BARE, opened: typed }), '').find(row => row.label === 'OpenRouter');
+  const filled = rowsOf(settings({ models: MODELS_BARE, opened: typed }), 'Accounts').find(row => row.label === 'OpenRouter');
   assert.equal(/** @type {any} */ (filled?.end).acts[0].disabled, false);
   assert.deepEqual(savedAct('openrouter', typed), { act: 'seal', secret: 'openrouter', value: 'sk-or-example' });
   assert.equal(savedAct('openrouter', OPENED), null);
 
-  const custom = rowIn(bare, 'Custom address', 'Custom address');
-  assert.deepEqual([custom?.line, /** @type {any} */ (custom?.end).words, endActs(custom)],
-    ['Any server that speaks the OpenAI API, such as Ollama or LM Studio. It lists its own models.', 'Not set',
-      [['Add address', { page: 'address' }]]]);
+  const custom = rowsOf(bare, 'Other server')[0];
+  assert.deepEqual([custom?.label, custom?.line, endActs(custom)],
+    ['Any OpenAI-compatible server, like vLLM or another Mac.', '', [['Add server', { page: 'address' }]]]);
   const page = settings({ models: MODELS_BARE, opened: { ...OPENED, pages: ['address'] } });
-  assert.deepEqual([page.name, page.back], ['AI models', { label: 'AI models' }]);
-  assert.deepEqual(part(page, 'Custom address')?.acts.map(act => [act.label, act.disabled, act.do]), [['Save', true, { save: 'address' }]]);
-  assert.deepEqual(part(page, 'Custom address')?.panel?.rows.map(row => row.label), ['Address'], 'no model and no Takes: the address lists its own');
+  assert.deepEqual([page.name, page.back], ['Providers', { label: 'Providers' }]);
+  assert.deepEqual(part(page, 'Other server')?.acts.map(act => [act.label, act.disabled, act.do]), [['Save', true, { save: 'address' }]]);
+  assert.deepEqual(part(page, 'Other server')?.panel?.rows.map(row => row.label), ['Server URL'], 'no model and no Takes: the server lists its own');
   const address = { ...OPENED, pages: ['address'], fields: { [TYPED.url]: ' http://127.0.0.1:11434/v1 ' } };
   assert.deepEqual(savedAct('address', address), { act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1' });
   assert.equal(savedAct('address', { ...address, fields: { [TYPED.url]: ' ' } }), null);
 
   const full = settings({});
-  const connected = rowsOf(full, '').find(row => row.label === 'OpenRouter');
+  const connected = rowsOf(full, 'Accounts').find(row => row.label === 'OpenRouter');
   assert.deepEqual([connected?.line, /** @type {any} */ (connected?.end).words, endActs(connected)],
-    ['Pay per call with your own key.', 'Connected', [['Remove', { host: { act: 'seal', secret: 'openrouter', value: null } }]]]);
-  const set = rowsOf(full, 'Custom address')[0];
+    ['Hundreds of models with one key.', 'Connected', [['Remove', { host: { act: 'seal', secret: 'openrouter', value: null } }]]]);
+  const set = rowsOf(full, 'Other server')[0];
   assert.deepEqual([set?.label, endActs(set)], ['http://127.0.0.1:11434/v1', [['Remove', { host: { act: 'models', do: 'address', none: true } }]]]);
   const said = settings({ models: { ...MODELS, connections: MODELS.connections.map(each => each.kind === 'address'
     ? { ...each, line: 'Said by the home' } : each) } });
-  assert.equal(rowsOf(said, 'Custom address')[0]?.only, 'Said by the home');
+  assert.equal(rowsOf(said, 'Other server')[0]?.only, 'Said by the home');
 });
 
-test('L8: each model file\'s acts the home\'s, its size, about and failure said; a runner away acts on nothing', () => {
+test('L8: each model file\'s line and acts the home\'s; a runner away says why', () => {
   const full = settings({});
   /** @param {import('../public/ui/connectors/dialog.js').DetailPart | undefined} at */
-  const files = at => (at?.panel?.rows ?? []).filter(row => row.label !== 'Run models' && row.label !== 'Save battery');
-  const LABELS = /** @type {const} */ ({ fetch: ['Download', 'fetch'], cancel: ['Cancel', 'remove'], remove: ['Remove', 'remove'] });
+  const files = at => (at?.panel?.rows ?? []).filter(row => row.label !== 'Run local models' && row.label !== 'Save battery');
   /** @param {Runner} runner */
-  const drawn = runner => runner.files.map(each => [each.name, `${each.size} · ${each.about}`, each.line ?? '', !each.fits,
-    each.acts.map(act => [act === 'fetch' && each.state === 'failed' ? 'Try again' : LABELS[act][0],
-      { host: { act: 'models', do: 'file', runner: runner.id.slice('runner:'.length), id: each.id, to: LABELS[act][1] } }])]);
+  const drawn = runner => runner.files.map(each => [each.name, each.line, each.working, !each.fits,
+    each.acts.map(act => [act.words, { host: { act: 'models', do: 'file', runner: runner.id.slice('runner:'.length), id: each.id, to: act.act === 'fetch' ? 'fetch' : 'remove' } }])]);
   const [mac, mini, imac] = RUNNERS;
   assert.deepEqual(mac.files.map(each => each.state), ['ready', 'fetching', 'absent', 'absent', 'ready'], 'the fixture holds three states');
-  assert.deepEqual(files(part(full, 'On this Mac')).map(row => [row.label, row.line, row.only, row.dim, endActs(row)]), drawn(mac));
-  assert.deepEqual(files(part(full, 'On Mac mini')).map(row => [row.label, row.line, row.only, row.dim, endActs(row)]), drawn(mini));
-  assert.deepEqual(endActs(files(part(full, 'On this Mac')).find(row => row.label === 'Qwen 3.5 35B-A3B')), [],
+  assert.deepEqual(files(part(full, MAC_AT)).map(row => [row.label, row.line, row.working, row.dim, endActs(row)]), drawn(mac));
+  assert.deepEqual(files(part(full, MINI_AT)).map(row => [row.label, row.line, row.working, row.dim, endActs(row)]), drawn(mini));
+  assert.deepEqual(endActs(files(part(full, MAC_AT)).find(row => row.label === 'Qwen 3.5 35B-A3B')), [],
     'a file too large for its Mac: no act, greyed');
-  assert.deepEqual(part(full, 'On iMac')?.panel?.rows.map(row => [row.label, endActs(row)]), [[imac.line, []]]);
+  assert.deepEqual(part(full, IMAC_AT)?.panel?.rows.map(row => [row.label, endActs(row)]), [[imac.none, []]]);
   const away = settings({ models: withRunner({ line: 'Said by the home' }) });
-  assert.deepEqual(part(away, 'On this Mac')?.lines, ['Said by the home']);
-  assert.deepEqual(files(part(away, 'On this Mac')).flatMap(endActs), [], 'a runner away: no act');
+  assert.deepEqual(part(away, MAC_AT)?.lines, ['Said by the home'], 'the home empties an away runner\'s acts; the part says why');
   const found = settings({ models: withRunner({ found: [{ name: 'llama4:8b', size: '4.9 GB', from: 'From Ollama' }] }) });
   assert.deepEqual(rowsOf(found, 'From Ollama').map(row => [row.label, /** @type {any} */ (row.end).words, endActs(row)]),
     [['llama4:8b', '4.9 GB', []]], 'a found model, with no button');
 });
 
-test('L8b: a runner\'s calls: Run models, its switch first where one file is ready or a pause stands, off with the home\'s words of the pause; none ready, none; in a browser its words', () => {
+test('L8b: a runner\'s calls: Run local models, its switch first where the home gives one, off with the home\'s line; none given, none; in a browser its words', () => {
   const [mac] = RUNNERS;
   /**
    * @param {Detail} detail
@@ -331,26 +333,25 @@ test('L8b: a runner\'s calls: Run models, its switch first where one file is rea
    */
   const run = (detail, label) => {
     const row = part(detail, label)?.panel?.rows[0];
-    return row?.label === 'Run models' ? [row.line, /** @type {any} */ (row.end)?.toggle ?? /** @type {any} */ (row.end)?.words] : null;
+    return row?.label === 'Run local models' ? [row.line, /** @type {any} */ (row.end)?.toggle ?? /** @type {any} */ (row.end)?.words] : null;
   };
   /** @param {'pause' | 'resume'} to */
   const act = to => ({ host: { act: 'models', do: 'runner', runner: 'runner-macbook-pro-0001', to } });
   const running = settings({});
   assert.equal(mac.paused, false, 'the fixture\'s runner runs unpaused');
-  assert.deepEqual(run(running, 'On this Mac'), ['Turn off to hold their work until you turn it back on.',
-    { on: true, label: 'Run models', do: act('pause') }]);
-  const pausedRead = withRunner({ paused: true, line: 'Said by the home' });
+  assert.deepEqual(run(running, MAC_AT), ['', { on: true, label: 'Run local models', do: act('pause') }]);
+  const pausedRead = withRunner({ paused: true, run: { label: 'Run local models', on: false, line: 'Local work waits until you turn this on.' } });
   const paused = settings({ models: pausedRead });
-  assert.deepEqual(run(paused, 'On this Mac'), ['Said by the home', { on: false, label: 'Run models', do: act('resume') }]);
-  assert.ok((part(paused, 'On this Mac')?.panel?.rows ?? []).filter(row => mac.files.some(file => file.name === row.label && file.acts.length))
+  assert.deepEqual(run(paused, MAC_AT), ['Local work waits until you turn this on.', { on: false, label: 'Run local models', do: act('resume') }]);
+  assert.ok((part(paused, MAC_AT)?.panel?.rows ?? []).filter(row => mac.files.some(file => file.name === row.label && file.acts.length))
     .every(row => endActs(row).length > 0), 'a paused runner\'s files still act');
-  const unready = settings({ models: withRunner({ files: mac.files.map(file => ({ ...file, state: file.state === 'ready' ? 'absent' : file.state })) }) });
-  assert.equal(run(unready, 'On this Mac'), null);
-  assert.equal(run(running, 'On iMac'), null);
-  assert.deepEqual(run(running, 'On Mac mini')?.[1], { on: false, label: 'Run models', do: { host: { act: 'models', do: 'runner',
+  const unready = settings({ models: withRunner({ run: null }) });
+  assert.equal(run(unready, MAC_AT), null);
+  assert.equal(run(running, IMAC_AT), null);
+  assert.deepEqual(run(running, MINI_AT)?.[1], { on: false, label: 'Run local models', do: { host: { act: 'models', do: 'runner',
     runner: 'runner-mac-mini-bb17', to: 'resume' } } });
-  assert.deepEqual(run(settings({ state: null }), 'On this Mac')?.[1], 'On');
-  assert.deepEqual(run(settings({ failed: READ_FAILED }), 'On this Mac')?.[1], 'On');
+  assert.deepEqual(run(settings({ state: null }), MAC_AT)?.[1], 'On');
+  assert.deepEqual(run(settings({ failed: READ_FAILED }), MAC_AT)?.[1], 'On');
   assert.ok(actsIn(detailMarkup(running, AT_REST)).some(each => JSON.stringify(each) === JSON.stringify(act('pause'))));
   const pending = /** @type {any} */ (pendingOf(act('pause').host, { report: null, models: MODELS, hiding: null }));
   assert.equal(keyOf(act('pause').host), keyOf(act('resume').host));
@@ -358,7 +359,7 @@ test('L8b: a runner\'s calls: Run models, its switch first where one file is rea
   assert.equal(settled(pending, { report: null, hiding: null, models: pausedRead }), true);
 });
 
-test('L8c: a runner\'s Save battery: after Run models where its machine has a battery, the home\'s words of it; in a browser its words', () => {
+test('L8c: a runner\'s Save battery: after Run local models where its machine has a battery, the home\'s words of it; in a browser its words', () => {
   /**
    * @param {Detail} detail
    * @param {string} label
@@ -370,34 +371,37 @@ test('L8c: a runner\'s Save battery: after Run models where its machine has a ba
   };
   /** @param {'save' | 'spend'} to */
   const act = to => ({ host: { act: 'models', do: 'battery', runner: 'runner-macbook-pro-0001', to } });
-  assert.deepEqual(save(settings({}), 'On this Mac'), [1, SAVE_BATTERY, { on: true, label: 'Save battery', do: act('spend') }]);
-  assert.deepEqual(save(settings({ models: ON_BATTERY }), 'On this Mac')?.[1], 'On battery · older items wait until it\'s plugged in');
-  assert.deepEqual(save(settings({ models: BATTERY_SPENT }), 'On this Mac')?.[2], { on: false, label: 'Save battery', do: act('save') });
-  assert.equal(save(settings({}), 'On Mac mini'), null);
-  assert.equal(save(settings({}), 'On iMac'), null);
-  const unready = settings({ models: withRunner({ files: RUNNERS[0].files.map(file => ({ ...file, state: file.state === 'ready' ? 'absent' : file.state })) }) });
-  assert.deepEqual(save(unready, 'On this Mac')?.slice(0, 2), [0, SAVE_BATTERY]);
-  assert.deepEqual(save(settings({ state: null }), 'On this Mac')?.[2], 'On');
+  const SAVING = 'On battery, only recent items run.';
+  assert.deepEqual(save(settings({}), MAC_AT), [1, SAVING, { on: true, label: 'Save battery', do: act('spend') }]);
+  assert.deepEqual(save(settings({ models: ON_BATTERY }), MAC_AT)?.[1], SAVING);
+  assert.deepEqual(save(settings({ models: BATTERY_SPENT }), MAC_AT)?.[2], { on: false, label: 'Save battery', do: act('save') });
+  assert.equal(save(settings({}), MINI_AT), null);
+  assert.equal(save(settings({}), IMAC_AT), null);
+  const unready = settings({ models: withRunner({ run: null }) });
+  assert.deepEqual(save(unready, MAC_AT)?.slice(0, 2), [0, SAVING]);
+  assert.deepEqual(save(settings({ state: null }), MAC_AT)?.[2], 'On');
   const pending = /** @type {any} */ (pendingOf(act('spend').host, { report: null, models: MODELS, hiding: null }));
   assert.equal(keyOf(act('spend').host), keyOf(act('save').host));
   assert.equal(settled(pending, { report: null, models: MODELS, hiding: null }), false);
   assert.equal(settled(pending, { report: null, models: BATTERY_SPENT, hiding: null }), true);
 });
 
-test('L9: Uses: six rows in the home\'s order, each one picker of the home\'s menu: each model its name, local ones under Local, then More, Off last but for Chat; the one held checked', () => {
-  const full = settings({});
-  assert.deepEqual(rowsOf(full, 'Uses').map(row => row.label),
-    ['Photos', 'Voice notes', 'Text', 'Chat', 'Thinking', 'Search by meaning', 'Hiding details'], 'Chat\'s level under its row');
-  assert.deepEqual(part(full, 'Uses')?.lines, [], 'no line under Uses');
-  const levelless = settings({ models: { ...MODELS, uses: MODELS.uses.map(use => use.use === 'chat' ? { ...use, thinking: null } : use) } });
-  assert.deepEqual(rowsOf(levelless, 'Uses').map(row => row.label),
-    ['Photos', 'Voice notes', 'Text', 'Chat', 'Search by meaning', 'Hiding details'], 'a Chat model with no levels: no Thinking row');
+const defaults = (/** @type {Partial<Parameters<typeof settingsDetail>[0]>} */ read) => settings({ id: SETTINGS_DEFAULTS, ...read });
+
+test('L9: Default models: six rows in the home\'s order, each one picker of the home\'s menu: each model its name, local ones under Local, then More, Off last but for Chat; the one held checked', () => {
+  const full = defaults({});
+  assert.deepEqual(rowsOf(full, '').map(row => row.label),
+    ['Chat', 'Thinking', 'Photos', 'Voice notes', 'Text', 'Search by meaning', 'Hiding details'], 'Chat\'s level under its row');
+  assert.deepEqual(part(full, '')?.lines, [], 'no line under the page\'s title');
+  const levelless = defaults({ models: { ...MODELS, uses: MODELS.uses.map(use => use.use === 'chat' ? { ...use, thinking: null } : use) } });
+  assert.deepEqual(rowsOf(levelless, '').map(row => row.label),
+    ['Chat', 'Photos', 'Voice notes', 'Text', 'Search by meaning', 'Hiding details'], 'a Chat model with no levels: no Thinking row');
   for (const use of MODELS.uses) {
-    const menu = menuOf(rowIn(full, 'Uses', use.label)?.end);
+    const menu = menuOf(rowIn(full, '', use.label)?.end);
     assert.deepEqual([menu.words, menu.find], [use.words, '']);
     assert.equal(menu.choices.at(-1).words, use.use === 'chat' ? 'More' : 'Off', `${use.use}: Off last, never for Chat`);
   }
-  const photos = menuOf(rowIn(full, 'Uses', 'Photos')?.end);
+  const photos = menuOf(rowIn(full, '', 'Photos')?.end);
   /** @param {string} model */
   const picks = model => ({ host: { act: 'models', do: 'default', use: 'pictures', model } });
   const pictures = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'pictures'));
@@ -407,29 +411,30 @@ test('L9: Uses: six rows in the home\'s order, each one picker of the home\'s me
     ['Plan Model One', '', '', '', false, false, false, picks(plan.value)], ['Vision One', '', '', '', true, false, false, picks(vision.value)],
     ['Qwen 3.5 4B', '', '', 'Local', false, true, false, picks(qwen?.value ?? '')], ['More', '', '', '', false, false, true, { page: 'more:pictures' }],
     ['Off', '', '', '', false, false, false, picks('none')]]);
-  assert.equal(rowIn(settings({ state: null }), 'Uses', 'Voice notes')?.end?.words, 'Off', 'without acts it reads the home\'s words');
+  assert.equal(rowIn(defaults({ state: null }), '', 'Voice notes')?.end?.words, 'Off', 'without acts it reads the home\'s words');
 
   const found = { key: '', failed: '', answer: { position: '1:1', today: '2026-06-01', placeholder: 'Search', none: null,
-    rows: [{ value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false }],
-    local: { label: 'Local', rows: [{ value: 'runner:mac/model-2', name: 'Model Two', account: 'MacBook Pro', chosen: true }] } } };
-  const more = settings({ opened: { ...OPENED, pages: ['more:pictures'], typed: 'model', found } });
-  assert.deepEqual([more.name, more.back], ['More', { label: 'AI models' }]);
-  assert.deepEqual(more.parts.map(each => [each.label, each.panel?.add?.placeholder ?? null, each.panel?.rows.map(row => [row.label, row.tag ?? '', row.act, row.end])]), [
-    ['', 'Search', [['Model One', '', picks('openrouter:vendor-b/model-1'), null]]],
-    ['Local', null, [['Model Two', 'MacBook Pro', picks('runner:mac/model-2'), { words: '', done: true }]]]]);
-  const none = settings({ opened: { ...OPENED, pages: ['more:pictures'], typed: 'zzz', found: { ...found, answer: { ...found.answer, rows: [], local: null, none: 'No matches' } } } });
+    groups: [{ label: 'OpenRouter', rows: [{ value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false }] },
+      { label: 'Local', rows: [{ value: 'runner:mac/model-2', name: 'Model Two', account: 'MacBook Pro', chosen: true }] }] } };
+  const more = defaults({ opened: { ...OPENED, pages: ['more:pictures'], typed: 'model', found } });
+  assert.deepEqual([more.name, more.back], ['More', { label: 'Default models' }]);
+  assert.deepEqual(more.parts.map(each => [each.label, each.panel?.find?.placeholder ?? null, each.panel?.rows.map(row => [row.label, row.tag ?? '', row.act, row.end])]), [
+    ['', 'Search', []],
+    ['OpenRouter', null, [['Model One', '', picks('openrouter:vendor-b/model-1'), null]]],
+    ['Local', null, [['Model Two', 'MacBook Pro', picks('runner:mac/model-2'), { words: '', done: true }]]]], 'the field first, the found under their headers');
+  const none = defaults({ opened: { ...OPENED, pages: ['more:pictures'], typed: 'zzz', found: { ...found, answer: { ...found.answer, groups: [], none: 'No matches' } } } });
   assert.equal(none.parts[0].panel?.note, 'No matches');
 
   const chat = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'chat'));
-  const high = settings({ models: { ...MODELS, uses: MODELS.uses.map(use => use.use !== 'chat' || !use.thinking ? use : { ...use, thinking: {
-    value: 'high', words: 'High', levels: use.thinking.levels.map(level => ({ ...level, chosen: level.value === 'high' })) } }) } });
-  const levels = menuOf(rowIn(high, 'Uses', 'Thinking')?.end);
+  const high = defaults({ models: { ...MODELS, uses: MODELS.uses.map(use => use.use !== 'chat' || !use.thinking ? use : { ...use, thinking: {
+    label: 'Thinking', value: 'high', words: 'High', levels: use.thinking.levels.map(level => ({ ...level, chosen: level.value === 'high' })) } }) } });
+  const levels = menuOf(rowIn(high, '', 'Thinking')?.end);
   assert.equal(levels.words, 'High', 'the home\'s words for the chosen level');
   assert.deepEqual(levels.choices.map((/** @type {any} */ each) => [each.words, each.chosen, each.default, each.do]), [
     ['Low', false, false, { host: { act: 'models', do: 'default', use: 'chat', model: chat.value, thinking: 'low' } }],
     ['Medium', false, true, { host: { act: 'models', do: 'default', use: 'chat', model: chat.value, thinking: 'medium' } }],
     ['High', true, false, { host: { act: 'models', do: 'default', use: 'chat', model: chat.value, thinking: 'high' } }]]);
-  assert.equal(rowIn(settings({ state: null }), 'Uses', 'Thinking')?.end?.words, 'Medium', 'without acts it reads the home\'s words');
+  assert.equal(rowIn(defaults({ state: null }), '', 'Thinking')?.end?.words, 'Medium', 'without acts it reads the home\'s words');
   assert.equal(keyOf(levels.choices[0].do.host), keyOf({ act: 'models', do: 'default', use: 'chat', model: 'none' }), 'waits as Chat\'s pick does');
 
   const off = /** @type {any} */ (pendingOf({ act: 'models', do: 'default', use: 'pictures', model: 'none' }, { report: null, models: MODELS, hiding: null }));
@@ -530,7 +535,7 @@ test('L13: no barred word anywhere this lane draws', () => {
     ...SHAPED.flatMap(id => [dialog(id, HOST_STATE), dialog(id, null)].map(detail => /** @type {Detail} */ ({ ...detail, reads: '',
       panels: detail.panels.filter(each => each.label === 'AI') }))),
     ...SHAPED.flatMap(id => worksOf(id).flatMap(row => [pageOf(id, row.member, HOST_STATE), pageOf(id, row.member, null)])),
-    settings({}), settings({ models: MODELS_BARE }), settings({ state: null }),
+    settings({}), settings({ models: MODELS_BARE }), settings({ state: null }), settings({ id: SETTINGS_DEFAULTS }),
     settings({ failed: READ_FAILED }), settings({ models: MODELS_BARE, opened: { ...OPENED, pages: ['address'] } }),
   ];
   for (const detail of pages) {
@@ -590,7 +595,7 @@ test('L14: a change waits by what it changes until the read authoritative for it
   assert.equal(settled(address, reads({ models: MODELS })), true);
   assert.equal(settled(fetch, reads({ models: withRunner({ line: 'Said by the home' }) })), true, 'a runner gone away lands it');
 
-  const uses = settings({ models: { ...textAt(null), uses: textAt(null).uses.map(use => use.use === 'text' ? { ...use, words: 'Off' } : use) } });
+  const uses = defaults({ models: { ...textAt(null), uses: textAt(null).uses.map(use => use.use === 'text' ? { ...use, words: 'Off' } : use) } });
   const busy = { ...AT_REST, busy: new Set([/** @type {string} */ (keyOf({ ...text, model: 'runner:qwen3.5' }))]) };
   assert.ok(/<button[^>]*aria-busy="true"[^>]*aria-label="Text: Off"/u.test(detailMarkup(uses, busy)), 'the Text menu waits');
   const stream = /** @type {Detail} */ (detailOf(LLM_REPORT, HOST_STATE, 'whatsapp', OPENED));

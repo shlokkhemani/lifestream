@@ -8,7 +8,12 @@ import XCTest
 @MainActor
 final class PhotosTests: XCTestCase {
     static let day = Date(timeIntervalSince1970: 1_780_000_000)
-    static let wifi = Device(metered: false, charging: false, spare: 95_000_000_000)
+    static let wifi = Device(moment(.free), charging: false, spare: 95_000_000_000)
+    static let costly = Device(moment(.costly), charging: false, spare: wifi.spare)
+
+    static func moment(_ path: MobileData.Path) -> MobileData.Moment {
+        MobileData.Moment(path: path, choice: .now, loopback: false, pressed: false)
+    }
     static let still = PhotoResource(typeRaw: 1, uti: "public.heic", originalFilename: "IMG_0001.HEIC")
 
     static func photo(_ id: String, minutes: Double, edited: Double? = nil) -> PhotoSnapshot {
@@ -89,9 +94,9 @@ final class PhotosTests: XCTestCase {
         photos.rig.home.wanted = PhotoRig.wanting(all, left: (5, 0))
 
         let asked = photos.rig.home.wantedAsked
-        photos.device = Device(metered: true, charging: false, spare: Self.wifi.spare)
-        let metered = try await photos.wake()
-        XCTAssertEqual(metered?.waits, .network)
+        photos.device = Self.costly
+        let costly = try await photos.wake()
+        XCTAssertEqual(costly?.waits, .network, "the past waits on a costly path with the default choice")
         photos.device = Self.wifi
         photos.device.spare = 0
         let low = try await photos.wake()
@@ -325,7 +330,7 @@ extension PhotosTests {
         synthetic.put(Self.photo("FULL/L0/001", minutes: 0))
         let pass = PhotoPass(store: store, library: PhotoLibrary(synthetic), stateURL: root.appendingPathComponent("cursor.json"),
                              build: "1 aaaaaaa")
-        let home = PhotoPass.Home(caughtUp: true, wanted: { PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) })
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) })
         let full = await pass.run(.wake(.foreground), device: Self.wifi, bringingIn: true, home: home)
         XCTAssertNil(full?.error)
         XCTAssertEqual(full?.waits, .space)
@@ -352,9 +357,9 @@ extension PhotosTests {
         photos.device.spare = 0
         let low = try await photos.wake(.foreground)
         XCTAssertEqual(BringInStep.after(low, left: left, idle: 0), .wait(.space))
-        photos.device = Device(metered: true, charging: false, spare: Self.wifi.spare)
-        let metered = try await photos.wake(.foreground)
-        XCTAssertEqual(BringInStep.after(metered, left: left, idle: 0), .wait(.network))
+        photos.device = Self.costly
+        let costly = try await photos.wake(.foreground)
+        XCTAssertEqual(BringInStep.after(costly, left: left, idle: 0), .wait(.network))
         photos.device = Self.wifi
         let fetched = try await photos.wake(.foreground)
         XCTAssertEqual(fetched?.files, 1, "the cause ended: the file came")
@@ -390,9 +395,13 @@ extension PhotosTests {
     func testBringInAllPhotosWaitsSayingWhyAndGoesOnByItselfOnceTheCauseEnds() async throws {
         let free = Free(Room.keepBytes + 50)
         let volume = Volume(FileManager.default.temporaryDirectory, every: 0, read: { _ in free.bytes })
-        let paths = Paths(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, metered: .expensive))
+        let paths = Paths(NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: false, cost: .costly))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let link = HomeLink(device: HomeLink.Device(kind: .phone, version: "1.0.0", model: "iPhone", serial4: nil, stamp: nil),
+                            credentials: MemoryPass(), folder: folder, network: paths)
         let pauses = Pauses()
-        let wait = BringInWait(volume: volume, network: paths, phone: "iPhone 17 Pro", pause: { await pauses.pause() })
+        let wait = BringInWait(volume: volume, link: link, phone: "iPhone 17 Pro", pause: { await pauses.pause() })
         let said = Said()
 
         let space = Task { @MainActor in await wait.out(.space, spare: 50) { said.lines.append($0) } }
@@ -416,12 +425,12 @@ extension PhotosTests {
 
         said.lines = []
         let network = Task { @MainActor in await wait.out(.network, spare: 0) { said.lines.append($0) } }
-        try await until("it says what it waits for") { said.lines == ["Waiting for Wi-Fi"] }
-        paths.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1, metered: .lowDataMode))
-        try await until("a Wi-Fi with Low Data Mode is said as such") { said.lines.last == "Waiting: Low Data Mode is on" }
+        try await until("it says what it waits for") { said.lines == [MobileData.Wait.past.words] }
+        paths.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 1, cost: .lowData))
+        try await until("a Wi-Fi with Low Data Mode is said as such") { said.lines.last == MobileData.Wait.lowData.words }
         paths.set(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, path: 2))
         await network.value
-        XCTAssertEqual(said.lines, ["Waiting for Wi-Fi", "Waiting: Low Data Mode is on"])
+        XCTAssertEqual(said.lines, [MobileData.Wait.past.words, MobileData.Wait.lowData.words], "the module's words, once each")
     }
 }
 

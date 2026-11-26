@@ -164,6 +164,7 @@
 		98AB1DB76839377387E7821E /* SearchFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6554878A30430854F25B93E5 /* SearchFlowUITests.swift */; };
 		99AF6B37B1FE4360F56673F3 /* PeopleList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 281254B8CB442253D97D2F74 /* PeopleList.swift */; };
 		9C423726E2F3BDBA3E165C8B /* DaysTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DFBCFFA6E6DC3B21338F376 /* DaysTab.swift */; };
+		9E224D4B110AFEE63E35C401 /* MobileDataJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF5195BF1EDF1866F5EA375 /* MobileDataJourneyTests.swift */; };
 		9F6C96B9C853CDD1C01F781E /* agents in Resources */ = {isa = PBXBuildFile; fileRef = 3241C66264EBA90331941A1E /* agents */; };
 		A02B7AFF5106AA9A1559D7B8 /* ContactSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396F3BF2C64A28A9E110EA54 /* ContactSource.swift */; };
 		A107752C919A38F48E16BE7E /* DaysListUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AF19954EC95B98391FDFA34 /* DaysListUITests.swift */; };
@@ -536,6 +537,7 @@
 		B72A27DD1558A2FAF95F7655 /* GeofenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeofenceMonitor.swift; sourceTree = "<group>"; };
 		B8046D4E2311E9A290523D13 /* ChatRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRecorder.swift; sourceTree = "<group>"; };
 		B90B80EA4AF0A223FC3ECC25 /* NotePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotePlayer.swift; sourceTree = "<group>"; };
+		BAF5195BF1EDF1866F5EA375 /* MobileDataJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileDataJourneyTests.swift; sourceTree = "<group>"; };
 		BC49CF76C58A2868E2B73018 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BD4A5C4DB99E8B6184D351F6 /* DisplayCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayCacheTests.swift; sourceTree = "<group>"; };
 		BE305190EAAA940045D53FF9 /* CircleEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CircleEditTests.swift; sourceTree = "<group>"; };
@@ -1018,6 +1020,7 @@
 				BE4411E736EC5057DA8AFD60 /* LifeReaderTests.swift */,
 				883DA704F100D1B5E6EC4C6C /* LocationRecorderTests.swift */,
 				3673B8AF3D9DD4393E56977D /* LockTests.swift */,
+				BAF5195BF1EDF1866F5EA375 /* MobileDataJourneyTests.swift */,
 				06E929FF189E5BC73CB7CF48 /* NotePlayerTests.swift */,
 				D4617B3C4DB54385C9514802 /* NotesRichTextTests.swift */,
 				6552D74C4FB585EE3C9DA499 /* NotesStoreTests.swift */,
@@ -1453,6 +1456,7 @@
 				129A657AE2704501C9595D27 /* LifeReaderTests.swift in Sources */,
 				5FBCD940B50CD4FC28535F4F /* LocationRecorderTests.swift in Sources */,
 				13FAE734B50A4683890A25C9 /* LockTests.swift in Sources */,
+				9E224D4B110AFEE63E35C401 /* MobileDataJourneyTests.swift in Sources */,
 				060022E22CF86A844B65950A /* NotePlayerTests.swift in Sources */,
 				C23D67FFB9DCFFAED927A789 /* NotesRichTextTests.swift in Sources */,
 				BF8DF156BB990EFED8588B2F /* NotesStoreTests.swift in Sources */,

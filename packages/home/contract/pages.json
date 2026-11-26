@@ -21004,8 +21004,8 @@
         "additionalProperties": false
       }
     },
-    "models": {
-      "route": "/v1/page/models",
+    "modelDefaults": {
+      "route": "/v1/page/models/defaults",
       "moves": [
         "streams"
       ],
@@ -21071,6 +21071,9 @@
                     {
                       "type": "object",
                       "properties": {
+                        "label": {
+                          "type": "string"
+                        },
                         "value": {
                           "type": "string"
                         },
@@ -21107,6 +21110,7 @@
                         }
                       },
                       "required": [
+                        "label",
                         "value",
                         "words",
                         "levels"
@@ -21358,6 +21362,9 @@
                           }
                         ]
                       },
+                      "working": {
+                        "type": "boolean"
+                      },
                       "ready": {
                         "type": "boolean"
                       },
@@ -21369,6 +21376,7 @@
                       "place",
                       "value",
                       "line",
+                      "working",
                       "ready",
                       "leaves"
                     ],
@@ -21390,6 +21398,39 @@
             },
             "minItems": 6,
             "maxItems": 6
+          }
+        },
+        "required": [
+          "position",
+          "today",
+          "uses"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "modelProviders": {
+      "route": "/v1/page/models/providers",
+      "moves": [
+        "streams"
+      ],
+      "today": false,
+      "device": false,
+      "settled": null,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "pattern": "^\\d+:\\d+$",
+            "description": "a position, seq:at_ms"
+          },
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "a day, YYYY-MM-DD"
+          },
+          "accounts": {
+            "type": "string"
           },
           "connections": {
             "type": "array",
@@ -21417,6 +21458,9 @@
                     "signed": {
                       "type": "boolean"
                     },
+                    "words": {
+                      "type": "string"
+                    },
                     "kind": {
                       "enum": [
                         "plan"
@@ -21428,6 +21472,7 @@
                     "name",
                     "line",
                     "signed",
+                    "words",
                     "kind"
                   ],
                   "additionalProperties": false
@@ -21454,6 +21499,40 @@
                     "held": {
                       "type": "boolean"
                     },
+                    "words": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "key": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string"
+                        },
+                        "placeholder": {
+                          "type": "string"
+                        },
+                        "add": {
+                          "type": "string"
+                        },
+                        "remove": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "placeholder",
+                        "add",
+                        "remove"
+                      ],
+                      "additionalProperties": false
+                    },
                     "kind": {
                       "enum": [
                         "key"
@@ -21465,6 +21544,8 @@
                     "name",
                     "line",
                     "held",
+                    "words",
+                    "key",
                     "kind"
                   ],
                   "additionalProperties": false
@@ -21494,6 +21575,84 @@
                         }
                       ]
                     },
+                    "none": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "run": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "on": {
+                              "type": "boolean"
+                            },
+                            "line": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "on",
+                            "line"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "battery": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "on": {
+                              "type": "boolean"
+                            },
+                            "line": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "on",
+                            "line"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "files": {
                       "type": "array",
                       "items": {
@@ -21505,11 +21664,11 @@
                           "name": {
                             "type": "string"
                           },
-                          "about": {
+                          "line": {
                             "type": "string"
                           },
-                          "size": {
-                            "type": "string"
+                          "working": {
+                            "type": "boolean"
                           },
                           "state": {
                             "enum": [
@@ -21519,7 +21678,10 @@
                               "failed"
                             ]
                           },
-                          "line": {
+                          "fits": {
+                            "type": "boolean"
+                          },
+                          "words": {
                             "anyOf": [
                               {
                                 "type": "string"
@@ -21529,32 +21691,38 @@
                               }
                             ]
                           },
-                          "suggested": {
-                            "type": "boolean"
-                          },
-                          "fits": {
-                            "type": "boolean"
-                          },
                           "acts": {
                             "type": "array",
                             "items": {
-                              "enum": [
-                                "fetch",
-                                "remove",
-                                "cancel"
-                              ]
+                              "type": "object",
+                              "properties": {
+                                "act": {
+                                  "enum": [
+                                    "fetch",
+                                    "remove",
+                                    "cancel"
+                                  ]
+                                },
+                                "words": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "act",
+                                "words"
+                              ],
+                              "additionalProperties": false
                             }
                           }
                         },
                         "required": [
                           "id",
                           "name",
-                          "about",
-                          "size",
-                          "state",
                           "line",
-                          "suggested",
+                          "working",
+                          "state",
                           "fits",
+                          "words",
                           "acts"
                         ],
                         "additionalProperties": false
@@ -21583,29 +21751,6 @@
                         "additionalProperties": false
                       }
                     },
-                    "battery": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "on": {
-                              "type": "boolean"
-                            },
-                            "line": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "on",
-                            "line"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    },
                     "paused": {
                       "type": "boolean"
                     },
@@ -21621,9 +21766,11 @@
                     "place",
                     "name",
                     "line",
+                    "none",
+                    "run",
+                    "battery",
                     "files",
                     "found",
-                    "battery",
                     "paused",
                     "kind"
                   ],
@@ -21633,6 +21780,9 @@
                   "type": "object",
                   "properties": {
                     "id": {
+                      "type": "string"
+                    },
+                    "label": {
                       "type": "string"
                     },
                     "url": {
@@ -21655,6 +21805,38 @@
                         }
                       ]
                     },
+                    "words": {
+                      "type": "object",
+                      "properties": {
+                        "about": {
+                          "type": "string"
+                        },
+                        "add": {
+                          "type": "string"
+                        },
+                        "remove": {
+                          "type": "string"
+                        },
+                        "field": {
+                          "type": "string"
+                        },
+                        "placeholder": {
+                          "type": "string"
+                        },
+                        "save": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "about",
+                        "add",
+                        "remove",
+                        "field",
+                        "placeholder",
+                        "save"
+                      ],
+                      "additionalProperties": false
+                    },
                     "kind": {
                       "enum": [
                         "address"
@@ -21663,8 +21845,10 @@
                   },
                   "required": [
                     "id",
+                    "label",
                     "url",
                     "line",
+                    "words",
                     "kind"
                   ],
                   "additionalProperties": false
@@ -21679,7 +21863,7 @@
         "required": [
           "position",
           "today",
-          "uses",
+          "accounts",
           "connections"
         ],
         "additionalProperties": false
@@ -21709,95 +21893,56 @@
           "placeholder": {
             "type": "string"
           },
-          "rows": {
+          "groups": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "value": {
+                "label": {
                   "type": "string"
                 },
-                "name": {
-                  "type": "string"
-                },
-                "account": {
-                  "anyOf": [
-                    {
-                      "type": "string"
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "account": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "chosen": {
+                        "type": "boolean"
+                      }
                     },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "chosen": {
-                  "type": "boolean"
+                    "required": [
+                      "value",
+                      "name",
+                      "account",
+                      "chosen"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 1
                 }
               },
               "required": [
-                "value",
-                "name",
-                "account",
-                "chosen"
+                "label",
+                "rows"
               ],
               "additionalProperties": false
-            },
-            "maxItems": 20
-          },
-          "local": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "label": {
-                    "type": "string"
-                  },
-                  "rows": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "value": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "account": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "chosen": {
-                          "type": "boolean"
-                        }
-                      },
-                      "required": [
-                        "value",
-                        "name",
-                        "account",
-                        "chosen"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "minItems": 1
-                  }
-                },
-                "required": [
-                  "label",
-                  "rows"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "null"
-              }
-            ]
+            }
           },
           "none": {
             "anyOf": [
@@ -21814,8 +21959,7 @@
           "position",
           "today",
           "placeholder",
-          "rows",
-          "local",
+          "groups",
           "none"
         ],
         "additionalProperties": false

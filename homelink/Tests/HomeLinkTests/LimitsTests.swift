@@ -51,24 +51,6 @@ final class LimitsTests: XCTestCase {
         XCTAssertNotNil(Room.free(at: FileManager.default.temporaryDirectory), "a device reads its own disk")
     }
 
-    func testWhatMayMoveOnAMeteredNetwork() {
-        let large = Transfer.largeBytes
-        XCTAssertEqual(large, 50_000_000)
-        for kind in WriteKind.allCases {
-            for bytes in [0, large - 1, large] {
-                for pressed in [false, true] {
-                    XCTAssertTrue(Transfer.mayMove(kind, bytes: bytes, pressed: pressed, metered: false),
-                                  "a free network moves everything: \(kind) \(bytes) \(pressed)")
-                }
-            }
-        }
-        XCTAssertTrue(Transfer.mayMove(.new, bytes: large - 1, pressed: false, metered: true), "new data under 50 MB never waits")
-        XCTAssertFalse(Transfer.mayMove(.new, bytes: large, pressed: false, metered: true), "50 MB of new data waits")
-        XCTAssertFalse(Transfer.mayMove(.later, bytes: 1, pressed: false, metered: true), "a later transfer waits, however small")
-        XCTAssertTrue(Transfer.mayMove(.new, bytes: large, pressed: true, metered: true), "a press moves what it names")
-        XCTAssertTrue(Transfer.mayMove(.later, bytes: large, pressed: true, metered: true))
-    }
-
     func testAVolumeReadsAtMostOnceAMinuteAndSaysEachChangeOfLevelOnce() {
         let disk = Disk(free: 6 * Self.gb)
         let volume = Volume(URL(fileURLWithPath: "/"), read: { _ in disk.free }, clock: { disk.now })
@@ -141,12 +123,6 @@ final class LimitsTests: XCTestCase {
     }
 
     func testAMacsNetworkReachesTheHomeOnceAChangeAndEveryExchangeCarriesIt() async throws {
-        XCTAssertEqual(NetworkCost(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, metered: .expensive)), .metered)
-        XCTAssertEqual(NetworkCost(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, metered: .lowDataMode)), .metered)
-        XCTAssertEqual(NetworkCost(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false)), .free)
-        XCTAssertTrue(Watch(nil).metered, "a network with no path report yet is metered: what waits for it waits for its first")
-        XCTAssertTrue(Watch(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, metered: .lowDataMode)).metered)
-        XCTAssertFalse(Watch(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false)).metered)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("limits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }

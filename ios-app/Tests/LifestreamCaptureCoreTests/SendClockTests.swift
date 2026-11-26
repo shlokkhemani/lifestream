@@ -188,18 +188,18 @@ final class SendClockTests: XCTestCase {
         try? Self.artifact()
     }
 
-    func testAnHourHeldIsADeadlineAndAWiFiWaitIsTheNetworksOnly() {
+    func testAnHourHeldIsADeadlineAndANetworkWaitIsTheNetworksOnly() {
         var clock = SendClock()
         clock.remaining(oldestFix: nil, oldestOther: nil, heldUntil: at(3600))
         XCTAssertEqual(clock.next, at(3600), "a bundle held for its hour is due when the hour ends, not before")
         clock.remaining(oldestFix: nil, oldestOther: at(0), heldUntil: at(3600))
         XCTAssertEqual(clock.next, at(1800), "other work keeps its own interval beside the hour")
 
-        var wifi = SendClock()
-        wifi.remaining(oldestFix: nil, oldestOther: nil, waitsForWiFi: true)
-        XCTAssertNil(wifi.next, "a bundle that waits for Wi-Fi is no work for the timer")
-        wifi.note(.network, at: at(50))
-        XCTAssertEqual(wifi.next, at(50), "the network coming back is due at once for it")
+        var network = SendClock()
+        network.remaining(oldestFix: nil, oldestOther: nil, waitsForNetwork: true)
+        XCTAssertNil(network.next, "a bundle that waits on the network is no work for the timer")
+        network.note(.network, at: at(50))
+        XCTAssertEqual(network.next, at(50), "a change of path or choice is due at once for it")
         var held = SendClock()
         held.remaining(oldestFix: nil, oldestOther: nil, heldUntil: at(3600))
         held.note(.network, at: at(60))

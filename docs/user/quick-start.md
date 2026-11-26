@@ -140,7 +140,7 @@ Photos and voice notes go to no model until you pick one.
 2. Beside **Turn voice into text**, pick **Off** or **On this Mac**.
 3. Click **Continue**. A model on this Mac downloads in the background.
 
-You can change both later under **Uses** in **Settings** › **AI models**, as
+You can change both later in **Settings** › **Default models**, as
 [Choose which AI models read your data](./ai-models.md#pick-a-model-for-each-use) says.
 
 ## See your day

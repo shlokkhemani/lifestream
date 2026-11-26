@@ -6,4 +6,3 @@
 ios-app/LifestreamCaptureUITests/DaysFlowUITests/testJourneyDay red on and off in main runs, no change reaching it: the first stay row never shows
 ios-app/LifestreamCaptureUITests/DaysFlowUITests/testJourneyUnnamedStay red on and off in main runs, no change reaching it: yesterday never shows in 30 s
 dashboard/test/days-picker.mjs D14 red in main run of 1ea8989c5, no change reaching it: the day before the home's first never drew in 30 s (SHL-389)
-macos-app/LifestreamTests/MacLimitsTests/testTheSpoolRecordsUntilItsDiskIsFullAndTheHomeHearsEachLevelAndNetworkOnce red in the dash-from lane's run on main 417722858, no change reaching it: metered never told in 30 s

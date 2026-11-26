@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Abilities, Artifact, Build } from "@lifestreamprotocol/model";
 import { DECODE } from "./decode.js";
-import { EMBEDDINGGEMMA_2_EMBEDS, EMBEDDINGGEMMA_2_Q8, type Embedder } from "./embed.js";
-import { QWEN_3_5_4B } from "./qwen.js";
+import { EMBEDDINGGEMMA_2_EMBEDS, type Embedder } from "./embed.js";
 
 
 interface Shared extends Readonly<Abilities> {
@@ -19,26 +18,9 @@ export interface SpeechRow extends Shared {
   readonly source: Artifact;
 }
 
-export interface OllamaLayer {
-  readonly mediaType: string;
-  readonly digest: string;
-  readonly size: number;
-  readonly name?: string;
-  readonly from?: string;
-}
-
-export interface OllamaManifest {
-  readonly schemaVersion: 2;
-  readonly mediaType: string;
-  readonly config: OllamaLayer;
-  readonly layers: readonly OllamaLayer[];
-  readonly runner?: string;
-  readonly format?: string;
-}
-
 export interface OllamaRow extends Shared {
   readonly library: "ollama";
-  readonly source: { readonly model: string; readonly registry: string; readonly manifest: OllamaManifest };
+  readonly source: { readonly model: string; readonly registry: string; readonly bytes: number; readonly layers: readonly string[] };
   readonly embed?: Embedder;
 }
 
@@ -76,8 +58,10 @@ const SPEECH_PLATFORMS: readonly string[] = ["darwin-arm64", "darwin-x64", "linu
 
 export const speechRow = (row: Omit<SpeechRow, "library" | "bytes">): SpeechRow => ({ ...row, library: "speech", bytes: row.source.bytes });
 
+const OLLAMA_CONFIG = "application/vnd.docker.container.image.v1+json";
+
 export const ollamaRow = (row: Omit<OllamaRow, "library" | "bytes">): OllamaRow => ({
-  ...row, library: "ollama", bytes: [row.source.manifest.config, ...row.source.manifest.layers].reduce((sum, layer) => sum + layer.size, OLLAMA.artifact.bytes),
+  ...row, library: "ollama", bytes: row.source.bytes + OLLAMA.artifact.bytes,
 });
 
 export const DETECTOR_FILES: readonly (keyof DetectorFiles)[] = ["config", "tokenizer_config", "tokenizer", "graph", "weights"];
@@ -96,11 +80,14 @@ const ONNX_PLATFORMS: readonly string[] = ["darwin-arm64", "linux-x64", "linux-a
 export const FILES: readonly Row[] = [
   ollamaRow({
     id: "qwen3.5-4b", name: "Qwen 3.5", input: ["text", "image"], output: "text", tools: false, context_tokens: 4_000, thinking: [], platforms: ["darwin-arm64"], languages: [], memory_gb: 16,
-    source: { model: "qwen3.5:4b", registry: "https://registry.ollama.ai/v2/library/qwen3.5", manifest: QWEN_3_5_4B },
+    source: {
+      model: "qwen3.5:4b", registry: "https://registry.ollama.ai/v2/library/qwen3.5", bytes: 3_324_173_934,
+      layers: [OLLAMA_CONFIG, "application/vnd.ollama.image.model", "application/vnd.ollama.image.projector", "application/vnd.ollama.image.template", "application/vnd.ollama.image.license", "application/vnd.ollama.image.params"],
+    },
   }),
   ollamaRow({
     id: "embeddinggemma-2-q8-512", name: "EmbeddingGemma 2", input: ["text"], output: "vectors", tools: false, context_tokens: 2_048, thinking: [], platforms: ["darwin-arm64"], languages: [], memory_gb: 8,
-    source: { model: "embeddinggemma-2:270m-q8_0-text", registry: "https://registry.ollama.ai/v2/library/embeddinggemma-2", manifest: EMBEDDINGGEMMA_2_Q8 },
+    source: { model: "embeddinggemma-2:270m-q8_0-text", registry: "https://registry.ollama.ai/v2/library/embeddinggemma-2", bytes: 303_957_438, layers: [OLLAMA_CONFIG, "application/vnd.ollama.image.model"] },
     embed: EMBEDDINGGEMMA_2_EMBEDS,
   }),
   speechRow({

@@ -73,7 +73,7 @@ public final class PhotosDomain: ShippingDomain {
         let custody = answer.sources[source]
         return PhotoPass.Home(caughtUp: caughtUp(pass: answer.pass, custody: custody), history: custody?.history ?? true,
                               start: settings.start(of: ShippingDomains.connector(of: source, stores: nil)),
-                              wanted: { try await link.photosWanted(source: source) })
+                              wanted: { owed in try await link.photosWanted(source: source, owed: owed) })
     }
 
     public func settled(_ report: PhotoPass.Report?, failing: PhotoPassFailure?, pass: String, link: HomeLink,

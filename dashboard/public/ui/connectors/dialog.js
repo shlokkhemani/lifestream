@@ -10,7 +10,7 @@ import {
   actOf, actsOf, fieldHint, formDo, formOf, pausedOf, pausing, routeAct, routesOf, settableHere, signInOf, typed, wholeLine,
 } from './page.js';
 import { IMPORT, importDetail } from './imports.js';
-import { SETTINGS_MODELS, SETTINGS_PRIVACY } from './settings.js';
+import { SETTINGS_PROVIDERS, SETTINGS_PRIVACY } from './settings.js';
 import { settingKey } from './view.js';
 import { DETAIL, disconnectWords, turn } from './words.js';
 
@@ -38,6 +38,7 @@ import { DETAIL, disconnectWords, turn } from './words.js';
  * @property {string} label
  * @property {Lead | null} lead
  * @property {string} line
+ * @property {boolean} [working]
  * @property {string} does
  * @property {string[]} waiting
  * @property {string} only
@@ -60,7 +61,9 @@ import { DETAIL, disconnectWords, turn } from './words.js';
 
 /** @typedef {{ placeholder: string, typed: string, finds: { name: string, lead: Lead, do: Do }[], lit: number, enter: Do | null, end: End | null }} Adding */
 
-/** @typedef {{ label: string, about: string, lede: string, rows: PanelRow[], add: Adding | null, note: string }} Panel */
+/** @typedef {{ placeholder: string, typed: string }} Finding */
+
+/** @typedef {{ label: string, about: string, lede: string, find: Finding | null, rows: PanelRow[], add: Adding | null, note: string }} Panel */
 
 /** @typedef {{ kind: SignalKind | null, title: string, lines: string[], acts: Act[] }} Callout */
 
@@ -87,7 +90,7 @@ export const OPENED = { pages: [], typed: '', lit: 0, kept: new Set(), fields: {
  * @param {Partial<Panel>} panel
  * @returns {Panel}
  */
-export const panelOf = panel => ({ label: '', about: '', lede: '', rows: [], add: null, note: '', ...panel });
+export const panelOf = panel => ({ label: '', about: '', lede: '', find: null, rows: [], add: null, note: '', ...panel });
 
 /**
  * @param {string} label
@@ -184,15 +187,16 @@ export const modelChoices = (menu, pick, more) => menuLines(menu).map(line => 'm
 
 /**
  * @param {Found | null} found
+ * @param {string} typed
  * @param {(value: string) => Do | null} pick
- * @returns {{ rows: PanelRow[], local: { label: string, rows: PanelRow[] } | null, note: string, placeholder: string }}
+ * @returns {Panel[]}
  */
-export function foundRows(found, pick) {
+export function foundPanels(found, typed, pick) {
   const answer = found?.answer ?? null;
   /** @param {import('../../pages.js').ModelRow} row */
   const rowFor = row => rowOf(row.name, { ...row.account ? { tag: row.account } : {}, act: pick(row.value), end: row.chosen ? { words: '', done: true } : null });
-  return { rows: (answer?.rows ?? []).map(rowFor), local: answer?.local ? { label: answer.local.label, rows: answer.local.rows.map(rowFor) } : null,
-    note: answer?.none ?? found?.failed ?? '', placeholder: answer?.placeholder ?? '' };
+  return [panelOf({ find: { placeholder: answer?.placeholder ?? '', typed }, note: answer?.none ?? found?.failed ?? '' }),
+    ...(answer?.groups ?? []).map(group => panelOf({ label: group.label, rows: group.rows.map(rowFor) }))];
 }
 
 /** @typedef {import('../../lib/model-menu.js').Found} Found */
@@ -223,10 +227,8 @@ function modelPage(connector, key, state, opened) {
   const member = connector.members.find(each => each.key === key);
   const more = member?.menu?.more;
   if (!member || !more) return null;
-  const found = foundRows(opened.found ?? null, value => state ? setTo(connector, member.key, value) : null);
-  return { title: more.words, panel: panelOf({ rows: found.rows, note: found.note,
-    add: { placeholder: found.placeholder, typed: opened.typed, finds: [], lit: 0, enter: null, end: null } }),
-  ...found.local ? { panels: [panelOf({ label: found.local.label, rows: found.local.rows })] } : {} };
+  const [panel, ...panels] = foundPanels(opened.found ?? null, opened.typed, value => state ? setTo(connector, member.key, value) : null);
+  return { title: more.words, panel, panels };
 }
 
 /**
@@ -500,7 +502,7 @@ export function processingOf(connector, state, dated) {
   const rows = processing.rows.flatMap(row => {
     const member = connector.members.find(each => each.key === row.member);
     if (!member) return [];
-    const act = row.shape === 'needs' && state ? { open: SETTINGS_MODELS } : row.privacy?.waiting ? { open: SETTINGS_PRIVACY } : null;
+    const act = row.shape === 'needs' && state ? { open: SETTINGS_PROVIDERS } : row.privacy?.waiting ? { open: SETTINGS_PRIVACY } : null;
     const work = memberRow(connector, member, state, row.shape === null ? { date: askedDate(connector, member, dated) }
       : { line: row.line ?? '', mark: PROCESSING_MARKS[row.shape], act });
     const level = row.privacy ? connector.members.find(each => each.key === row.privacy?.member) : null;
@@ -544,7 +546,7 @@ function aiPage(connector, key, state) {
   const row = connector.processing?.rows.find(each => each.member === key && each.shape !== null) ?? null;
   const member = connector.members.find(each => each.key === key);
   if (!row || !member) return null;
-  const act = row.shape === 'needs' && state ? { open: SETTINGS_MODELS } : row.privacy?.waiting ? { open: SETTINGS_PRIVACY } : null;
+  const act = row.shape === 'needs' && state ? { open: SETTINGS_PROVIDERS } : row.privacy?.waiting ? { open: SETTINGS_PRIVACY } : null;
   const level = row.privacy ? connector.members.find(each => each.key === row.privacy?.member) : null;
   const hiding = row.privacy && level ? memberRow(connector, level, state, { line: row.privacy.note }) : null;
   return { title: member.label, panel: panelOf({ rows: [

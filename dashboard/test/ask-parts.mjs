@@ -41,7 +41,7 @@ const PICK = {
     local: { label: 'Local', rows: [{ value: 'runner/qwen', name: 'Qwen 3.5', account: null, chosen: false }] }, more: { words: 'More', use: /** @type {const} */ ('chat'), work: null }, off: null },
   chosen: 'claude/opus',
 };
-const FIND = { placeholder: 'Search', none: '', found: { rows: [{ value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false }], local: null } };
+const FIND = { placeholder: 'Search', none: '', found: [{ label: 'OpenRouter', rows: [{ value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false }] }] };
 
 /** @param {string} markup */
 const rows = markup => [...markup.matchAll(/<(div|span)([^>]*class="(ck-flist__item|ck-flist__head)[^"]*"[^>]*)>(.*?)(?=<(?:div|span)[^>]*class="ck-flist__(?:item|head)|<hr|<\/div><\/div>$)/gu)]
@@ -82,11 +82,11 @@ test('P2b: More ends Model ›, a page of its own: a field in the home\'s words,
   assert.deepEqual([last?.words, last?.value], ['More', 'other']);
   assert.match(markup, /data-value="other"[^>]*data-ck-page="other"|data-ck-page="other"[^>]*data-value="other"/u);
   assert.match(markup, /<input[^>]*class="ck-pick__find mac-body"[^>]*placeholder="Search"/u);
-  assert.deepEqual(all.filter(row => row.page === 'other').map(row => [row.words, row.value, row.shown]), [['Model One', 'model:openrouter:vendor-b/model-1', false]]);
+  assert.deepEqual(all.filter(row => row.page === 'other').map(row => [row.words, row.value, row.shown]), [['OpenRouter', '', false], ['Model One', 'model:openrouter:vendor-b/model-1', false]]);
   const opened = rows(askPick({ ...PICK, find: FIND, page: 'other', active: 0 }));
-  assert.deepEqual(opened.filter(row => row.page === 'other').map(row => row.shown), [true]);
+  assert.deepEqual(opened.filter(row => row.page === 'other').map(row => row.shown), [true, true]);
   assert.doesNotMatch(askPick(PICK), /data-value="other"/u);
-  assert.match(askFound({ rows: [], local: null }, '', 'No matches'), /<p[^>]*data-ck-page-of="other"[^>]*>No matches<\/p>/u);
+  assert.match(askFound([], '', 'No matches'), /<p[^>]*data-ck-page-of="other"[^>]*>No matches<\/p>/u);
 });
 
 test('P8: the level chip is the pick chip\'s shape, its glyph and its words; its menu Sensitive information over the three levels, the kept one checked; dimmed while an answer runs', () => {
@@ -139,7 +139,7 @@ test('P5: the work line shimmers while it works and opens nothing; done it says 
   const steps = [{ words: 'Searched messages for “dinner”' }, { words: 'Couldn’t open example.com', failed: true }, { words: 'Read Fri 16 Oct' }];
   const working = askSteps({ said: 'Searching messages for “dinner”', working: true, steps: steps.slice(0, 1), attrs: { 'data-ask-steps': '0' } });
   assert.match(working, /^<div class="ck-steps is-running" role="status"><button type="button" class="ck-steps__line mac-subhead" disabled data-ask-steps="0">/u);
-  assert.match(working, /<span class="ck-steps__roll" data-ck-roll><span class="ck-steps__words is-working">Searching messages for “dinner”<\/span><\/span><\/button><\/div>$/u);
+  assert.match(working, /<span class="ck-steps__roll" data-ck-roll><span class="ck-steps__words ck-shimmer">Searching messages for “dinner”<\/span><\/span><\/button><\/div>$/u);
   assert.doesNotMatch(working, /ck-steps__caret|ck-steps__open|…|ck-ask-mark/u);
   const shut = askSteps({ said: thoughtFor(9_000), steps });
   assert.match(shut, /<button type="button" class="ck-steps__line mac-subhead" aria-expanded="false">/u);
@@ -153,7 +153,7 @@ test('P5: the work line shimmers while it works and opens nothing; done it says 
   assert.doesNotMatch(open, /\d\.\ds|Opus|ck-steps__ms|ck-steps__by/u);
   const answering = askSteps({ said: thoughtFor(9_000), live: true, steps });
   assert.match(answering, /class="ck-steps__line mac-subhead" disabled>.*ck-steps__caret/u, 'while the answer still comes the line keeps its chevron but opens nothing');
-  assert.doesNotMatch(answering, /ck-steps__open|is-working/u);
+  assert.doesNotMatch(answering, /ck-steps__open|ck-shimmer/u);
   const alone = askSteps({ said: thoughtFor(800), steps: [] });
   assert.match(alone, /class="ck-steps__line mac-subhead" disabled>/u, 'a turn with no steps still says how long it thought, and opens nothing');
   assert.match(alone, />Thought for 0\.8s</u);

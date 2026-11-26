@@ -18,7 +18,6 @@ public actor Shipper {
         public let stores: DeclaredStores?
         public let settle: @Sendable (FreshAnswer) async -> [ShipperRunRow]
         public let keepAwake: @Sendable () -> @Sendable () -> Void
-        public let network: MacNetwork
         public let scratch: URL
 
         public init(state: ShippingState, link: HomeLink, settings: MacSettings? = nil,
@@ -33,7 +32,7 @@ public actor Shipper {
                     stores: DeclaredStores? = nil,
                     settle: @escaping @Sendable (FreshAnswer) async -> [ShipperRunRow] = { _ in [] },
                     keepAwake: @escaping @Sendable () -> @Sendable () -> Void = { {} },
-                    network: MacNetwork, scratch: URL) {
+                    scratch: URL) {
             self.state = state
             self.link = link
             self.settings = settings ?? MacSettings(file: state.root.appendingPathComponent(MacSettings.fileName), files: state.files)
@@ -48,7 +47,6 @@ public actor Shipper {
             self.stores = stores
             self.settle = settle
             self.keepAwake = keepAwake
-            self.network = network
             self.scratch = scratch
         }
     }
@@ -69,7 +67,7 @@ public actor Shipper {
     private var asked: Set<String> = []
     private var refusedThisRun: Set<String> = []
     private var conflicted: Set<String> = []
-    private var metered = false
+    private var pastWaits: MobileData.Wait?
     private var holds: [String: Hold] = [:]
     private var lastAnswered: (asked: Date, received: Date)?
 
@@ -101,7 +99,7 @@ public actor Shipper {
                              lastContactAt: saved?.at, answerAsked: asked(saved), pending: (try? state.pendingBundles().count) ?? 0,
                              nextRunAt: nextRun(after: now), running: running,
                              sources: (saved?.sources.keys).map { $0.sorted() } ?? [], needs: saved?.needs ?? [],
-                             importingHistory: importingHistory, waitsForNetwork: schedule.waitsForNetwork == true)
+                             importingHistory: importingHistory, waitsFor: schedule.waitsFor.flatMap(MobileData.Wait.init(rawValue:)))
     }
 
     public func nextRun(after now: Date) -> Date {
@@ -224,8 +222,8 @@ public actor Shipper {
             note(ShipperRunRow(outcome: "no_home"))
             return finish(rows, at: now)
         }
-        metered = dependencies.network.metered(to: link) != nil
         let pressed = trigger != .timer
+        pastWaits = Self.wait(of: link.mobile(pressed: pressed).decide(.later, bytes: 0))
 
         if let found = dependencies.found() { link.tell(found: found) }
         if let grants = dependencies.grants() { link.tell(grants: grants) }
@@ -384,9 +382,9 @@ public actor Shipper {
                 }
             }
         }
-        let historyWaits = metered && !pressed && domains.contains {
+        let historyWaits = domains.contains {
             schedule.domains[$0.sourceId]?.owesHistory == true && answer.sources[$0.sourceId]?.history == true
-        }
+        } ? pastWaits : nil
         return finish(rows, at: now, reachedTheDomains: true, historyWaits: historyWaits)
     }
 
@@ -396,7 +394,7 @@ public actor Shipper {
         guard let source = answer.sources[domain.sourceId] else { return DeliveryOutcome(outcome: "nothing_new") }
         let awake = domain.owes ? dependencies.keepAwake() : nil
         defer { awake?() }
-        let history = !live && source.history && Transfer.mayMove(.later, bytes: 0, pressed: pressed, metered: metered)
+        let history = !live && source.history && pastWaits == nil
             && !(holds[domain.sourceId]?.inForce(at: now) ?? false)
         let request = SealRequest(fetchedAt: now, workDirectory: state.workDirectory, scratch: dependencies.scratch,
                                   custody: SealCustody(pass: answer.pass, received: source.received, imported: source.imported,
@@ -512,19 +510,20 @@ public actor Shipper {
     }
 
     private func finish(_ rows: [ShipperRunRow], at now: Date, reachedTheDomains: Bool = false,
-                        historyWaits: Bool = false) -> ShipperReport {
+                        historyWaits: MobileData.Wait? = nil) -> ShipperReport {
         ResourceMeter.shared.measure(.shipping(nil), units: 0) {
             close(rows, at: now, reachedTheDomains: reachedTheDomains, historyWaits: historyWaits)
         }
     }
 
-    private func close(_ rows: [ShipperRunRow], at now: Date, reachedTheDomains: Bool, historyWaits: Bool) -> ShipperReport {
-        let waitsForNetwork = historyWaits || rows.contains(where: Self.heldForNetwork)
-        let report = ShipperReport(rows: rows, outcome: Self.outcome(of: rows), waitsForNetwork: waitsForNetwork)
+    private func close(_ rows: [ShipperRunRow], at now: Date, reachedTheDomains: Bool, historyWaits: MobileData.Wait?) -> ShipperReport {
+        let met = Set(rows.compactMap(Self.heldForNetwork) + [historyWaits].compactMap { $0 })
+        let waitsFor = MobileData.Wait.allCases.last(where: met.contains)
+        let report = ShipperReport(rows: rows, outcome: Self.outcome(of: rows), waitsFor: waitsFor)
         stoppedEarly = !reachedTheDomains
         schedule.lastRunAt = now
         schedule.lastOutcome = report.outcome
-        schedule.waitsForNetwork = waitsForNetwork ? true : nil
+        schedule.waitsFor = waitsFor?.rawValue
         let sent = Set(rows.filter { $0.outcome == "shipped" || $0.outcome == "nothing_new" }.compactMap(\.source))
         stating { sending in
             for source in sent.subtracting(refusedThisRun) { sending.sources[source] = nil }
@@ -536,12 +535,19 @@ public actor Shipper {
 
     private static let waits = ["DISK_FULL", "DISK_LOW"]
 
-    static func heldForNetwork(_ row: ShipperRunRow) -> Bool { row.outcome == "held" && row.code == "METERED" }
+    static func heldForNetwork(_ row: ShipperRunRow) -> MobileData.Wait? {
+        row.outcome == "held" ? row.code.flatMap(MobileData.Wait.init(rawValue:)) : nil
+    }
+
+    static func wait(of decision: MobileData.Decision) -> MobileData.Wait? {
+        if case .waits(let wait) = decision { return wait }
+        return nil
+    }
 
     static func outcome(of rows: [ShipperRunRow]) -> String {
         let held = Set(rows.filter { $0.outcome == "held" }.compactMap(\.code))
         return waits.first(where: held.contains).map { "held \($0)" }
-            ?? rows.last(where: { !heldForNetwork($0) })?.summary ?? "nothing_due"
+            ?? rows.last(where: { heldForNetwork($0) == nil })?.summary ?? "nothing_due"
     }
 
     private func stating(_ change: (inout Sending) -> Void) {
@@ -583,9 +589,6 @@ public actor Shipper {
             return DeliveryOutcome(outcome: "held", code: hold.code, message: hold.message, bundle: bundle.sidecar, left: .kept)
         }
         let bytes = Int64(state.size(of: bundle))
-        guard Transfer.mayMove(bundle.sidecar.write, bytes: bytes, pressed: pressed, metered: metered) else {
-            return wait(bundle, code: "METERED", message: "waits for a network that costs nothing")
-        }
         do {
             let gate = moved.map { SentGate(clock: dependencies.clock, moved: $0) }
             let answer = try await link.send(bundle: bundle.file, id: bundle.sidecar.id, kind: bundle.sidecar.write,
@@ -598,6 +601,8 @@ public actor Shipper {
             }
         } catch let failure as LinkFailure {
             switch failure {
+            case .waits(let network):
+                return wait(bundle, code: network.rawValue, message: network.words)
             case .stale(let answer):
                 state.spend(bundle)
                 return DeliveryOutcome(outcome: "stale", code: failure.code, bundle: bundle.sidecar, answer: answer, left: .spent)
@@ -823,12 +828,12 @@ public struct ShipperRunRow: Sendable, Equatable {
 public struct ShipperReport: Sendable, Equatable {
     public let rows: [ShipperRunRow]
     public let outcome: String
-    public let waitsForNetwork: Bool
+    public let waitsFor: MobileData.Wait?
 
-    public init(rows: [ShipperRunRow], outcome: String, waitsForNetwork: Bool = false) {
+    public init(rows: [ShipperRunRow], outcome: String, waitsFor: MobileData.Wait? = nil) {
         self.rows = rows
         self.outcome = outcome
-        self.waitsForNetwork = waitsForNetwork
+        self.waitsFor = waitsFor
     }
 }
 
@@ -844,13 +849,13 @@ public struct ShipperStatus: Sendable, Equatable {
     public let sources: [String]
     public let needs: [HomeLink.Need]
     public let importingHistory: Bool
-    public let waitsForNetwork: Bool
+    public let waitsFor: MobileData.Wait?
 
     public var paired: Bool { home != nil }
 
     public init(home: URL?, lastRunAt: Date?, lastOutcome: String?, lastContactAt: Date?, answerAsked: Date? = nil, pending: Int,
                 nextRunAt: Date, running: Bool, sources: [String], needs: [HomeLink.Need] = [],
-                importingHistory: Bool = false, waitsForNetwork: Bool = false) {
+                importingHistory: Bool = false, waitsFor: MobileData.Wait? = nil) {
         self.home = home
         self.lastRunAt = lastRunAt
         self.lastOutcome = lastOutcome
@@ -862,7 +867,7 @@ public struct ShipperStatus: Sendable, Equatable {
         self.sources = sources
         self.needs = needs
         self.importingHistory = importingHistory
-        self.waitsForNetwork = waitsForNetwork
+        self.waitsFor = waitsFor
     }
 }
 

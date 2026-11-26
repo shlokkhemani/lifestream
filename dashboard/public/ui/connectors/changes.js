@@ -2,7 +2,7 @@
 /** @import { Host, HostAct, HostReply } from '../../lib/host.js' */
 /** @import { ReportReader } from '../../lib/report.js' */
 /** @import { PrivacyRead } from '../../types.js' */
-/** @import { Models } from '../../pages.js' */
+/** @import { Models } from '../../lib/model-menu.js' */
 /** @import { ScreenState } from './settings-search.js' */
 /** @import { Pending, Reads } from './pending.js' */
 /** @import { Drawn } from '../../lib/reach.js' */
@@ -16,13 +16,13 @@ import { actKey, landedOf, movesMeaning, movesPrivacy, OFF, pendingOf, settled }
 
 
 export const LACKS = {
-  models: 'Your AI models couldn’t be read.',
+  models: 'Your models couldn’t be read.',
   privacy: 'Your privacy settings couldn’t be read.',
   screen: 'Search by meaning couldn’t be read.',
 };
 
 export const NOT_HERE = {
-  models: 'Your AI models aren’t on this Mac yet.',
+  models: 'Your models aren’t on this Mac yet.',
   privacy: 'Your privacy settings aren’t on this Mac yet.',
   screen: 'Search by meaning isn’t on this Mac yet.',
 };
@@ -183,7 +183,8 @@ export function pageChanges(host, reports) {
     /** @type {Drawn | null} */
     let drawn = null;
     try {
-      answer = await fetchPage('models');
+      const [defaults, providers] = await Promise.all([fetchPage('modelDefaults'), fetchPage('modelProviders')]);
+      answer = { ...defaults, ...providers };
     } catch (error) {
       drawn = failedOf(error, begun, modelsAgain);
     }
@@ -248,7 +249,7 @@ export function pageChanges(host, reports) {
   host?.follow(tell);
   onHomeChange(change => {
     void readMoves().then(() => {
-      if ((change.models || pageMoved('models', change, models.read?.position)) && anyShown()) void readModels();
+      if ((change.models || pageMoved('modelProviders', change, models.read?.position)) && anyShown()) void readModels();
     });
     if ((change.models || change.reset) && privacyShown()) void readPrivacy();
   });

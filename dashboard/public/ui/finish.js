@@ -2,7 +2,7 @@
 /** @import { FinishItem } from './kit/finish-card.js' */
 /** @import { Seen } from './flows/model.js' */
 import { accountsIn, browserOf, extensionOn, modelOf, phoneOf, sessionOf } from './flows/model.js';
-import { SETTINGS_MODELS } from './connectors/settings.js';
+import { SETTINGS_PROVIDERS } from './connectors/settings.js';
 
 export const FINISH_HIDDEN = 'finish.hidden';
 
@@ -25,6 +25,6 @@ export function finishItems(seen, asked, agent = false) {
     ...unset ? [{ id: 'accounts', title: ACCOUNTS, done: accounts.some(each => each.set_up),
       href: `#dialog=${encodeURIComponent(unset.id)}`, flow: '' }] : [],
     { id: 'agent', title: 'Connect an agent', done: agent, href: '#view=agents', flow: '' },
-    { id: 'model', title: 'Connect your AI', done: modelOf(seen).connected, href: `#dialog=${SETTINGS_MODELS}`, flow: '' },
+    { id: 'model', title: 'Connect your AI', done: modelOf(seen).connected, href: `#dialog=${SETTINGS_PROVIDERS}`, flow: '' },
   ];
 }

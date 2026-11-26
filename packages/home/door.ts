@@ -1877,7 +1877,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
             const asked = pathname === ASK_CONNECTORS_ROUTE && url.search === "" && askPassAt(request, reach);
             if (!back && !driven && !asked && photos === undefined) assertAllowed(principal, "read");
             device(principal.kind, request);
-            if (pathname === MODELS_ROUTE || pathname === PAGES.models.route) void tell({ verb: "models-list" });
+            if (pathname === MODELS_ROUTE || pathname === PAGES.modelDefaults.route || pathname === PAGES.modelProviders.route) void tell({ verb: "models-list" });
             const gzip = /\bgzip\b/u.test(request.headers["accept-encoding"] ?? "");
             const etag = request.headers["if-none-match"];
             const reader = principal.kind === "agent" || principal.turn !== undefined || request.headers[READER_HEADER] === "model" ? "model" as const : undefined;

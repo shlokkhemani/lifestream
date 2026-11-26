@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { EMBED_TEXTS, embedAnswerOf, embedAskOf, vectorOf, vectorText } from "@lifestreamprotocol/model";
-import { cut, embedAnswer, EMBEDDINGGEMMA_2_EMBEDS, EMBEDDINGGEMMA_2_Q8 } from "./embed.js";
+import { cut, embedAnswer, EMBEDDINGGEMMA_2_EMBEDS } from "./embed.js";
 import { FILES, OLLAMA, type OllamaRow } from "./files.js";
 import { fakeLibrary } from "./test/fake-library.js";
 
@@ -10,12 +9,12 @@ const signal = new AbortController().signal;
 const dot = (a: Float32Array, b: Float32Array): number => a.reduce((sum, value, at) => sum + value * b[at]!, 0);
 
 describe("the embedding row", () => {
-  it("pins EmbeddingGemma 2's q8_0 text path on Apple silicon, its bytes the build's and its manifest's, and writes the manifest the registry serves", () => {
-    expect([ROW.library, ROW.platforms, ROW.input, ROW.output, ROW.context_tokens, ROW.source.model, ROW.source.registry]).toEqual([
+  it("names EmbeddingGemma 2's q8_0 text tag on Apple silicon, the layer types its pinned Ollama runs, its bytes the build's and its manifest's as the registry served it", () => {
+    expect([ROW.library, ROW.platforms, ROW.input, ROW.output, ROW.context_tokens, ROW.source.model, ROW.source.registry, ROW.source.layers]).toEqual([
       "ollama", ["darwin-arm64"], ["text"], "vectors", 2_048, "embeddinggemma-2:270m-q8_0-text", "https://registry.ollama.ai/v2/library/embeddinggemma-2",
+      ["application/vnd.docker.container.image.v1+json", "application/vnd.ollama.image.model"],
     ]);
     expect(ROW.bytes).toBe(OLLAMA.artifact.bytes + 158 + 303_957_280);
-    expect(createHash("sha256").update(JSON.stringify(EMBEDDINGGEMMA_2_Q8)).digest("hex")).toBe("c21dd30c1e38444d3b4faa091407b6fa97221447b4965d74931d43d7f09bbbfd");
     expect(ROW.embed).toEqual({ dimensions: 512, prompts: { query: "task: search result | query: ", document: "title: none | text: " } });
     expect(ROW.embed).toBe(EMBEDDINGGEMMA_2_EMBEDS);
   });

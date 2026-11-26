@@ -84,8 +84,8 @@ Search by meaning finds a moment on your screen by what it was about, not only b
 for "that article about sleep I read last week", and Search can find it even when those words were
 never on the screen. Its results join the **Mac** group, beside the ones that match your words.
 
-It is off until you pick a model for **Search by meaning** under **Uses** in **Settings** › **AI
-models**, such as EmbeddingGemma 2, once you download it under **On this Mac**.
+It is off until you pick a model for **Search by meaning** in **Settings** › **Default models**,
+such as EmbeddingGemma 2, once you download it under **Local models** in **Providers**.
 [Settings](./settings.md#search-by-meaning) lists its settings. Your Mac then reads your screen's
 text with that model, newest day first. It runs only while your Mac is plugged in and idle, and nothing leaves your Mac. A
 search with every word in quotes matches words only.

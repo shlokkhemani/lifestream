@@ -1,4 +1,5 @@
 import Foundation
+import HomeLink
 
 public struct HealthPage: Sendable {
     public var drafts: [CaptureDraft]
@@ -13,7 +14,7 @@ public struct HealthPage: Sendable {
 
 public enum HealthSweep {
     public static func run(
-        store: CaptureStore, type: String, start: Date?, anchor: Data?,
+        store: CaptureStore, type: String, start: Date?, anchor: Data?, past: MobileData.Decision,
         isolation: isolated (any Actor)? = #isolation,
         read: (Data?) async throws -> HealthPage,
         committed: (_ page: HealthPage, _ firstYield: Bool) async -> Void
@@ -27,6 +28,7 @@ public enum HealthSweep {
         if anchor != nil {
             if HistoryStart.earlier(start, than: kept) { anchor = nil } else { from = HistoryStart.later(kept, start) }
         }
+        if anchor == nil, case .waits(let wait) = past { throw LinkFailure.waits(wait) }
         var yielded = try await store.anchor(yieldKey) != nil
         var samples = 0
         var deletions = 0

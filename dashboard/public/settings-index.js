@@ -1,4 +1,4 @@
-/** @typedef {'settingsPage' | 'storage' | 'models' | 'own'} SettingsAnswer */
+/** @typedef {'settingsPage' | 'storage' | 'modelDefaults' | 'modelProviders' | 'own'} SettingsAnswer */
 /** @typedef {{ id: string, label: string, icon: string, host: boolean, answer: SettingsAnswer }} SettingsEntry */
 /** @typedef {{ label: string, entries: SettingsEntry[] }} SettingsGroup */
 
@@ -35,7 +35,8 @@ export const SETTINGS_INDEX = {
       { id: 'chrome', label: 'Chrome extension', icon: 'web', host: false, answer: 'own' },
     ] },
     { label: 'Models', entries: [
-      { id: 'models', label: 'AI models', icon: 'ai', host: false, answer: 'models' },
+      { id: 'defaults', label: 'Default models', icon: 'ai', host: false, answer: 'modelDefaults' },
+      { id: 'providers', label: 'Providers', icon: 'ai-apps', host: false, answer: 'modelProviders' },
       { id: 'privacy', label: 'Privacy', icon: 'hidden', host: false, answer: 'own' },
       { id: 'meaning', label: 'Search by meaning', icon: 'search', host: false, answer: 'own' },
     ] },

@@ -25,7 +25,7 @@ import XCTest
         let link = HomeLink(device: .init(kind: .mac, version: "500", model: "Mac15,3", serial4: nil), credentials: StoredPass(nil),
                             folder: folder.appendingPathComponent("link"), transport: StandInDoor(), files: DeviceFiles(.plain))
         let shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
-                                                   domains: { _ in [] }, record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                                   domains: { _ in [] }, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         return ShippingCoordinator(shipper: shipper, link: link, notices: log.notices, explain: { nil })
     }
 

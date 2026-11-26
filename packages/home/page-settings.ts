@@ -7,7 +7,7 @@ import type { DeviceRow, HomeSettings, StreamsReport } from "./streams-report.js
 import { spaceWords } from "./page-storage.js";
 import { number } from "./stream-words.js";
 
-export const SETTINGS_ANSWERS = ["settingsPage", "storage", "models", "own"] as const;
+export const SETTINGS_ANSWERS = ["settingsPage", "storage", "modelDefaults", "modelProviders", "own"] as const;
 export type SettingsAnswer = (typeof SETTINGS_ANSWERS)[number];
 export type SettingsKind = "phone" | "mac";
 
@@ -41,7 +41,12 @@ export const SETTINGS_INDEX: Readonly<Record<SettingsKind, readonly SettingsGrou
       entry("recovery", "Recovery key", "private", "own", true),
     ] },
     { label: "Devices", entries: [entry("mac", "This Mac", "work-mac"), entry("iphone", "iPhone", "phone-screen"), entry("chrome", "Chrome extension", "web")] },
-    { label: "Models", entries: [entry("models", "AI models", "ai", "models"), entry("privacy", "Privacy", "hidden"), entry("meaning", "Search by meaning", "search")] },
+    { label: "Models", entries: [
+      entry("defaults", "Default models", "ai", "modelDefaults"),
+      entry("providers", "Providers", "ai-apps", "modelProviders"),
+      entry("privacy", "Privacy", "hidden"),
+      entry("meaning", "Search by meaning", "search"),
+    ] },
     { label: "App", entries: [
       entry("appearance", "Appearance", "settings"),
       entry("updates", "Updates", "update", "own", true),

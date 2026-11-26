@@ -1,0 +1,179 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-06-01",
+  "accounts": "Accounts",
+  "connections": [
+    {
+      "id": "claude",
+      "name": "Claude",
+      "line": "Sign in to Claude again",
+      "signed": false,
+      "words": "Not signed in",
+      "kind": "plan"
+    },
+    {
+      "id": "codex",
+      "name": "ChatGPT",
+      "line": null,
+      "signed": true,
+      "words": "Signed in",
+      "kind": "plan"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "line": "Hundreds of models with one key.",
+      "held": false,
+      "words": null,
+      "key": {
+        "label": "OpenRouter key",
+        "placeholder": "sk-or-…",
+        "add": "Add key",
+        "remove": "Remove"
+      },
+      "kind": "key"
+    },
+    {
+      "id": "runner:runner-macbook-pro-0001",
+      "unit": "runner-macbook-pro-0001",
+      "place": "Local models on MacBook Pro",
+      "name": "MacBook Pro",
+      "line": null,
+      "none": null,
+      "run": {
+        "label": "Run local models",
+        "on": true,
+        "line": null
+      },
+      "battery": {
+        "label": "Save battery",
+        "on": true,
+        "line": "On battery, only recent items run."
+      },
+      "files": [
+        {
+          "id": "qwen3.5-4b",
+          "name": "Qwen 3.5 4B",
+          "line": "Describes photos and sums up text · 4 GB · Recommended",
+          "working": false,
+          "state": "absent",
+          "fits": true,
+          "words": null,
+          "acts": [
+            {
+              "act": "fetch",
+              "words": "Download"
+            }
+          ]
+        },
+        {
+          "id": "parakeet-unified-en-0.6b",
+          "name": "Parakeet",
+          "line": "Transcribes voice notes in English · 0.7 GB · Recommended",
+          "working": false,
+          "state": "ready",
+          "fits": true,
+          "words": "Downloaded",
+          "acts": [
+            {
+              "act": "remove",
+              "words": "Remove"
+            }
+          ]
+        },
+        {
+          "id": "nemotron-3.5-asr-0.6b",
+          "name": "Nemotron Speech",
+          "line": "Downloading · 3 min left",
+          "working": true,
+          "state": "fetching",
+          "fits": true,
+          "words": null,
+          "acts": [
+            {
+              "act": "cancel",
+              "words": "Cancel"
+            }
+          ]
+        },
+        {
+          "id": "qwen3.5-35b-a3b",
+          "name": "Qwen 3.5 35B-A3B",
+          "line": "Needs 48 GB of memory",
+          "working": false,
+          "state": "absent",
+          "fits": false,
+          "words": null,
+          "acts": []
+        },
+        {
+          "id": "embeddinggemma-2-q8-512",
+          "name": "EmbeddingGemma 2",
+          "line": "Search by meaning · 0.5 GB · Recommended",
+          "working": false,
+          "state": "absent",
+          "fits": true,
+          "words": null,
+          "acts": [
+            {
+              "act": "fetch",
+              "words": "Download"
+            }
+          ]
+        }
+      ],
+      "found": [],
+      "paused": false,
+      "kind": "runner"
+    },
+    {
+      "id": "runner:runner-mac-mini-0002",
+      "unit": "runner-mac-mini-0002",
+      "place": "Local models on Mac mini",
+      "name": "Mac mini",
+      "line": null,
+      "none": null,
+      "run": {
+        "label": "Run local models",
+        "on": false,
+        "line": "Local work waits until you turn this on."
+      },
+      "battery": null,
+      "files": [
+        {
+          "id": "parakeet-unified-en-0.6b",
+          "name": "Parakeet",
+          "line": "Transcribes voice notes in English · 0.7 GB · Recommended",
+          "working": false,
+          "state": "ready",
+          "fits": true,
+          "words": "Downloaded",
+          "acts": [
+            {
+              "act": "remove",
+              "words": "Remove"
+            }
+          ]
+        }
+      ],
+      "found": [],
+      "paused": true,
+      "kind": "runner"
+    },
+    {
+      "id": "address",
+      "label": "Other server",
+      "url": "http://127.0.0.1:1234/v1",
+      "line": "Chat needs the server to run a context window of 32,000 tokens or more",
+      "words": {
+        "about": "Any OpenAI-compatible server, like vLLM or another Mac.",
+        "add": "Add server",
+        "remove": "Remove",
+        "field": "Server URL",
+        "placeholder": "http://localhost:11434/v1",
+        "save": "Save"
+      },
+      "kind": "address"
+    }
+  ]
+}

@@ -38,7 +38,7 @@ public struct SettingRow<End: View, Held: View>: View {
     let separator: Bool
     let lead: SettingLead?
     let tag: String?
-    let progress: Double?
+    let working: Bool
     let asking: Bool
     let opens: (() -> Void)?
     let fieldEnd: Bool
@@ -53,7 +53,7 @@ public struct SettingRow<End: View, Held: View>: View {
 
     public init(_ label: String, about: String? = nil, waiting: String? = nil, only: String? = nil, problem: String? = nil,
                 line: String? = nil, signal: Cockpit.SignalKind? = nil, note: String? = nil, separator: Bool = true,
-                lead: SettingLead? = nil, tag: String? = nil, progress: Double? = nil, asking: Bool = false,
+                lead: SettingLead? = nil, tag: String? = nil, working: Bool = false, asking: Bool = false,
                 opens: (() -> Void)? = nil, fieldEnd: Bool = false, @ViewBuilder end: () -> End, @ViewBuilder held: () -> Held) {
         self.label = label
         self.about = about
@@ -66,7 +66,7 @@ public struct SettingRow<End: View, Held: View>: View {
         self.separator = separator
         self.lead = lead
         self.tag = tag
-        self.progress = progress
+        self.working = working
         self.asking = asking
         self.opens = opens
         self.fieldEnd = fieldEnd
@@ -182,7 +182,7 @@ public struct SettingRow<End: View, Held: View>: View {
 
     private var minimum: CGFloat {
         guard platform == .mac else { return platform.rowHeight }
-        return line != nil || problem != nil || waiting != nil || only != nil || note != nil || progress != nil ? 60 : 44
+        return line != nil || problem != nil || waiting != nil || only != nil || note != nil ? 60 : 44
     }
 
     private var hasEnd: Bool { End.self != EmptyView.self || (opens != nil && !lineOpens && !inPlace) }
@@ -254,13 +254,12 @@ public struct SettingRow<End: View, Held: View>: View {
                             Icon(.forward, size: .xs).foregroundStyle(Cockpit.Color.textTertiary).accessibilityHidden(true)
                         }
                     } else {
-                        Text(line).settingLine()
+                        Text(line).shimmer(working).settingLine()
                     }
                 }
             }
             if Held.self != EmptyView.self { held.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, Cockpit.Space.s1) }
             state
-            if let progress { SettingProgress(share: progress).padding(.top, 6) }
         }
     }
 
@@ -352,10 +351,10 @@ public extension SettingRow {
 public extension SettingRow where Held == EmptyView {
     init(_ label: String, about: String? = nil, waiting: String? = nil, only: String? = nil, problem: String? = nil,
          line: String? = nil, signal: Cockpit.SignalKind? = nil, note: String? = nil, separator: Bool = true,
-         lead: SettingLead? = nil, tag: String? = nil, progress: Double? = nil, asking: Bool = false,
+         lead: SettingLead? = nil, tag: String? = nil, working: Bool = false, asking: Bool = false,
          opens: (() -> Void)? = nil, fieldEnd: Bool = false, @ViewBuilder end: () -> End) {
         self.init(label, about: about, waiting: waiting, only: only, problem: problem, line: line, signal: signal, note: note,
-                  separator: separator, lead: lead, tag: tag, progress: progress, asking: asking, opens: opens,
+                  separator: separator, lead: lead, tag: tag, working: working, asking: asking, opens: opens,
                   fieldEnd: fieldEnd, end: end, held: { EmptyView() })
     }
 }
@@ -372,9 +371,9 @@ public extension SettingRow where End == SettingValue, Held == EmptyView {
 
 public extension SettingRow where End == EmptyView, Held == EmptyView {
     init(_ label: String, about: String? = nil, line: String? = nil, signal: Cockpit.SignalKind? = nil, separator: Bool = true,
-         lead: SettingLead? = nil, tag: String? = nil, progress: Double? = nil, opens: (() -> Void)? = nil) {
+         lead: SettingLead? = nil, tag: String? = nil, working: Bool = false, opens: (() -> Void)? = nil) {
         self.init(label, about: about, line: line, signal: signal, separator: separator, lead: lead, tag: tag,
-                  progress: progress, opens: opens) { EmptyView() }
+                  working: working, opens: opens) { EmptyView() }
     }
 }
 
@@ -417,23 +416,6 @@ private struct SettingTag: View {
             .frame(minHeight: 20)
             .overlay(Capsule(style: .continuous).strokeBorder(Cockpit.Color.border, lineWidth: Cockpit.Stroke.border))
             .fixedSize()
-    }
-}
-
-private struct SettingProgress: View {
-    let share: Double
-
-    var body: some View {
-        Capsule(style: .continuous)
-            .fill(Cockpit.Color.track)
-            .frame(width: 200, height: 4)
-            .overlay(alignment: .leading) {
-                Capsule(style: .continuous)
-                    .fill(Cockpit.Color.textSecondary)
-                    .frame(width: 200 * min(max(share, 0), 1))
-            }
-            .accessibilityElement()
-            .accessibilityValue(Text(min(max(share, 0), 1), format: .percent.precision(.fractionLength(0))))
     }
 }
 

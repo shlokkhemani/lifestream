@@ -218,30 +218,22 @@ extension PhoneShipper {
         let power = "Large files wait to send until this iPhone charges or the app is open."
         let network = waits.lazy.compactMap { wait -> String? in
             guard case .network(let why) = wait else { return nil }
-            return why.largeFiles
+            return why.words
         }.first
         let lines = [waits.contains(.longWake) ? power : nil, network].compactMap { $0 }
         return lines.isEmpty ? power : lines.joined(separator: "\n")
     }
 
+    private var waitsSaid: Bool {
+        switch state.outcome {
+        case .waiting: true
+        case .shipped, .nothingNew: !waits.isEmpty
+        default: false
+        }
+    }
+
     var shippingDescription: String? {
-        if state.outcome == .waiting { return waitingDescription }
+        if waitsSaid { return waitingDescription }
         return ReachWords.sending(state.outcome.word, device: .phone, long: failingLong)
-    }
-}
-
-extension Metered {
-    var waiting: String {
-        switch self {
-        case .expensive: "Waiting for Wi-Fi"
-        case .lowDataMode: "Waiting: Low Data Mode is on"
-        }
-    }
-
-    var largeFiles: String {
-        switch self {
-        case .expensive: "Large files wait for Wi-Fi."
-        case .lowDataMode: "Large files wait: Low Data Mode is on."
-        }
     }
 }

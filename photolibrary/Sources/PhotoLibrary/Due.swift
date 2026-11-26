@@ -12,20 +12,6 @@ public struct Device: Sendable, Equatable {
         self.pastMoves = pastMoves; self.iCloud = iCloud; self.charging = charging; self.spare = spare
         self.changeRoom = changeRoom; self.page = page
     }
-
-    public init(homeMetered: Bool, internetMetered: Bool, charging: Bool, spare: Int64, changeRoom: Int64? = .max,
-                page: Int = 1_000) {
-        self.init(pastMoves: !homeMetered, iCloud: !internetMetered, charging: charging, spare: spare,
-                  changeRoom: changeRoom, page: page)
-    }
-
-    public init(metered: Bool, charging: Bool, spare: Int64, changeRoom: Int64? = .max, page: Int = 1_000) {
-        self.init(homeMetered: metered, internetMetered: metered, charging: charging, spare: spare,
-                  changeRoom: changeRoom, page: page)
-    }
-
-    public var homeMetered: Bool { !pastMoves }
-    public var internetMetered: Bool { !iCloud }
 }
 
 public enum Due: Sendable, Equatable {

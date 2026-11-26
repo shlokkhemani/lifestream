@@ -3,6 +3,26 @@
   "today": "2026-06-01",
   "uses": [
     {
+      "use": "chat",
+      "label": "Chat",
+      "line": null,
+      "words": "Choose a model",
+      "value": null,
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "chat",
+          "work": null
+        },
+        "off": null
+      },
+      "places": []
+    },
+    {
       "use": "pictures",
       "label": "Photos",
       "line": null,
@@ -78,26 +98,6 @@
       "places": []
     },
     {
-      "use": "chat",
-      "label": "Chat",
-      "line": null,
-      "words": "Choose a model",
-      "value": null,
-      "thinking": null,
-      "menu": {
-        "default": null,
-        "rows": [],
-        "local": null,
-        "more": {
-          "words": "More",
-          "use": "chat",
-          "work": null
-        },
-        "off": null
-      },
-      "places": []
-    },
-    {
       "use": "search",
       "label": "Search by meaning",
       "line": null,
@@ -146,14 +146,6 @@
         }
       },
       "places": []
-    }
-  ],
-  "connections": [
-    {
-      "id": "address",
-      "url": null,
-      "line": null,
-      "kind": "address"
     }
   ]
 }
