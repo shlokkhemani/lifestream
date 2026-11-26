@@ -370,6 +370,7 @@ export function replyOf(prompt: Prompt, key: string, model: string, text: string
 
 export class FakeLedger {
   readonly replies = new Map<string, Reply>();
+  readonly gaveUp = new Set<string>();
   readonly sent: string[] = [];
   readonly asks: Ask[] = [];
   constructor(readonly route: Route) {}
@@ -378,24 +379,38 @@ export class FakeLedger {
     return askKey(family, ask, this.route).key;
   }
 
-  settle(home: TestHome, family: Family, model: (ask: Ask) => string): { asked: Ask[]; refused: string[]; written: string[] } {
+  settle(home: TestHome, family: Family, model: (ask: Ask) => string | null): { asked: Ask[]; refused: string[]; written: string[] } {
     const asked: Ask[] = [];
     const refused: string[] = [];
     const written: string[] = [];
     for (const extract of home.extracts(family.name)) {
       const answered = new Map<string, Reply>();
       const keys = new Map<string, { input_hash: string; key: string }>();
+      const givenUp = new Set<string>();
       for (let round = 0; round < 8; round++) {
-        const plan = family.plan!(extract, answered);
+        const plan = family.plan!(extract, answered, givenUp);
+        let gave = false;
         for (const ask of plan.asks.map((each) => worked(family, each))) {
           for (const file of ask.attachments ?? []) if (!home.blobs.has(file.blob)) throw new Error(`ask ${ask.item} attaches ${file.blob}, which the home does not hold`);
           const hashed = askKey(family, ask, this.route);
           keys.set(ask.item, hashed);
+          if (this.gaveUp.has(hashed.key)) {
+            if (!givenUp.has(ask.item)) gave = true;
+            givenUp.add(ask.item);
+            continue;
+          }
           if (!this.replies.has(hashed.key)) {
             this.sent.push(hashed.key);
             this.asks.push(ask);
             asked.push(ask);
-            const reply = replyOf(promptOf(family, ask), hashed.key, this.route.model, model(ask));
+            const text = model(ask);
+            if (text === null) {
+              this.gaveUp.add(hashed.key);
+              givenUp.add(ask.item);
+              gave = true;
+              continue;
+            }
+            const reply = replyOf(promptOf(family, ask), hashed.key, this.route.model, text);
             if (reply === undefined) {
               refused.push(ask.item);
               continue;
@@ -414,13 +429,19 @@ export class FakeLedger {
             };
             if (tx.derived.enrichments.put(row)) written.push(item);
           }
+          for (const item of givenUp) {
+            const hashed = keys.get(item)!;
+            tx.derived.enrichments.put({
+              family: family.name, item, prompt: enrichedUnder(family, extract, item), input_hash: hashed.input_hash, reply_key: null, reused_from: null, content: null, state: "given-up",
+            });
+          }
         });
         for (const { item } of plan.refusals ?? []) {
           refused.push(item);
           this.replies.delete((keys.get(item) ?? askKey(family, askOf(family, extract, item), this.route)).key);
           answered.delete(item);
         }
-        if (plan.asks.length === 0 && (plan.refusals ?? []).length === 0) break;
+        if (!gave && plan.asks.every((ask) => givenUp.has(ask.item)) && (plan.refusals ?? []).length === 0) break;
       }
     }
     return { asked, refused, written };

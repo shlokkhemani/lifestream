@@ -310,6 +310,65 @@ extension PassTests {
         try Self.artifact("mobile-data.json", ["steps": steps])
     }
 
+    func testOnACostlyPathANewVideoOf500MBStaysOwedUnfetchedUntilEverythingAndOf400MBGoesNow() async throws {
+        let synthetic = SyntheticLibrary()
+        synthetic.put(Self.photo("OLD/L0/001", at: -60))
+        let store = MemoryStore()
+        let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
+        let mobile = Device(pastMoves: false, iCloud: false, charging: false, spare: 95_000_000_000)
+        let everything = Device(pastMoves: true, iCloud: false, charging: false, spare: 95_000_000_000)
+        let asked = Asks()
+        let home = PhotoPass.Home(caughtUp: true, history: false, wanted: { owed in
+            asked.count(owed)
+            return Self.wanting(owed, files: ["video"])
+        })
+        let run = { (device: Device) in await pass.run(.init(seconds: 60), device: device, bringingIn: false, home: home) }
+        _ = await run(mobile)
+        assertEqual(await pass.state().mark?.unread, 1, "the first read is not done: the past is paused")
+
+        synthetic.put(Self.video("LARGE/L0/001", at: 1), files: [.sized(PhotoLibrary.wifiVideoBytes, Data("large".utf8))])
+        synthetic.put(Self.video("SMALLER/L0/001", at: 2), files: [.sized(400_000_000, Data("smaller".utf8))])
+        let taken = await run(mobile)
+        XCTAssertEqual([taken?.snapshots, taken?.files], [2, 1], "both stated, the 400 MB one with its file")
+        XCTAssertEqual(synthetic.filesAsked, 1, "the 500 MB one is never asked for")
+        XCTAssertEqual(taken?.waits, .network)
+        assertEqual(await pass.state().owed, ["LARGE/L0/001"])
+
+        let owed = await run(mobile)
+        XCTAssertEqual(asked.owed, [["LARGE/L0/001"]], "its owed fetch runs while the past is paused")
+        XCTAssertEqual(owed?.files, 0)
+        XCTAssertEqual(owed?.waits, .network)
+        XCTAssertEqual(synthetic.filesAsked, 1, "and does not ask for it on mobile data")
+        assertEqual(await pass.state().owed, ["LARGE/L0/001"], "it stays owed")
+
+        let free = await run(everything)
+        XCTAssertEqual(free?.files, 1, "on Everything the owed fetch takes it")
+        XCTAssertEqual(synthetic.filesAsked, 2)
+        assertEqual(await pass.state().owed, [])
+
+        synthetic.put(Self.video("LATER/L0/001", at: 3), files: [.sized(600_000_000, Data("later".utf8))])
+        synthetic.put(Self.video("ALSO/L0/001", at: 4), files: [.sized(400_000_000, Data("also".utf8))])
+        let both = await run(everything)
+        XCTAssertEqual(both?.files, 2, "with Everything both sizes go at once")
+        assertEqual(await pass.state().owed, [])
+    }
+
+    func testAPassWritesALargeFilesAvailabilityAfterItsPhotos() async throws {
+        let synthetic = SyntheticLibrary()
+        let store = MemoryStore()
+        let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
+        let home = PhotoPass.Home(caughtUp: true, wanted: { owed in Self.wanting(owed) })
+        _ = await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: false, home: home)
+        synthetic.put(Self.photo("BEFORE/L0/001", at: 1))
+        synthetic.put(Self.video("LARGE/L0/001", at: 2), files: [.sized(PhotoPass.largeBytes, Data("large".utf8))])
+        synthetic.put(Self.photo("AFTER/L0/001", at: 3))
+        let report = await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: false, home: home)
+        XCTAssertEqual(report?.files, 3)
+        let order = store.entries.filter { $0.kind == .availability }.map { String($0.replayKey.split(separator: ":")[1]) }
+        XCTAssertEqual(order, ["BEFORE/L0/001", "AFTER/L0/001", "LARGE/L0/001"],
+                       "the photos of one pass are sealed before the video they were taken with")
+    }
+
     func testAHeldPhotoNamedAgainFetchesOnlyTheFilesWhoseBindingChanged() async throws {
         let video = PhotoResource(typeRaw: 9, uti: "com.apple.quicktime-movie", originalFilename: "IMG_0001.MOV")
         let render = PhotoResource(typeRaw: 5, uti: "public.jpeg", originalFilename: "FullSizeRender.jpg")
@@ -705,6 +764,12 @@ extension PassTests {
     private static func photo(_ id: String, at minutes: Double) -> PhotoSnapshot {
         let taken = day.addingTimeInterval(minutes * 60)
         return PhotoSnapshot(localIdentifier: id, creationDate: taken, modificationDate: taken, resources: [still])
+    }
+
+    private static func video(_ id: String, at minutes: Double) -> PhotoSnapshot {
+        let taken = day.addingTimeInterval(minutes * 60)
+        return PhotoSnapshot(localIdentifier: id, mediaTypeRaw: 2, creationDate: taken, modificationDate: taken,
+                             resources: [PhotoResource(typeRaw: 2, uti: "com.apple.quicktime-movie", originalFilename: "IMG_0002.MOV")])
     }
 
     private static func sizes(_ entry: PhotoEntry) -> [Int64?] {

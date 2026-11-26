@@ -1,9 +1,9 @@
 import {
   daysOf, digest, GONE, handleId, handleOf,
-  type CallsAdapter, type DaySettings, type ExtractRow, type Json, type MessagesAdapter, type View,
+  type CallsAdapter, type DaySettings, type ExtractRow, type Json, type MessagesAdapter, type RecordRef, type View,
 } from "@lifestreamprotocol/core";
 import { factId, OPS, type Change, type Collection, type DayFact, type DayInput, type DayLine, type DayProjection, type Extracted, type Family, type FamilyInput, type Given, type Labels, type Touched } from "../family.js";
-import { chatTitle, joined, nameId, nameParty, printed, type Party, type Printed, type Printable } from "../shared/cast.js";
+import { chatTitle, joined, nameId, nameParty, printed, type Named, type Party, type Printed, type Printable } from "../shared/cast.js";
 import { labelInputs, type Books } from "../shared/labels.js";
 import { networksOf, resolveChat, type Networks } from "../messages/networks.js";
 import { chooseReplicas } from "../shared/replicas.js";
@@ -34,6 +34,7 @@ function callsOver(settings: CallsSettings, given: readonly Given<CallsAdapter>[
   const networks = networksOf(settings.messages);
   const byNetwork = new Map(given.map((each) => [each.adapter.network ?? each.product, each]));
   const byProduct = new Map(given.map((each) => [each.product, each]));
+  const reading = callsReading(given);
   const inputs: FamilyInput[] = [
     ...given.map((each): FamilyInput => ({ sources: { product: [each.product] }, kinds: [...each.adapter.kinds], role: "evidence" })),
     ...labelInputs(settings),
@@ -53,25 +54,14 @@ function callsOver(settings: CallsSettings, given: readonly Given<CallsAdapter>[
 
     touched(changes: readonly Change[], view: View): Touched[] {
       return changes.flatMap((change): Touched[] => {
-        const found = fedOf(view, change.record.source);
-        return found !== undefined && found.fed.adapter.kinds.includes(change.record.kind) ? [{ unit: `${found.fed.adapter.network ?? found.fed.product}:${change.record.key}` }] : [];
+        const unit = reading.unitOf(view, change.record);
+        return unit === null ? [] : [{ unit }];
       });
     },
 
     extract(unit: string, view: View): Extracted | null {
-      const colon = unit.indexOf(":");
-      const fed = byNetwork.get(unit.slice(0, colon));
-      if (fed === undefined) return null;
-      const key = unit.slice(colon + 1);
-      const replicas = view.sources({ product: [fed.product] }).flatMap((source) => fed.adapter.kinds.flatMap((kind) => {
-        const head = view.head({ source: source.id, kind, key });
-        const version = head === undefined || head.version === GONE ? undefined : view.version(head.version);
-        const call = version === undefined ? null : callOf(source.id, fed.adapter.call({ source, version }));
-        return call === null ? [] : [call];
-      }));
-      const [group] = chooseReplicas(replicas, { same: () => unit, id: (call) => call.source });
-      if (group === undefined) return null;
-      const call = group.chosen;
+      const call = reading.call(view, unit);
+      if (call === null) return null;
       return { content: call as unknown as Json, start_ms: call.start_ms, end_ms: call.end_ms ?? call.start_ms, reading: digest(call as unknown as Json) };
     },
 
@@ -87,7 +77,7 @@ function callsOver(settings: CallsSettings, given: readonly Given<CallsAdapter>[
         const call = extract.content as unknown as Call;
         const colon = extract.unit.indexOf(":");
         const services = byNetwork.get(extract.unit.slice(0, colon))?.adapter.services ?? {};
-        const record = { source: call.source, kind: "call", key: extract.unit.slice(colon + 1) };
+        const record = callRecord(extract.unit, call);
         const line = lines.push({
           family: CALLS_FAMILY, unit: extract.unit, units: [extract.unit], start_ms: call.start_ms, end_ms: call.end_ms,
           ...callWords(call, services, input.labels),
@@ -127,10 +117,77 @@ function callsOver(settings: CallsSettings, given: readonly Given<CallsAdapter>[
   };
 }
 
+export interface CallReading {
+  readonly products: readonly string[];
+  readonly kinds: readonly string[];
+  unitOf(view: View, record: RecordRef): string | null;
+  call(view: View, unit: string): Call | null;
+  overlapping(view: View, start_ms: number, end_ms: number): { unit: string; call: Call }[];
+}
+
+export function callsReading(given: readonly Given<CallsAdapter>[]): CallReading {
+  const byNetwork = new Map(given.map((each) => [each.adapter.network ?? each.product, each]));
+  const byProduct = new Map(given.map((each) => [each.product, each]));
+  const unitOf = (view: View, record: RecordRef): string | null => {
+    const row = view.source(record.source);
+    const fed = row === undefined ? undefined : byProduct.get(row.product);
+    return fed === undefined || !fed.adapter.kinds.includes(record.kind) ? null : `${fed.adapter.network ?? fed.product}:${record.key}`;
+  };
+  const call = (view: View, unit: string): Call | null => {
+    const colon = unit.indexOf(":");
+    const fed = byNetwork.get(unit.slice(0, colon));
+    if (fed === undefined) return null;
+    const key = unit.slice(colon + 1);
+    const replicas = view.sources({ product: [fed.product] }).flatMap((source) => fed.adapter.kinds.flatMap((kind) => {
+      const head = view.head({ source: source.id, kind, key });
+      const version = head === undefined || head.version === GONE ? undefined : view.version(head.version);
+      const read = version === undefined ? null : callOf(source.id, fed.adapter.call({ source, version }));
+      return read === null ? [] : [read];
+    }));
+    return chooseReplicas(replicas, { same: () => unit, id: (each) => each.source })[0]?.chosen ?? null;
+  };
+  return {
+    products: given.map((each) => each.product),
+    kinds: [...new Set(given.flatMap((each) => each.adapter.kinds))].sort(),
+    unitOf,
+    call,
+    overlapping(view, start_ms, end_ms) {
+      const units = new Set<string>();
+      for (const source of view.sources({ product: given.map((each) => each.product) })) {
+        for (const kind of byProduct.get(source.product)!.adapter.kinds) {
+          for (const head of view.heads(source.id, kind, { start_ms, end_ms })) {
+            const unit = unitOf(view, { source: source.id, kind, key: head.key });
+            if (unit !== null) units.add(unit);
+          }
+        }
+      }
+      return [...units].sort().flatMap((unit) => {
+        const read = call(view, unit);
+        return read === null ? [] : [{ unit, call: read }];
+      });
+    },
+  };
+}
+
+export function callRecord(unit: string, call: Call): RecordRef {
+  return { source: call.source, kind: "call", key: unit.slice(unit.indexOf(":") + 1) };
+}
+
+export function callHandles(call: Pick<Call, "parties">): string[] {
+  return [...new Set(call.parties.map((party) => {
+    const handle = handleOf(party.id, party.network);
+    return handle === null ? party.id : handleId(handle);
+  }))].sort();
+}
+
+export function partyName(party: Party, labels: Labels): Named {
+  return party.kind === "jid" ? nameId(party.id, labels, "jid") : nameParty(party, labels);
+}
+
 export const CALLS_COLLECTIONS: Readonly<Record<string, Collection>> = {
   calls: {
     keys: ["service", "direction", "outcome", "group", "chat"],
-    measures: { minutes: { unit: "min", ops: OPS, time: "start", split: "clock", from: "derived" } },
+    measures: { minutes: { unit: "min", ops: OPS, time: "start", split: "clock", readings: ["callaudio.minutes"], from: "derived" } },
   },
 };
 
@@ -145,10 +202,7 @@ export function callChat(networks: Networks, network: string, call: Pick<Call, "
 
 function callFact(unit: string, call: Call, record: { source: string; kind: string; key: string }, line: number, chat: string | undefined): DayFact {
   const role = call.direction === "outgoing" ? "receiver" : "sender";
-  const handles = [...new Set(call.parties.map((party) => {
-    const handle = handleOf(party.id, party.network);
-    return handle === null ? party.id : handleId(handle);
-  }))].sort();
+  const handles = callHandles(call);
   return {
     of: "calls", id: factId("calls", unit), time_ms: call.start_ms, start_ms: call.start_ms, end_ms: call.end_ms ?? call.start_ms,
     keys: {
@@ -165,7 +219,7 @@ function callOf(source: string, said: ReturnType<CallsAdapter["call"]>): Call | 
 }
 
 function callWords(call: Call, services: Readonly<Record<string, string>>, labels: Labels): Printed {
-  const names = call.parties.map((party) => party.kind === "jid" ? nameId(party.id, labels, "jid") : nameParty(party, labels));
+  const names = call.parties.map((party) => partyName(party, labels));
   const where: Printable = call.group === undefined ? "" : printed` in ${chatTitle({ id: call.group, group: true, name: labels.provider?.(call.group)?.name ?? null }, names)}`;
   const who: Printable | null = names.length > 0 ? joined(names, ", ") : call.group === undefined ? "an unknown number" : null;
   const party = (preposition: string) => printed`${who === null ? "" : printed` ${preposition} ${who}`}${where}`;

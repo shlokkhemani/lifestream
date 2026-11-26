@@ -30,7 +30,6 @@ final class Rig {
         get { power.on }
         set { power.set(newValue) }
     }
-    var long = false
     let budgets = Budgets()
     private(set) var alarms = Alarms()
     var photoPass: @MainActor (PhotoPass.Grant) async -> Void = { _ in }
@@ -91,7 +90,6 @@ final class Rig {
             warnings: HomeWarnings(center: warnings, build: build, now: { self.date }), now: { self.date }, hardware: { hardware },
             appVersion: "1.0.0",
             ledger: ledger,
-            conditions: { PhoneShipper.Conditions(long: self.long) },
             clear: { answer in
                 self.cleared += 1
                 try await custody.clearImportedPhotos(answer)
@@ -403,7 +401,6 @@ final class ShippingTests: XCTestCase {
         try await rig.capture()
         let photo = try await rig.capture(.photos, bytes: Data(repeating: 0x70, count: 9 * Self.megabyte))
         rig.home.holding = true
-        rig.long = true
         let shipper = rig.launch()
         let sending = Task { await shipper.reconcile(.wake) }
         let puts = try await rig.puts(2)
@@ -424,17 +421,18 @@ final class ShippingTests: XCTestCase {
         try rig.artifact("side-by-side")
     }
 
-    func testALocationSendStartsAndLandsWhileAPhotoUploadIsHeld() async throws {
+    func testALocationBundleLandsWhileAPhotoFileIsMidSend() async throws {
         let rig = try await rig()
-        try await rig.capture(.photos, bytes: Data(repeating: 0x77, count: 9 * Self.megabyte))
-        rig.long = true
-        rig.home.holdingWhen = { custody in custody.keys.contains(Home.photos) }
+        let photo = try await rig.capture(.photos, bytes: Data(repeating: 0x77, count: 9 * Self.megabyte))
+        rig.home.holdingFiles = true
         let shipper = rig.launch()
         shipper.tell(.visit)
         try await until("the clock set its timer") { rig.alarms.next != nil }
         rig.alarms.ring(rig.date)
-        let puts = try await rig.puts(1)
-        XCTAssertEqual(rig.home.receivedAll, [:], "the photo upload is held")
+        try await until("the photo's file is mid-send") { rig.home.files.count == 1 }
+        let file = rig.home.files[0]
+        XCTAssertEqual(file.file, photo)
+        XCTAssertEqual(rig.home.puts.count, 0, "the photos bundle goes once its file is in")
 
         try await rig.capture()
         rig.date.addTimeInterval(60)
@@ -442,63 +440,139 @@ final class ShippingTests: XCTestCase {
         try await until("the visit is due") { rig.alarms.next == rig.date }
         rig.alarms.ring(rig.date)
         try await until("location landed") { rig.home.received(Home.location) == 1 }
-        XCTAssertEqual(rig.home.received(Home.photos), 0, "beside the held upload, which still runs")
-        XCTAssertFalse(puts[0].stopped)
+        XCTAssertEqual(rig.home.received(Home.photos), 0, "beside the file still sending")
+        XCTAssertFalse(file.stopped)
         XCTAssertEqual(rig.reasons, [.wake, .wake])
-        puts[0].answer(.take)
+        file.answer(.take)
         try await until("the photos bundle settled on the phone, both sends ended") {
             rig.budgets.ended == 2 && shipper.pending.isEmpty
         }
         XCTAssertEqual(rig.home.received(Home.photos), 1)
-        try rig.artifact("beside-a-held-upload")
+        XCTAssertEqual(rig.home.requests.map(\.file), [photo, nil, nil], "the file, location's bundle, then the photos bundle")
+        try rig.artifact("beside-a-file-sending")
     }
 
-    func testABundleOfTenMegabytesWaitsForALongWakeAndOneOfFiftyAsksTheModuleOnEachPathButShipNowMovesIt() async throws {
+    func testAFileOfFiftyMegabytesWaitsUnderLowDataModeAndGoesOverMobileDataAndShipNowMovesIt() async throws {
         let rig = try await rig()
-        try await rig.capture(.photos, bytes: Data(repeating: 0x71, count: 10 * Self.megabyte))
+        let small = try await rig.capture(.photos, bytes: Data(repeating: 0x71, count: 10 * Self.megabyte))
         let shipper = rig.launch()
         await shipper.reconcile(.wake)
-        XCTAssertEqual(shipper.pending.count, 1, "sealed alone")
-        XCTAssertTrue(rig.home.puts.isEmpty, "a short wake starts no bundle of 8 MB or more")
-        XCTAssertEqual(shipper.state.outcome, .waiting)
-        let unsent = await shipper.unsent()
-        XCTAssertEqual(unsent, PhoneShipper.Unsent(), "a bundle that waits for a long wake is no work for the clock")
-        XCTAssertEqual(shipper.waits, [.longWake])
-        XCTAssertEqual(shipper.shippingDescription, "Large sends wait until this iPhone charges or the app is open.")
-        rig.long = true
-        await shipper.reconcile(.wake)
-        XCTAssertEqual(rig.home.received(Home.photos), 1, "a wake that is long sends it")
+        XCTAssertEqual(rig.home.received(Home.photos), 1, "a short wake sends a photo of any size: its file goes on its own")
+        XCTAssertEqual(rig.home.files.map(\.file), [small])
+        XCTAssertEqual(shipper.waits, [])
 
-        try await rig.capture(.photos, bytes: Data(repeating: 0x72, count: 50 * Self.megabyte))
+        let large = try await rig.capture(.photos, bytes: Data(repeating: 0x72, count: 50 * Self.megabyte))
         rig.path = .lowData
         await shipper.reconcile(.foreground)
-        XCTAssertEqual(rig.puts(of: Home.photos).count, 1, "50 MB waits while Low Data Mode is on")
-        XCTAssertEqual(shipper.waits, [.network(.lowData)])
+        XCTAssertEqual(rig.home.files.map(\.file), [small], "50 MB waits while Low Data Mode is on")
+        XCTAssertEqual(rig.puts(of: Home.photos).count, 1, "and its bundle with it")
+        XCTAssertEqual(shipper.waits, [.lowData])
         XCTAssertEqual(shipper.shippingDescription, MobileData.Wait.lowData.words, "Your home's line for the network, alone")
         let waiting = await shipper.unsent()
         XCTAssertTrue(waiting.waitsForNetwork, "the clock sends once the path or the choice changes")
-        rig.long = false
-        _ = await shipper.unsent()
-        XCTAssertEqual(shipper.waits, [.longWake, .network(.lowData)])
-        XCTAssertEqual(shipper.shippingDescription,
-                       "Large sends wait until this iPhone charges or the app is open.\n" + MobileData.Wait.lowData.words)
-        rig.long = true
         rig.path = .costly
         await shipper.reconcile(.foreground)
-        XCTAssertEqual(rig.puts(of: Home.photos).count, 2, "what the phone records goes over mobile data at any size")
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.crossing, MobileData.Crossing(costly: true, lowData: false),
+        XCTAssertEqual(rig.home.files.map(\.file), [small, large], "what the phone records goes over mobile data at any size")
+        XCTAssertEqual(rig.home.files.last?.crossing, MobileData.Crossing(costly: true, lowData: false),
                        "its request may not cross onto Low Data Mode, so no change of path moves it onto one")
         XCTAssertEqual(rig.home.received(Home.photos), 2)
+        XCTAssertEqual(shipper.waits, [])
 
-        try await rig.capture(.photos, bytes: Data(repeating: 0x73, count: 50 * Self.megabyte))
+        let pressed = try await rig.capture(.photos, bytes: Data(repeating: 0x73, count: 50 * Self.megabyte))
         rig.path = .lowData
         await shipper.reconcile(.manual)
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.crossing, .any, "the person pressed it")
-        XCTAssertEqual(rig.puts(of: Home.photos).last?.kind, "new")
+        XCTAssertEqual(rig.home.files.last?.file, pressed)
+        XCTAssertEqual(rig.home.files.last?.crossing, .any, "the person pressed it")
+        XCTAssertEqual(rig.home.files.last?.kind, "new")
         XCTAssertEqual(rig.home.received(Home.photos), 3)
         try rig.artifact("by-size")
     }
 
+    func testAWaitFromInsideASendHoldsTheBundleWithNoBackOff() async throws {
+        let rig = try await rig()
+        let large = try await rig.capture(.photos, bytes: Data(repeating: 0x7d, count: 50 * Self.megabyte))
+        let shipper = rig.launch()
+        let sealing = rig.home.holdHeld()
+        let send = try await shipper.admitted(.wake)
+        try await until("the seal asks what the door holds") { sealing.waiting }
+        sealing.open()
+        let sending = rig.home.holdHeld()
+        try await until("the send asks what the door holds") { sending.waiting }
+        rig.path = .lowData
+        sending.open()
+        await send.ended()
+        XCTAssertEqual(rig.home.files.count, 0, "the file waits for a path that takes it")
+        XCTAssertEqual(rig.home.puts.count, 0)
+        XCTAssertEqual(shipper.pending.count, 1)
+        XCTAssertEqual(shipper.waits, [.lowData])
+        XCTAssertNil(shipper.clock.next, "no back-off: it waits for the path, not for a time")
+        XCTAssertEqual(shipper.state.outcome, .waiting)
+
+        rig.date.addTimeInterval(60)
+        rig.path = .free
+        try await until("the change of path is due at once") { rig.alarms.next == rig.date }
+        rig.alarms.ring(rig.date)
+        try await until("the bundle started at the change, with no other event") { rig.home.received(Home.photos) == 1 }
+        XCTAssertEqual(rig.home.files.map(\.file), [large])
+    }
+
+    func testABudgetsEndMidFileBacksNothingOffAndTheNextWakeGoesOnFromTheHeldByte() async throws {
+        let rig = try await rig()
+        let photo = try await rig.capture(.photos, bytes: Data(repeating: 0x7e, count: 2 * Self.megabyte),
+                                          at: rig.date.addingTimeInterval(-SendClock.SETTLED_S))
+        rig.home.holdingFiles = true
+        rig.home.keptOnCut = Int64(Self.megabyte)
+        let shipper = rig.launch()
+        let send = try await shipper.admitted(.wake)
+        try await until("the photo's file is mid-send") { rig.home.files.count == 1 }
+        rig.budgets.expire()
+        await send.ended()
+        XCTAssertTrue(rig.home.files[0].stopped)
+        XCTAssertEqual(rig.home.partly, [photo: Int64(Self.megabyte)], "the door keeps what it read")
+        XCTAssertEqual(shipper.pending.count, 1, "the bundle stays in flight")
+        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.FLOOR_S),
+                       "a wake's end is no failure: no back-off, the floor alone")
+        XCTAssertEqual(shipper.state.outcome, .waiting, "never unreachable")
+        let counts = try await rig.counts()
+        XCTAssertEqual(counts[SendCount.cut.key(onPower: false)], 1, "the ledger counts it cut")
+        XCTAssertNil(counts[SendCount.unanswered.key(onPower: false)], "not unanswered")
+
+        rig.home.holdingFiles = false
+        rig.date.addTimeInterval(SendClock.FLOOR_S)
+        await shipper.reconcile(.wake)
+        XCTAssertEqual(rig.home.files.map(\.offset), [0, Int64(Self.megabyte)], "the next wake goes on from the byte the door holds")
+        XCTAssertEqual(rig.home.received(Home.photos), 1)
+        XCTAssertEqual(shipper.pending, [])
+        let after = try await rig.counts()
+        XCTAssertEqual(after[SendCount.files.key(onPower: false)], 1, "one file answered")
+        XCTAssertEqual(after[SendCount.bundles.key(onPower: false)], rig.home.statuses.filter { $0 == 200 || $0 == 201 }.count,
+                       "and its bundles, apart")
+    }
+
+    func testAPhotosBundleSealedInAnEarlierWakeLandsAndTheNextTwoAreSealedInTheSameSend() async throws {
+        let rig = try await rig()
+        var photos: [String] = []
+        for byte: UInt8 in [0x60, 0x61, 0x62] {
+            photos.append(try await rig.capture(.photos, bytes: Data(repeating: byte, count: 26 * Self.megabyte)))
+        }
+        rig.home.holding = true
+        let shipper = rig.launch()
+        let first = try await shipper.admitted(.wake)
+        _ = try await rig.puts(1)
+        rig.budgets.expire()
+        await first.ended()
+        XCTAssertEqual(shipper.pending.map(\.files.count), [1], "a photos bundle is bounded by the bytes of its files")
+        XCTAssertEqual(rig.home.received(Home.photos), 0)
+
+        rig.home.holding = false
+        await shipper.reconcile(.wake)
+        XCTAssertEqual(rig.home.received(Home.photos), 3, "each landing seals the next while the send runs")
+        XCTAssertEqual(rig.puts(of: Home.photos).count, 4, "the cut one, then three")
+        XCTAssertEqual(rig.home.files.map(\.file), photos, "a file the door holds is not sent again")
+        XCTAssertEqual(rig.budgets.begun, 2, "in one send")
+        XCTAssertEqual(shipper.pending, [])
+        try rig.artifact("bounded-photos")
+    }
 
     func testARequestTheWakesEndCancelsLeavesTheBundleInFlightAndItIsSentAgainFirst() async throws {
         let rig = try await rig()
@@ -513,9 +587,9 @@ final class ShippingTests: XCTestCase {
         let kept = try XCTUnwrap(shipper.pending.first)
         XCTAssertEqual(shipper.pending.count, 1, "what was in flight stays in flight")
         XCTAssertEqual(kept.last?.answered, false, "its request had no answer")
-        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.BACKOFF_FIRST_S),
-                       "the clock hears a send with no answer, and backs off")
-        XCTAssertEqual(shipper.state.outcome, .unreachable)
+        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.FLOOR_S),
+                       "the wake's end is no failure: the clock backs nothing off")
+        XCTAssertEqual(shipper.state.outcome, .waiting)
 
         try await rig.capture()
         let retry = try await shipper.admitted(.wake)
@@ -526,9 +600,8 @@ final class ShippingTests: XCTestCase {
         rig.home.holding = false
         again[1].answer(.take)
         await retry.ended()
-        XCTAssertEqual(rig.home.received(Home.location), 1)
-        await shipper.reconcile(.wake)
-        XCTAssertEqual(rig.home.received(Home.location), 2, "what was new since goes in the next send")
+        XCTAssertEqual(rig.home.received(Home.location), 2, "its landing seals what was new since in the same send")
+        XCTAssertEqual(shipper.pending, [])
     }
 
     func testAWakeThatEndsDuringTheExchangeSealsNothingAndStartsNoRequest() async throws {
@@ -543,7 +616,7 @@ final class ShippingTests: XCTestCase {
         XCTAssertFalse(gate.waiting, "cancelling the send released its exchange")
         XCTAssertEqual(rig.home.puts.count, 0, "no request starts after its wake ended")
         XCTAssertEqual(shipper.pending, [], "and nothing is sealed")
-        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.BACKOFF_FIRST_S), "the clock backs off")
+        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.FLOOR_S), "the clock backs nothing off")
 
         await shipper.reconcile(.wake)
         XCTAssertEqual(rig.home.exchanges, 2, "the next exchange, still owed, waited behind nothing")
@@ -559,10 +632,13 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(rig.home.received(Home.location), 1, "the door took it")
         rig.home.replying = nil
         await shipper.reconcile(.wake)
-        XCTAssertEqual(rig.home.puts.map(\.bundle), [lost.id, lost.id], "the same id, never a reseal")
-        XCTAssertEqual(rig.home.statuses.last, 200, "the door answers the bundle it holds 200, with its answer")
+        let ids = rig.home.puts.map(\.bundle)
+        XCTAssertEqual(Array(ids.prefix(2)), [lost.id, lost.id], "the same id, never a reseal")
+        XCTAssertEqual(rig.home.statuses, [201, 200, 201],
+                       "the door answers the bundle it holds 200, with its answer; then the next seal, the first wake's note, in the same wake")
+        XCTAssertEqual(ids.count, 3)
         XCTAssertEqual(shipper.pending, [])
-        XCTAssertEqual(rig.home.received(Home.location), 1)
+        XCTAssertEqual(rig.home.received(Home.location), 2)
     }
 
     func testUploadActiveAndA5xxAreNotYetAndTheClockBacksOff() async throws {
@@ -588,7 +664,9 @@ final class ShippingTests: XCTestCase {
         rig.home.replying = nil
         rig.date.addTimeInterval(60)
         await shipper.reconcile(.wake)
-        XCTAssertEqual(rig.home.puts.map(\.bundle), [waiting.id, waiting.id, waiting.id])
+        let ids = rig.home.puts.map(\.bundle)
+        XCTAssertEqual(Array(ids.prefix(3)), [waiting.id, waiting.id, waiting.id])
+        XCTAssertEqual(ids.count, 4, "and once it landed, the next seal in the same wake: the notes the earlier wakes left")
         XCTAssertEqual(shipper.pending, [])
         try await rig.capture(at: overdue)
         await shipper.prime()
@@ -615,9 +693,11 @@ final class ShippingTests: XCTestCase {
 
         rig.home.replying = nil
         await shipper.shipNow()
-        XCTAssertEqual(rig.home.puts.map(\.bundle), [busy.id, busy.id], "the person pressed it: the same bundle, now")
+        let ids = rig.home.puts.map(\.bundle)
+        XCTAssertEqual(Array(ids.prefix(2)), [busy.id, busy.id], "the person pressed it: the same bundle, now")
+        XCTAssertEqual(ids.count, 3, "and once it landed, the next seal in the same send: the note its first wake left")
         XCTAssertEqual(shipper.pending, [])
-        XCTAssertEqual(rig.home.received(Home.location), 1)
+        XCTAssertEqual(rig.home.received(Home.location), 2)
     }
 
 
@@ -668,8 +748,10 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(rig.settled, rig.settled.sorted(), "never an older answer's settings after a newer one's")
         XCTAssertEqual(rig.settled.filter { $0 == older || $0 == newer }, [older, newer], "the held one first, then seal 1's")
         XCTAssertEqual(rig.settled.last, shipper.link.fresh?.turn.n, "the newest answer's settings stand")
-        XCTAssertEqual(rig.home.statuses, [201, 201], "the pass sealed 2 from the newest answer: no STALE")
-        XCTAssertEqual(rig.home.received(Home.location), 2, "the new entry is carried, not dropped")
+        XCTAssertEqual(Set(rig.home.statuses), [201], "the pass sealed 2 from the newest answer: no STALE")
+        XCTAssertGreaterThanOrEqual(rig.home.received(Home.location), 2, "the new entry is carried, not dropped")
+        XCTAssertEqual(rig.home.received(Home.location), rig.home.statuses.count,
+                       "each seal the next, a landing's successor sealed in the same send")
         XCTAssertEqual(shipper.pending, [])
         try rig.artifact("held-application")
     }
@@ -729,7 +811,6 @@ final class ShippingTests: XCTestCase {
 
     func testTwoStaleBundlesInOneSendResealOnceAfterBothRequestsEnd() async throws {
         let rig = try await rig()
-        rig.long = true
         try await rig.capture()
         try await rig.capture(.photos, bytes: Data(repeating: 0x78, count: 9 * Self.megabyte))
         let shipper = rig.launch()
@@ -761,7 +842,6 @@ final class ShippingTests: XCTestCase {
         try await rig.capture()
         try await rig.capture(.photos, bytes: Data(repeating: 0x74, count: 9 * Self.megabyte))
         rig.home.replying = { custody in custody.keys.contains(Home.photos) ? .refuse(422, "IOS_BUNDLE_HASH_MISMATCH") : .take }
-        rig.long = true
         let shipper = rig.launch()
         await shipper.reconcile(.processing)
         XCTAssertEqual(rig.home.received(Home.location), 1)
@@ -816,9 +896,11 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(rig.alarms.next, deadline)
         rig.date = deadline
         rig.alarms.ring(rig.date)
-        try await until("the held bundle was sent again") { rig.home.puts.count == 2 }
+        try await until("the held bundle was sent again") { rig.home.puts.count >= 2 }
         try await until("it was taken, its send ended") { shipper.pending.isEmpty && rig.budgets.ended == 5 }
-        XCTAssertEqual(rig.home.puts.map(\.bundle), [held.id, held.id])
+        let ids = rig.home.puts.map(\.bundle)
+        XCTAssertEqual(Array(ids.prefix(2)), [held.id, held.id])
+        XCTAssertEqual(ids.count, 3, "the entries captured during its hold, sealed once it landed, in the same send")
         XCTAssertEqual(rig.reasons, [.wake, .foreground, .foreground, .foreground, .wake], "the clock's own send last")
         XCTAssertNil(shipper.state.sending.sources[Home.location], "its delivery ends the hold")
     }
@@ -879,23 +961,22 @@ final class ShippingTests: XCTestCase {
     }
 
 
-    func testAnExportSharesClonesThatOutliveTheDelivery() async throws {
+    func testAnExportSharesCarryingCopiesThatOutliveTheDelivery() async throws {
         let rig = try await rig()
         try await rig.capture()
-        try await rig.capture(.photos, bytes: Data(repeating: 0x75, count: 9 * Self.megabyte))
-        rig.long = true
+        let photo = try await rig.capture(.photos, bytes: Data(repeating: 0x75, count: 9 * Self.megabyte))
         let shipper = rig.launch()
         let copies = try await shipper.export()
-        XCTAssertEqual(copies.count, 2, "every bundle in flight: the shared one and photos' own")
+        XCTAssertEqual(copies.count, 2, "location's and photos' own, each a bundle of its own")
         try await until("the export's send delivered both, and ended under its budget") {
             rig.home.received(Home.location) == 1 && rig.home.received(Home.photos) == 1 && rig.budgets.ended == 1
         }
         XCTAssertEqual(rig.budgets.begun, 1)
         await shipper.reconcile(.wake)
         XCTAssertEqual(rig.bundleFiles(), [], "the delivered bundles' own files are gone")
-        for copy in copies {
-            XCTAssertFalse(try StoredZIPWriter.readManifest(from: copy).custody.isEmpty, "the person's copy still reads")
-        }
+        let manifests = try copies.map(StoredZIPWriter.readManifest)
+        XCTAssertFalse(manifests.contains { $0.custody.isEmpty }, "the person's copies still read")
+        XCTAssertTrue(manifests.contains { $0.files.values.contains { $0.sha256 == photo } }, "the photo's file inside its copy")
         try rig.artifact("export")
     }
 
@@ -910,13 +991,31 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(rig.home.exchanges, 0)
         XCTAssertEqual(unpaired.pending, [])
 
+        var photos: [String] = []
+        for byte: UInt8 in [0x63, 0x64] {
+            photos.append(try await rig.capture(.photos, bytes: Data(repeating: byte, count: 26 * Self.megabyte)))
+        }
         try await rig.pair()
         rig.home.silent = true
         rig.home.replying = { _ in .fail }
         let shipper = rig.launch()
         let exported = try await shipper.export()
-        XCTAssertEqual(exported.map(\.lastPathComponent), shipper.pending.map(\.file))
-        XCTAssertEqual(shipper.pending.map(\.seals), [[Home.location: 1]], "from the saved answer's received")
+        let pending = shipper.pending
+        XCTAssertEqual(Set(pending.map(\.seals)), [[Home.location: 1], [Home.photos: 1]], "from the saved answer's received")
+        XCTAssertEqual(pending.first { $0.sources == [Home.photos] }?.files.map(\.name), [photos[0]],
+                       "the shipping bundle stops at its bound")
+        let shipped = Dictionary(uniqueKeysWithValues: pending.map { ($0.sources, $0.file) })
+        let copies = Dictionary(uniqueKeysWithValues: try exported.map { url in
+            (Set(try StoredZIPWriter.readManifest(from: url).custody.keys), url.lastPathComponent)
+        })
+        XCTAssertNotEqual(copies[[Home.photos]], shipped[[Home.photos]],
+                          "the export never clones a shipping bundle: the photos' copy carries past its bound, an id of its own")
+        XCTAssertEqual(copies[[Home.location]], shipped[[Home.location]],
+                       "location's copy, built from the same rows as its shipping bundle, is the same bundle")
+        let manifests = try exported.map(StoredZIPWriter.readManifest)
+        XCTAssertEqual(Set(manifests.map { $0.custody.mapValues(\.seal) }), [[Home.location: 1], [Home.photos: 1]])
+        let carried = Set(manifests.flatMap { $0.files.values.map(\.sha256) })
+        XCTAssertTrue(carried.isSuperset(of: photos), "every unsent row, the photos past the bound with their files")
         try await until("the export's send ended under its budget") { rig.budgets.ended == 2 }
         XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.BACKOFF_FIRST_S),
                        "its request unanswered: the clock backs off")
@@ -1047,8 +1146,10 @@ final class ShippingTests: XCTestCase {
         rig.home.holding = false
         resent[1].answer(.take)
         await again.ended()
-        XCTAssertEqual(rig.home.puts.map(\.bundle), [sealed.id, sealed.id], "the same bundle, under the same pass")
-        XCTAssertEqual(rig.home.received(Home.location), 1)
+        let ids = rig.home.puts.map(\.bundle)
+        XCTAssertEqual(Array(ids.prefix(2)), [sealed.id, sealed.id], "the same bundle, under the same pass")
+        XCTAssertEqual(ids.count, 3, "and once it landed, the next seal in the same send: the note the refused send left")
+        XCTAssertEqual(rig.home.received(Home.location), 2)
         let outcomes = try await outcomes(rig)
         XCTAssertFalse(outcomes.contains("no_home"), "never unpaired")
         XCTAssertFalse(outcomes.contains { $0.hasPrefix("held ") }, "a 401 refuses the pass, never holds the bundle")
@@ -1284,7 +1385,6 @@ final class ShippingTests: XCTestCase {
         try await rig.capture()
         try await rig.capture(.photos, bytes: Data(repeating: 0x76, count: 9 * Self.megabyte))
         rig.home.holding = true
-        rig.long = true
         let shipper = rig.launch()
         let send = Task { await shipper.reconcile(.processing) }
         let puts = try await rig.puts(2)
@@ -1621,8 +1721,8 @@ final class ShippingTests: XCTestCase {
         await bringing.value
         try await until("its upload was stopped") { puts[1].stopped }
         try await until("its send ended under its budget") { rig.budgets.ended == 2 }
-        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.BACKOFF_FIRST_S),
-                       "a send stopped is a not yet: the clock backs off")
+        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.FLOOR_S),
+                       "a send stopped is its caller ending it, no failure: no back-off, the floor alone")
         XCTAssertEqual(rig.reasons, [.wake, .foreground])
         XCTAssertEqual(shipper.pending.count, 1, "what it carried stays in flight")
         try rig.artifact("stop")
@@ -1650,8 +1750,8 @@ final class ShippingTests: XCTestCase {
         rig.budgets.expire()
         try await until("the reseal's upload was stopped") { reseal[2].stopped }
         try await until("the send ended, once") { rig.budgets.ended == 2 }
-        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.BACKOFF_FIRST_S),
-                       "a send its budget's end stopped is a not yet: the clock backs off")
+        XCTAssertEqual(shipper.clock.next, rig.date.addingTimeInterval(SendClock.FLOOR_S),
+                       "a send its budget's end stopped is no failure: the clock backs nothing off")
         XCTAssertEqual(rig.home.statuses, [201, 409], "nothing more reached the home")
         XCTAssertEqual(rig.home.puts.count, 3, "and nothing more started")
         XCTAssertEqual(shipper.pending.count, 1, "the resealed bundle stays in flight")
@@ -1660,7 +1760,6 @@ final class ShippingTests: XCTestCase {
 
     func testUnpairDuringALiveSendLeavesNothingRunningAndTheOutcomeNoHome() async throws {
         let rig = try await rig()
-        rig.long = true
         try await rig.capture()
         try await rig.capture(.photos, bytes: Data(repeating: 0x7a, count: 9 * Self.megabyte))
         let shipper = rig.launch()
@@ -1886,7 +1985,8 @@ final class ShippingTests: XCTestCase {
         XCTAssertEqual(rig.home.exchanges, exchanges + 1, "the store's failure was owed to the home")
         XCTAssertEqual(rig.home.sending?.send?.code, "LOCAL_STORAGE")
         XCTAssertTrue(shipper.custodyKnown)
-        XCTAssertEqual(rig.home.received(Home.location), 1, "a step read them, and the request went")
+        XCTAssertEqual(rig.home.received(Home.location), 2,
+                       "a step read them, and the request went; once it landed, the notes the earlier wakes left")
         XCTAssertEqual(rig.home.received(Home.voice), 1)
         XCTAssertNil(shipper.state.sending.send, "a send that did the work again ended the store's failure")
     }
@@ -1933,7 +2033,7 @@ final class ShippingTests: XCTestCase {
         sibling[3].answer(.take)
         asking.open()
         await send.value
-        XCTAssertEqual(rig.home.received(Home.location), 1, "the sibling delivered")
+        XCTAssertEqual(rig.home.received(Home.location), 2, "the sibling delivered, and once it landed the notes the earlier wakes left")
         XCTAssertEqual(rig.home.received(Home.voice), 0, "the request the store failed made no PUT")
         XCTAssertEqual(shipper.state.outcome, .storeFailed, "and the send is the store's failure, not shipped")
         let recorded = try await outcomes(rig)
@@ -1950,7 +2050,6 @@ final class ShippingTests: XCTestCase {
 
     func testAResealWhosePublicationFailsIsTheWholeSendsFailureWhateverItsSiblingDelivered() async throws {
         let rig = try await rig()
-        rig.long = true
         try await rig.capture()
         let shipper = rig.launch()
         await shipper.reconcile(.wake)
@@ -1997,7 +2096,7 @@ final class ShippingTests: XCTestCase {
         }
         let waiting = shipper.pending.map(\.id)
         XCTAssertEqual(waiting.count, 3)
-        XCTAssertEqual(shipper.state.outcome, .unreachable)
+        XCTAssertEqual(shipper.state.outcome, .waiting, "a wake's end is no failure")
 
         let first = Home.Gate()
         let holding = Task { try await shipper.custodial { try? await first.wait() } }
@@ -2018,7 +2117,7 @@ final class ShippingTests: XCTestCase {
         for put in puts[count...] { put.answer(.take) }
         applying.open()
         await send.value
-        XCTAssertEqual(rig.home.received(Home.location), 1)
+        XCTAssertEqual(rig.home.received(Home.location), 2, "and once it landed, the notes the three wakes left")
         XCTAssertEqual(rig.home.received(Home.voice), 1)
         XCTAssertEqual(rig.home.received(Home.photos), 1)
         XCTAssertEqual(shipper.pending, [])
@@ -2203,16 +2302,16 @@ final class ShippingTests: XCTestCase {
 
     func testARefreshFoldsIntoASendQueuedAndAWholeAskWidensAQueuedRefresh() async throws {
         let rig = try await rig()
-        try await rig.capture(); try await rig.capture(.voice, blob: "a note")
+        try await rig.capture(.voice, blob: "a note")
         var held = Home.Gate()
         rig.uploadsHeld = held
         let shipper = rig.launch()
         var first = Task { await shipper.reconcile(.wake) }
         try await until("the first pass waits at its uploads") { held.waiting }
         let sent = try await rig.puts(1)
-        XCTAssertEqual(sent.map(\.sources), [[Home.location, Home.voice]])
+        XCTAssertEqual(sent.map(\.sources), [[Home.voice]])
 
-        try await rig.capture(); try await rig.capture(.voice, blob: "another note")
+        try await rig.capture()
         var refreshed = Task { await shipper.refresh([Home.voice]) }
         try await until("the refresh's send was admitted") { rig.budgets.begun == 2 }
         let whole = try await shipper.admitted(.wake)
@@ -2221,8 +2320,8 @@ final class ShippingTests: XCTestCase {
         await first.value
         await refreshed.value
         await whole.ended()
-        XCTAssertEqual(rig.home.puts.map(\.sources), [[Home.location, Home.voice], [Home.location, Home.voice]],
-                       "location went with the refresh: the whole ask was not narrowed to Voice notes")
+        XCTAssertEqual(Set(rig.home.puts.dropFirst().map(\.sources)), [[Home.location]],
+                       "location went with the refresh: the whole ask was not narrowed to Voice notes, which had nothing new")
         XCTAssertEqual(rig.uploaded, 2, "the widened send is a whole one")
 
         held = Home.Gate()
@@ -2246,8 +2345,8 @@ final class ShippingTests: XCTestCase {
         await first.value
         await queued.ended()
         await refreshed.value
-        XCTAssertEqual(rig.home.puts.count, 4, "the refresh made no send of its own")
-        XCTAssertEqual(rig.home.puts.last?.sources, [Home.location, Home.voice])
+        XCTAssertEqual(shipper.pending, [])
+        XCTAssertEqual(rig.home.received(Home.voice), 2, "the note the refresh asked for went, in the send it rode")
         let counts = try await rig.counts()
         XCTAssertEqual(counts["ship_passes"], 4)
         XCTAssertEqual(counts["send_cause_ask_refresh_battery"], 1, "the one the refresh began; the other it rode")
@@ -2279,16 +2378,18 @@ final class Home: HomeTransport, @unchecked Sendable {
         let crossing: MobileData.Crossing
         let kind: String?
         let sources: Set<String>
+        let offset: Int64?
         fileprivate let load: HomeProtocol
         fileprivate let thread: Thread
         private let lock = NSLock()
         private var isStopped = false
         var stopped: Bool { lock.withLock { isStopped } }
+        var file: String? { offset == nil ? nil : bundle }
         fileprivate func stop() { lock.withLock { isStopped = true } }
         fileprivate init(bundle: String, bytes: Int64, crossing: MobileData.Crossing, kind: String?, sources: Set<String>,
-                         load: HomeProtocol, thread: Thread) {
-            self.bundle = bundle; self.bytes = bytes; self.crossing = crossing; self.kind = kind; self.sources = sources; self.load = load
-            self.thread = thread
+                         offset: Int64? = nil, load: HomeProtocol, thread: Thread) {
+            self.bundle = bundle; self.bytes = bytes; self.crossing = crossing; self.kind = kind; self.sources = sources
+            self.offset = offset; self.load = load; self.thread = thread
         }
         func answer(_ reply: Reply) {
             load.perform(#selector(HomeProtocol.reply(_:)), on: thread, with: HomeProtocol.Answer(reply),
@@ -2359,6 +2460,10 @@ final class Home: HomeTransport, @unchecked Sendable {
     private var settingsSaid = 0
     private var stating: [Sending] = []
     private var running: (version: String, generation: Int?) = ("0.3.0", nil)
+    private var whole: Set<String> = []
+    private var parts: [String: Int64] = [:]
+    private var holdsFiles = false
+    var keptOnCut: Int64 = 1000
     var exports: URL?
     var release: (version: String, generation: Int?) {
         get { lock.withLock { running } }
@@ -2368,7 +2473,15 @@ final class Home: HomeTransport, @unchecked Sendable {
     var sendings: [Sending] { lock.withLock { stating } }
     var sending: Sending? { sendings.last }
 
-    var puts: [Put] { lock.withLock { started } }
+    var puts: [Put] { lock.withLock { started.filter { $0.file == nil } } }
+    var files: [Put] { lock.withLock { started.filter { $0.file != nil } } }
+    var requests: [Put] { lock.withLock { started } }
+    var staged: Set<String> { lock.withLock { whole } }
+    var partly: [String: Int64] { lock.withLock { parts } }
+    var holdingFiles: Bool {
+        get { lock.withLock { holdsFiles } }
+        set { lock.withLock { holdsFiles = newValue } }
+    }
     var answered: [String] { lock.withLock { landed } }
     var statuses: [Int] { lock.withLock { status } }
     var exchanges: Int { lock.withLock { asked } }
@@ -2481,6 +2594,13 @@ final class Home: HomeTransport, @unchecked Sendable {
             guard let wanting else { return HomeResponse(status: 404, body: Self.json(["code": "ROUTE", "message": "no"])) }
             return HomeResponse(status: 200, body: Self.json(wanting))
         }
+        if request.method == "POST", request.url.path == "/v1/blobs/held", case .json(let data) = request.body {
+            let asked = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["blobs"] as? [String] ?? []
+            return HomeResponse(status: 200, body: Self.json([
+                "held": [String](), "staged": asked.filter(whole.contains),
+                "partly": parts.filter { asked.contains($0.key) && !whole.contains($0.key) },
+            ]))
+        }
         if request.method == "POST", request.url.path == "/v1/settings", case .json(let data) = request.body {
             settingsSaid += 1
             let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
@@ -2548,6 +2668,27 @@ final class Home: HomeTransport, @unchecked Sendable {
         }
     }
 
+    fileprivate func cut(_ put: Put) {
+        guard let name = put.file else { return }
+        lock.withLock { parts[name] = max(parts[name] ?? 0, keptOnCut) }
+    }
+
+    fileprivate func takeFile(_ put: Put, authorization: String?) -> (Int, Data) {
+        lock.withLock {
+            guard let name = put.file, let pass, authorization == "Bearer " + pass else {
+                return (401, Self.json(["code": "PRINCIPAL_UNKNOWN", "message": "no"]))
+            }
+            if whole.contains(name) { return (200, Self.json(["file": name, "held": true])) }
+            let held = parts[name] ?? 0
+            guard put.offset == held else {
+                return (409, Self.json(["code": "UPLOAD_OFFSET", "message": "go on from what the door holds", "held": held]))
+            }
+            parts[name] = nil
+            whole.insert(name)
+            return (201, Self.json(["file": name]))
+        }
+    }
+
     private func answer() -> [String: Any] {
         turnN += 1
         var sources: [String: Any] = [:]
@@ -2576,12 +2717,25 @@ final class HomeProtocol: URLProtocol, @unchecked Sendable {
 
     private var put: Home.Put?
     private var home: Home?
+    private var finished = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canInit(with task: URLSessionTask) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         guard let url = request.url, let home = Home.current else { return fail() }
+        if url.path.hasPrefix("/v1/files/") {
+            let put = Home.Put(bundle: url.lastPathComponent, bytes: 0,
+                               crossing: MobileData.Crossing(costly: request.allowsExpensiveNetworkAccess,
+                                                             lowData: request.allowsConstrainedNetworkAccess),
+                               kind: request.value(forHTTPHeaderField: HomeLink.kindHeader), sources: [],
+                               offset: Int64(request.value(forHTTPHeaderField: "Upload-Offset") ?? "") ?? -1, load: self, thread: .current)
+            self.put = put
+            self.home = home
+            home.began(put)
+            guard !home.holdingFiles else { return }
+            return reply(Answer(.take))
+        }
         let put = Home.Put(bundle: url.lastPathComponent, bytes: home.size(url.lastPathComponent),
                            crossing: MobileData.Crossing(costly: request.allowsExpensiveNetworkAccess,
                                                          lowData: request.allowsConstrainedNetworkAccess),
@@ -2594,7 +2748,11 @@ final class HomeProtocol: URLProtocol, @unchecked Sendable {
         reply(Answer(home.replying?(home.custody(put.bundle)) ?? .take))
     }
 
-    override func stopLoading() { put?.stop() }
+    override func stopLoading() {
+        guard let put else { return }
+        put.stop()
+        if !finished { home?.cut(put) }
+    }
 
     private func fail() { client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost)) }
 
@@ -2611,8 +2769,11 @@ final class HomeProtocol: URLProtocol, @unchecked Sendable {
             _ = home.take(put.bundle, authorization: request.value(forHTTPHeaderField: "Authorization"))
             return fail()
         case .refuse(let code, let words): (status, body) = (code, Home.json(["code": words, "message": "refused"]))
+        case .take where put.file != nil:
+            (status, body) = home.takeFile(put, authorization: request.value(forHTTPHeaderField: "Authorization"))
         case .take: (status, body) = home.take(put.bundle, authorization: request.value(forHTTPHeaderField: "Authorization"))
         }
+        finished = true
         let response = HTTPURLResponse(url: request.url!, statusCode: status,
             httpVersion: "HTTP/1.1", headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

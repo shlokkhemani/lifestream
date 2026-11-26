@@ -438,6 +438,7 @@ describe("days: what must be impossible", () => {
       "11": "sha256:1a085e9ac0e2a74ccb4f21694daf37f5e09d65b0172beb77fea02863fbb902ad",
       "12": "sha256:b97e09b76041834cce7522f8801cfb4700c099b54895d3829bf6a5ac451ff289",
       "13": "sha256:8a5edeb87c468da007af35eaeac7b10d99fb81450892b3343bfbed45eb22c424",
+      "14": "sha256:33056fff9127a44a0c94b7a3653e88ee8ab6e6aa74bb7c603a83f841d3c11ca0",
     };
     const version = RENDERER_VERSION.split("/")[0]!;
     expect(digest(DAY_FILE_SHAPE as unknown as Json), `renderer ${version}'s day-file shape`).toBe(SHAPES[version]);

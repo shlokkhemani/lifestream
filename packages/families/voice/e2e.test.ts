@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest, piecesText, parse, type Ask, type DaySettings, type ExtractRow, type Json, type JsonObject, type ReaderOutput } from "@lifestreamprotocol/core";
 import { checkDayFile, renderDay, tableUnits } from "../days.js";
@@ -10,7 +10,10 @@ import { askKey, dayReader, FakeLedger, inputHash, ROUTE, sha256, shuffled, Test
 import { WORDS_CAP } from "./dictations.js";
 import { conforming } from "../test/units.js";
 
-const GOLDEN = JSON.parse(readFileSync(new URL("./test/golden/voice-transcript-v1.golden.json", import.meta.url), "utf8")) as {
+const GOLDEN_FILE = new URL("./test/golden/voice-transcript.golden.json", import.meta.url);
+const WRITE = process.env.LIFESTREAM_FIXTURES === "write";
+const GOLDEN = JSON.parse(readFileSync(GOLDEN_FILE, "utf8")) as {
+  made_by: string;
   runtime: { model: string; effort: string; sampling: { temperature: number } };
   notes: {
     name: string; audio_text: string; sha256: string; payload: Json;
@@ -210,9 +213,19 @@ describe("the voice family: each way it could fail, written before the code", ()
     const asked = new FakeLedger(ROUTE).settle(target, family, transcript).asked;
     expect(family.prompts![VOICE_TRANSCRIPT]).toBe(VOICE_TRANSCRIPT_PROMPT);
     expect(GOLDEN.runtime).toMatchObject(ROUTE);
-    const keys = GOLDEN.notes.map((entry) => {
+    if (WRITE) {
+      const made_by = "the request voice/e2e.test.ts writes under LIFESTREAM_FIXTURES=write: the body and its prompt's hash today's prompt's, the input and identity those the ledger's transcripts were first asked with, which the test holds";
+      const notes = GOLDEN.notes.map((entry) => {
+        const ask = asked.find((candidate) => candidate.item === `voice:${entry.sha256}`)!;
+        return { ...entry, request: { ...entry.request, prompt_hash: digest(VOICE_TRANSCRIPT_PROMPT.text), body: VOICE_TRANSCRIPT_PROMPT.text + piecesText(ask.input) } };
+      });
+      writeFileSync(GOLDEN_FILE, `${JSON.stringify({ ...GOLDEN, made_by, notes }, null, 2)}\n`);
+    }
+    const written = JSON.parse(readFileSync(GOLDEN_FILE, "utf8")) as typeof GOLDEN;
+    const keys = written.notes.map((entry) => {
       const ask = asked.find((candidate) => candidate.item === `voice:${entry.sha256}`)!;
       expect(ask).toBeDefined();
+      expect(entry.request.prompt_hash, "test/golden/voice-transcript.golden.json is today's prompt's: LIFESTREAM_FIXTURES=write writes it").toBe(digest(VOICE_TRANSCRIPT_PROMPT.text));
       const text = entry.request.body.slice(0, entry.request.body.length - piecesText(ask.input).length);
       expect({ model: ROUTE.model, input: entry.request.body.endsWith(piecesText(ask.input)), prompt_hash: digest(text), input_hash: inputHash(ask), attachments: ask.attachments }).toEqual({
         model: entry.request.model, input: true, prompt_hash: entry.request.prompt_hash, input_hash: entry.request.input_hash,
@@ -223,6 +236,10 @@ describe("the voice family: each way it could fail, written before the code", ()
       return { name: entry.name, ...askKey(family, ask, ROUTE) };
     });
     target.artifact("golden-keys", keys);
+  });
+
+  it("version 2, in Latin letters, keeps version 1's transcripts as they are: a note transcribed before is not asked again", () => {
+    expect([VOICE_TRANSCRIPT_PROMPT.version, VOICE_TRANSCRIPT_PROMPT.type, VOICE_TRANSCRIPT_PROMPT.keeps, VOICE_TRANSCRIPT_PROMPT.converters]).toEqual([2, "text", [{ version: 1, type: "text" }], undefined]);
   });
 
   it("a dictation moves a paid ask: the transcripts asked on a day of notes and dictations differ from the golden by identity", () => {

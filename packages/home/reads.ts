@@ -1424,6 +1424,7 @@ export function openReads(input: {
       const row = view.enrichment(SCREEN, item, SCREEN_ACCOUNT);
       return row?.state === "done" ? row.content : null;
     },
+    made: (view, asked, now_ms) => withLedger(folder, (ledger) => asked.map(openMade(view, madeInputOf(ledger, now_ms)))),
     transcribed: (view, ref, now_ms) => {
       const head = view.head(ref);
       const version = head === undefined || head.version === GONE ? undefined : view.version(head.version);

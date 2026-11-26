@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { Worker } from "node:worker_threads";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -135,6 +137,28 @@ describe("passwords: polls ask the home for their lane's secrets, and rotate thr
       file: existsSync(join(root, "config", "secrets", "openrouter")),
       events: readHome(root, (db) => db.prepare("SELECT detail FROM events WHERE kind = 'secret' AND key = 'openrouter' ORDER BY seq").pluck().all() as string[]).map((detail) => JSON.parse(detail) as unknown),
     };
+    const listedWith: (string | null)[] = [];
+    const server = createServer((request, response) => {
+      listedWith.push(request.headers.authorization ?? null);
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "fake-hosted-model" }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+      await ask(sock, { verb: "seal", secret: "address", value: "fake-address-key" });
+      await ask(sock, { verb: "models", args: ["--key", "--", "address", url], by: "you" });
+      await until("the address is asked for its list", () => listedWith.length > 0);
+      seen.address = {
+        listedWith: [...listedWith],
+        block: readOpsSettings(root).model.transports?.address,
+        requests: ((await ask(sock, { verb: "vault" })) as { requests: { secret: string; lane: string; task: string; ok: boolean }[] }).requests.filter((each) => each.secret === "address"),
+      };
+      await ask(sock, { verb: "models", args: ["--", "address", "none"], by: "you" });
+      await ask(sock, { verb: "seal", secret: "address", value: null });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     await home.stop();
 
     const tokenBefore = readFileSync(join(root, "config", "secrets", "fake-poll"), "utf8");
@@ -204,6 +228,11 @@ describe("passwords: polls ask the home for their lane's secrets, and rotate thr
   });
 
   it("a key the person removes is still held: sealed with no value, its file is gone and the removal is an event", () => {
+    expect(seen.address, "a key sealed for the custom address goes with its list, and its read is recorded").toEqual({
+      listedWith: ["Bearer fake-address-key"],
+      block: { url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/v1$/u), secret: "address" },
+      requests: [{ at_ms: expect.any(Number), secret: "address", op: "get", lane: "models", task: "list", ok: true }],
+    });
     const forgot = seen.forgot as { answers: unknown[]; file: boolean; events: unknown[] };
     expect(forgot.answers).toEqual([{ removed: "openrouter" }, { removed: "openrouter" }]);
     expect(forgot.file).toBe(false);

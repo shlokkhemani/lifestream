@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "type": {
+    "type": "object",
+    "properties": {
+      "title": { "type": "string" },
+      "summary": { "type": "string" }
+    },
+    "required": ["title", "summary"],
+    "additionalProperties": false
+  },
+  "keeps": []
+}

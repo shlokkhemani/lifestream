@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import type { DaySettings } from "@lifestreamprotocol/core";
-import { AI_FAMILY, type DayDocument } from "@lifestreamprotocol/families";
+import { civilDay, dayBounds, type DaySettings, type ExtractRow, type Json, type RecordRef } from "@lifestreamprotocol/core";
+import { AI_FAMILY, CALLAUDIO_FAMILY, type CallContent, type CallPart, type DayAtom, type DayDocument, type DayFileFact } from "@lifestreamprotocol/families";
 import { ANSWER_CHARS, type Call, type Reader } from "./call.js";
 import type { CountAsk } from "./counting.js";
 import { nameKey } from "./devices.js";
@@ -12,12 +12,14 @@ import { describedOf, readAnswerOf, readRoom, readSize, type ReadSources } from 
 import { lineRef, makeRef, readRef } from "./refs.js";
 import { Refusal } from "./refusal.js";
 import {
-  answerOf, ContractError, describeParams, paramsOf, readParams, REFS_CHARS, type Citation, type DescribeAnswer, type ReadAnswer, type RowAsk,
+  answerOf, ContractError, describeParams, paramsOf, readParams, REFS_CHARS, searchParams, type Citation, type DescribeAnswer, type ReadAnswer, type RowAsk, type SearchAnswer,
 } from "./search-contract.js";
+import { atomsOf } from "./search.js";
+import { recordPartOf, searchAnswerOf, searchAskedOf } from "./search-route.js";
 import { atomSame, SearchIndex, type AtomEntry, type IndexedDay } from "./search-index.js";
 import type { RowOpened } from "./count.js";
 import type { ScreenWindow } from "./screen-reads.js";
-import { callOf, type CallOf } from "./test/calls.js";
+import { callOf, onCall, type CallOf } from "./test/calls.js";
 import { Work } from "./work.js";
 import { openHomeFolder } from "@lifestreamprotocol/core";
 
@@ -93,6 +95,7 @@ interface Home {
   fresh?: FreshSource[];
   products?: readonly string[];
   macs?: ReadonlyMap<string, string>;
+  extracts?: ReadonlyMap<string, ExtractRow>;
 }
 
 interface Screen {
@@ -120,6 +123,7 @@ function onHome<T>(home: Home, reader: Reader, work: (sources: ReadSources) => T
       return kept === undefined ? undefined : { version: `v-${record.key}`, start_ms: kept.start_ms, stated_ms: kept.start_ms ?? T0 };
     },
     source: () => undefined, blobsOf: () => [], history: () => [],
+    extract: (family: string, unit: string) => home.extracts?.get(`${family}\0${unit}`),
     extractPage: (_family: string, select: { day: string }) => (home.screen === undefined || home.screen === "busy" ? [] : home.screen.sittings)
       .filter((sitting) => [sitting.start_ms, sitting.end_ms].some((ms) => new Date(ms).toISOString().slice(0, 10) === select.day))
       .map((sitting) => ({ unit: sitting.unit, start_ms: sitting.start_ms, end_ms: sitting.end_ms })),
@@ -141,7 +145,9 @@ function onHome<T>(home: Home, reader: Reader, work: (sources: ReadSources) => T
       return { family: kept?.family ?? "notes", read: kept === undefined ? null : { text: kept.text }, product: undefined, dated: kept?.dated === true };
     },
     aiChatOf: () => undefined,
+    isAiChat: () => false,
     photo: () => undefined,
+    held: () => true,
     name: (id: string) => id,
   } as unknown as ReadSources;
   try {
@@ -615,5 +621,238 @@ describe("`products` in a brief and in lines", () => {
     const brief = read(home, { from: D, products: "whatsapp", detail: "brief" }) as Brief;
     expect(lines.lines.map((line) => line.text)).toEqual(["synthetic stated line"]);
     expect(brief.days.flatMap((day) => day.lines.flatMap((line) => line.cites))).toEqual(lines.lines.map((line) => line.ref));
+  });
+});
+
+describe("a recorded call reads as a chat, its turns cited from their own place in their part", () => {
+  const KOLKATA: DaySettings = { zone: "Asia/Kolkata", day_start_hour: 4 };
+  const MIC_SOURCE = "audio:local:macbook-pro-0001";
+  const CALL_DAY = JSON.parse(readFileSync(new URL("../families/callaudio/test/2026-10-05.day.json", import.meta.url), "utf8")) as DayDocument;
+  type Chat = Extract<ReadAnswer, { what: "chat" }>;
+  const keyMs = (key: string) => Date.parse(key.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/u, "$1-$2-$3T$4:$5:$6"));
+
+  function callExtract(unit: string, parts: readonly CallPart[], span: { start_ms: number; end_ms: number }): [string, ExtractRow] {
+    const content: CallContent = {
+      short: false, source: MIC_SOURCE, span, mic: parts.filter((part) => part.track === "mic"), sound: parts.filter((part) => part.track === "sound"),
+      holder: "Zoom", camera: false, speakers: [], stopped_ms: null, open: false, joined: null,
+    };
+    return [`${CALLAUDIO_FAMILY}\0${unit}`, { family: CALLAUDIO_FAMILY, unit, reading: "r", code: "1", content: content as unknown as Json, ...span, days: [], seq: 1 }];
+  }
+
+  function partsOf(atoms: readonly DayAtom[], unit: string): CallPart[] {
+    const parts = new Map<string, CallPart>();
+    for (const atom of atoms) {
+      if (atom.unit !== unit || atom.record === undefined || atom.item?.startsWith("recording:") !== true) continue;
+      const { kind, key } = atom.record;
+      parts.set(`${kind}/${key}`, {
+        kind, key, track: kind === "mic-recording" ? "mic" : "sound", sha256: atom.item.slice("recording:".length), media_type: "audio/mp4",
+        start_ms: keyMs(key), ms: 600_000, loud_s: 300, quiet: false, asked: true,
+      });
+    }
+    return [...parts.values()];
+  }
+
+  function fixtureHome(): Home {
+    const home: Home = { index: index(`call-fixture-${++seq}`, KOLKATA), files: new Map(), clock: KOLKATA, now_ms: Date.parse("2026-10-06T12:00:00Z") };
+    (home.index as SearchIndex).day(CALL_DAY.day, { inputs: CALL_DAY.inputs, mtime_us: ++seq, atoms: atomsOf(CALL_DAY) });
+    home.files.set(CALL_DAY.day, CALL_DAY);
+    const heads = CALL_DAY.atoms.filter((atom) => atom.family === CALLAUDIO_FAMILY && atom.item?.startsWith("stretch:") === true);
+    home.extracts = new Map(heads.map((head) => callExtract(head.unit, partsOf(CALL_DAY.atoms, head.unit), { start_ms: head.start_ms!, end_ms: head.end_ms! })));
+    return home;
+  }
+
+  const chatOf = (atom: DayAtom) => makeRef("chat", { key: atom.chat! });
+  const said = (page: Chat) => page.lines.map((line) => ({ ...(line.from === undefined ? {} : { from: line.from }), text: line.text }));
+
+  it("a call's key reads its head line and then its turns, each speaker as the day file named them; a joined call names the other side", () => {
+    const home = fixtureHome();
+    const [zoom, joined] = CALL_DAY.atoms.filter((atom) => atom.item?.startsWith("stretch:") === true);
+    const page = read(home, { chat: chatOf(zoom!) }) as Chat;
+    expect(page).toMatchObject({ what: "chat", chat: chatOf(zoom!), title: "Call on Zoom, 20 min: Lease renewal", span: { from: "2026-10-05", to: "2026-10-05" }, next: null });
+    expect(said(page)).toEqual([
+      { text: "Call on Zoom, 20 min: Lease renewal. You and they went over the lease renewal; you will send the signed copy." },
+      { from: "You", text: "Hello, can you hear me?" }, { from: "Them", text: "Yes, I can hear you." },
+      { from: "You", text: "Good. Shall we go over the lease?" }, { from: "Them", text: "Sure, the renewal is due next month." },
+      { from: "You", text: "I will send the signed copy tonight." }, { from: "Them", text: "Great, thanks." },
+    ]);
+    expect(page.lines.every((line) => readRef(line.ref!, "ref").kind === "line" && line.at !== undefined)).toBe(true);
+    expect(new Set(page.lines.map((line) => line.ref)).size).toBe(page.lines.length);
+    expect(read(home, { ref: chatOf(zoom!) })).toEqual(page);
+    const other = read(home, { chat: chatOf(joined!) }) as Chat;
+    expect([other.title, said(other).slice(1)]).toEqual(["Call transcript: Weekend plans", [
+      { from: "You", text: "Are we still on for Saturday?" }, { from: "Person B", text: "Yes, Saturday works for me." }, { from: "You", text: "I will book the table." },
+    ]]);
+  });
+
+  it("a cited turn plays its own track from the turn's offset in its part: two turns of one part, two places; the person's own as mine, the other side by its name; the head line plays nothing", () => {
+    const home = fixtureHome();
+    const [zoom, joined] = CALL_DAY.atoms.filter((atom) => atom.item?.startsWith("stretch:") === true);
+    const lines = (read(home, { chat: chatOf(zoom!) }) as Chat).lines;
+    const [head, hello, hear, lease] = lines;
+    const described = describeOf(home, [hello!.ref!, hear!.ref!, lease!.ref!]).described;
+    const summary = describeOf(home, [head!.ref!]).described[0]!;
+    expect(summary).toMatchObject({ kind: "line", chat: chatOf(zoom!), title: "Call on Zoom, 20 min: Lease renewal" });
+    expect(summary).not.toHaveProperty("voice");
+    const mic = makeRef("record", { source: MIC_SOURCE, kind: "mic-recording", key: "20261005T083000.000Z" });
+    const sound = makeRef("record", { source: MIC_SOURCE, kind: "sound-recording", key: "20261005T083000.000Z" });
+    expect(described.map((each) => [each.kind, (each as { voice?: unknown }).voice])).toEqual([
+      ["line", { audio: `sha256:${CALL_DAY.atoms[1]!.item!.slice("recording:".length)}`, record: mic, seconds: 600, from_s: 1, mine: true }],
+      ["line", { audio: `sha256:${CALL_DAY.atoms[2]!.item!.slice("recording:".length)}`, record: sound, seconds: 600, from_s: 11, from: "Them" }],
+      ["line", { audio: `sha256:${CALL_DAY.atoms[1]!.item!.slice("recording:".length)}`, record: mic, seconds: 600, from_s: 21, mine: true }],
+    ]);
+    expect(described[1]).toMatchObject({ chat: chatOf(zoom!), chat_title: "Call on Zoom, 20 min: Lease renewal", day: "2026-10-05" });
+    const person = (read(home, { chat: chatOf(joined!) }) as Chat).lines[2]!;
+    expect((describeOf(home, [person.ref!]).described[0] as { voice?: unknown }).voice).toMatchObject({ from_s: 11, from: "Person B" });
+  });
+
+  it("a turn's ref, from the chat or from search, reads the call around that turn", () => {
+    const home = fixtureHome();
+    const [zoom] = CALL_DAY.atoms.filter((atom) => atom.item?.startsWith("stretch:") === true);
+    const turn = (read(home, { chat: chatOf(zoom!) }) as Chat).lines[5]!;
+    const around = read(home, { ref: turn.ref! }) as Chat;
+    expect(around).toMatchObject({ what: "chat", chat: chatOf(zoom!), around: turn.ref });
+    expect(around.lines.map((line) => line.ref)).toContain(turn.ref);
+  });
+
+  it("search finds a turn's words in the call family, the speaker leading its words under the call's title; another family's filter finds none", () => {
+    const home = fixtureHome();
+    const search = (params: Record<string, string>): SearchAnswer => onCall({ index: home.index, now_ms: home.now_ms!, settings: KOLKATA, epoch: 1 }, (call) => {
+      const asked = searchAskedOf(paramsOf(searchParams, new URLSearchParams(params)));
+      return answerOf("/v1/search", 200, JSON.parse(JSON.stringify(searchAnswerOf(asked, call, recordPartOf(asked, call).answer, undefined)))) as SearchAnswer;
+    });
+    const hits = search({ lists: "record", query: "works", families: "callaudio" }).record!.hits;
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ family: "callaudio", day: "2026-10-05", title: "Call transcript: Weekend plans", chat_title: "Call transcript: Weekend plans", chat: chatOf(CALL_DAY.atoms[8]!) });
+    expect(JSON.stringify(hits[0]!.snippet)).toContain("Person B: Yes, Saturday");
+    expect(readRef(hits[0]!.ref, "ref").kind).toBe("line");
+    expect((read(home, { ref: hits[0]!.ref }) as Chat)).toMatchObject({ what: "chat", around: hits[0]!.ref });
+    expect(search({ lists: "record", query: "works", families: "calls" }).record!.hits).toEqual([]);
+  });
+
+  it("a long call across the day's start pages through both days, each line once; its part's record ref reads the call around that part's first turn; a call with no words says so by its head", () => {
+    const start = Date.parse("2026-10-06T20:00:00Z");
+    const TURNS = 900;
+    const partOf = (track: "mic" | "sound", i: number): CallPart => ({
+      kind: `${track}-recording`, key: `${track}-${String(i).padStart(2, "0")}`, track, sha256: `${track === "mic" ? "a" : "b"}`.repeat(62) + String(i).padStart(2, "0"),
+      media_type: "audio/mp4", start_ms: start + i * 600_000, ms: 600_000, loud_s: 300, quiet: false, asked: true,
+    });
+    const span = { start_ms: start, end_ms: start + TURNS * 15_000 };
+    const pieces = Math.ceil((span.end_ms - start) / 600_000);
+    const parts = (["mic", "sound"] as const).flatMap((track) => Array.from({ length: pieces }, (_, i) => partOf(track, i)));
+    const unit = `${MIC_SOURCE}/mic-recording/mic-00`;
+    const key = `${CALLAUDIO_FAMILY}:${unit}`;
+    const record = (part: CallPart): RecordRef => ({ source: MIC_SOURCE, kind: part.kind, key: part.key });
+    const title = "Call on Zoom, 3 h 45 min: Long review";
+    const block = { title, chat: key };
+    const head: Omit<AtomEntry, "n"> = { family: CALLAUDIO_FAMILY, unit, item: `stretch:${unit}`, record: record(parts[0]!), start_ms: start, end_ms: span.end_ms, text: `${title}. You and they went over a long review.`, ...block };
+    const turns = Array.from({ length: TURNS }, (_, i): Omit<AtomEntry, "n"> => {
+      const at = start + i * 15_000;
+      const part = partOf(i % 2 === 0 ? "mic" : "sound", Math.floor((at - start) / 600_000));
+      return {
+        family: CALLAUDIO_FAMILY, unit, item: `recording:${part.sha256}`, record: record(part), start_ms: at, end_ms: at + 10_000,
+        text: `${i % 2 === 0 ? "You" : "Them"}: synthetic turn ${i} ${"w".repeat(300)}`, ...block,
+      };
+    });
+    const quiet = `${MIC_SOURCE}/mic-recording/mic-90`;
+    const unheard: Omit<AtomEntry, "n"> = {
+      family: CALLAUDIO_FAMILY, unit: quiet, item: `stretch:${quiet}`, record: { source: MIC_SOURCE, kind: "mic-recording", key: "mic-90" }, start_ms: span.end_ms + 3_600_000,
+      end_ms: span.end_ms + 4_320_000, text: "Call on Zoom, 12 min (not transcribed)", title: "Call on Zoom, 12 min", chat: `${CALLAUDIO_FAMILY}:${quiet}`,
+    };
+    const home: Home = { index: index("call-long", KOLKATA), files: new Map(), clock: KOLKATA, now_ms: Date.parse("2026-10-08T12:00:00Z"), records: new Map() };
+    const days = new Map<string, AtomEntry[]>();
+    for (const atom of [head, ...turns, unheard]) {
+      const day = civilDay(atom.start_ms!, KOLKATA);
+      days.set(day, [...days.get(day) ?? [], { ...atom, n: days.get(day)?.length ?? 0 }]);
+    }
+    expect([...days.keys()]).toEqual(["2026-10-06", "2026-10-07"]);
+    for (const [day, atoms] of days) (home.index as SearchIndex).day(day, { inputs: `in-${day}`, mtime_us: ++seq, atoms });
+    for (const part of parts) home.records!.set(part.key, { text: "", start_ms: part.start_ms, family: CALLAUDIO_FAMILY });
+    home.extracts = new Map([
+      callExtract(unit, parts, span),
+      callExtract(quiet, [{ ...partOf("mic", 90), start_ms: unheard.start_ms! }], { start_ms: unheard.start_ms!, end_ms: unheard.end_ms! }),
+    ]);
+
+    const pages: Chat[] = [read(home, { chat: makeRef("chat", { key }) }, "model") as Chat];
+    while (pages.at(-1)!.next !== null && pages.at(-1)!.next !== undefined) {
+      if (pages.length > 200) throw new Error("no end after 200 pages: the cursor does not progress");
+      pages.push(read(home, { cursor: pages.at(-1)!.next! }, "model") as Chat);
+    }
+    expect(pages.length).toBeGreaterThan(2);
+    expect(pages.flatMap((page) => page.lines.map((line) => (line.from === undefined ? line.text : `${line.from}: ${line.text}`)))).toEqual([head, ...turns].map((atom) => atom.text));
+    expect([pages[0]!.span.from, pages.at(-1)!.span.to]).toEqual(["2026-10-06", "2026-10-07"]);
+
+    const late = parts.find((part) => part.track === "sound" && part.key === "sound-05")!;
+    const given = makeRef("record", record(late));
+    const around = read(home, { ref: given }) as Chat;
+    expect(around).toMatchObject({ what: "chat", chat: makeRef("chat", { key }), around: given });
+    const first = turns.find((turn) => turn.record!.key === late.key)!;
+    expect(around.lines.map((line) => `${line.from}: ${line.text}`)).toContain(first.text);
+
+    const none = read(home, { chat: makeRef("chat", { key: unheard.chat! }) }) as Chat;
+    expect([none.title, said(none)]).toEqual(["Call on Zoom, 12 min", [{ text: "Call on Zoom, 12 min (not transcribed)" }]]);
+    expect(codeOf(() => read(home, { chat: makeRef("chat", { key: `${CALLAUDIO_FAMILY}:${MIC_SOURCE}/mic-recording/mic-99` }) }))).toBe("BAD_PARAMETER");
+  });
+
+  it("a call's key and cursor from before a re-key read on under the key it has now: the old key names a part the call still holds", () => {
+    const DAY = "2026-10-06";
+    const start = Date.parse("2026-10-06T04:00:00Z");
+    const TURNS = 600;
+    const pieces = (TURNS * 15_000) / 600_000;
+    const pad = (i: number) => String(i).padStart(2, "0");
+    const partOf = (track: "mic" | "sound", i: number): CallPart => ({
+      kind: `${track}-recording`, key: `${track}-${pad(i)}`, track, sha256: `${track === "mic" ? "c" : "d"}`.repeat(62) + pad(i),
+      media_type: "audio/mp4", start_ms: start + i * 600_000, ms: 600_000, loud_s: 300, quiet: false, asked: true,
+    });
+    const record = (part: CallPart): RecordRef => ({ source: MIC_SOURCE, kind: part.kind, key: part.key });
+    const title = "Call on Zoom, 2 h 30 min: Quarterly review";
+    const callFrom = (from: number) => {
+      const unit = `${MIC_SOURCE}/mic-recording/mic-${pad(from)}`;
+      const key = `${CALLAUDIO_FAMILY}:${unit}`;
+      const span = { start_ms: start + from * 600_000, end_ms: start + TURNS * 15_000 };
+      const parts = (["mic", "sound"] as const).flatMap((track) => Array.from({ length: pieces - from }, (_, i) => partOf(track, from + i)));
+      const head: Omit<AtomEntry, "n"> = {
+        family: CALLAUDIO_FAMILY, unit, item: `stretch:${unit}`, record: record(parts[0]!), ...span, text: `${title}. You and they went over the quarter.`, title, chat: key,
+      };
+      const turns = Array.from({ length: TURNS }, (_, i) => i).filter((i) => start + i * 15_000 >= span.start_ms).map((i): Omit<AtomEntry, "n"> => {
+        const at = start + i * 15_000;
+        const part = partOf(i % 2 === 0 ? "mic" : "sound", Math.floor((at - start) / 600_000));
+        return {
+          family: CALLAUDIO_FAMILY, unit, item: `recording:${part.sha256}`, record: record(part), start_ms: at, end_ms: at + 10_000,
+          text: `${i % 2 === 0 ? "You" : "Them"}: synthetic turn ${i} ${"w".repeat(300)}`, title, chat: key,
+        };
+      });
+      const fact: DayFileFact = {
+        id: `${CALLAUDIO_FAMILY}:${unit}`, family: CALLAUDIO_FAMILY, of: CALLAUDIO_FAMILY, time_ms: span.start_ms, ...span, keys: { app: "Zoom", call: "none" },
+        measures: { minutes: (span.end_ms - span.start_ms) / 60_000 }, who: [], from: { units: [unit], record: record(parts[0]!), item: `stretch:${unit}` }, lines: [0],
+      };
+      return { key, atoms: [head, ...turns].map((atom, n): AtomEntry => ({ ...atom, n })), fact, extract: callExtract(unit, parts, span) };
+    };
+    const home: Home = { index: index("call-rekey", KOLKATA), files: new Map(), clock: KOLKATA, now_ms: Date.parse("2026-10-08T12:00:00Z"), records: new Map() };
+    for (let i = 0; i < pieces; i++) for (const part of [partOf("mic", i), partOf("sound", i)]) home.records!.set(part.key, { text: "", start_ms: part.start_ms, family: CALLAUDIO_FAMILY });
+    const hold = (call: ReturnType<typeof callFrom>) => {
+      (home.index as SearchIndex).day(DAY, { inputs: `in-${call.key}`, mtime_us: ++seq, atoms: call.atoms, facts: { window: dayBounds(DAY, KOLKATA), facts: [call.fact] } });
+      home.extracts = new Map([call.extract]);
+    };
+    const words = (page: Chat) => page.lines.map((line) => (line.from === undefined ? line.text : `${line.from}: ${line.text}`));
+    const before = callFrom(2), after = callFrom(0);
+    hold(before);
+    const first = read(home, { chat: makeRef("chat", { key: before.key }) }, "model") as Chat;
+    expect(first.next).toBeTypeOf("string");
+
+    hold(after);
+    const now = read(home, { chat: makeRef("chat", { key: before.key }) }, "model") as Chat;
+    expect(now).toMatchObject({ what: "chat", chat: makeRef("chat", { key: after.key }), title });
+    const pageOf = ({ next: _next, ...page }: Chat) => page;
+    expect(pageOf(now)).toEqual(pageOf(read(home, { chat: makeRef("chat", { key: after.key }) }, "model") as Chat));
+    expect(pageOf(read(home, { ref: makeRef("chat", { key: before.key }) }, "model") as Chat)).toEqual(pageOf(now));
+
+    const rest: Chat[] = [read(home, { cursor: first.next! }, "model") as Chat];
+    while (rest.at(-1)!.next !== null && rest.at(-1)!.next !== undefined) {
+      if (rest.length > 200) throw new Error("no end after 200 pages: the cursor does not progress");
+      rest.push(read(home, { cursor: rest.at(-1)!.next! }, "model") as Chat);
+    }
+    expect(rest[0]!.chat).toBe(makeRef("chat", { key: after.key }));
+    expect([...words(first), ...rest.flatMap(words)]).toEqual(before.atoms.map((atom) => atom.text));
+    expect(codeOf(() => read(home, { chat: makeRef("chat", { key: `${CALLAUDIO_FAMILY}:${MIC_SOURCE}/mic-recording/mic-${pad(pieces)}` }) }))).toBe("BAD_PARAMETER");
   });
 });

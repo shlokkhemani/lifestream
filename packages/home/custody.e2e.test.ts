@@ -731,6 +731,18 @@ describe("a source of the account", () => {
     expect({ fed, after }).toEqual({ fed: [["A", "a"], ["B", "b"]], after: before });
     report.replaced_unit = { fed, before, after };
   });
+
+  it("takes a file from a replaced phone's pass, which reads nothing, so the files it holds reach the home", async () => {
+    const { door, sock } = await running("lifestream-custody-replaced-file-");
+    const a = await phoneOf(() => door.url, sock, "person-a@example.com");
+    const b = await phoneOf(() => door.url, sock, "person-b@example.com", { install: INSTALL_TWO, replaces: a.unit });
+    expect((await b.ship({ entries: { "health.jsonl": [healthLine(1)] }, custody: { "apple-health:person-b@example.com:cloud": { seal: 1 } } })).status).toBe(201);
+    const bytes = Buffer.from("synthetic photo the replaced install still holds");
+    const headers = { authorization: `Bearer ${a.pass}`, ...DEVICE.phone };
+    const sent = await request(door.url, "PUT", `/v1/files/sha256:${sha256(bytes)}`, headers, bytes);
+    const read = await request(door.url, "GET", "/v1/me", headers);
+    expect([sent.status, read.status, read.body.code]).toEqual([201, 403, "PRINCIPAL_SCOPE"]);
+  });
 });
 
 describe("a cleared file", () => {
@@ -765,7 +777,7 @@ describe("a cleared file", () => {
     const restored = (await exchange(door.url, phone.pass, DEVICE.phone)).body;
     expect(custodyOf(restored)[photos]).toEqual([4, 4]);
     const tooMany = await ship(5, [5, 6], [], 1);
-    expect([tooMany.status, tooMany.body.code]).toEqual([422, "IOS_BUNDLE_BLOB_MISSING"]);
+    expect([tooMany.status, tooMany.body.code, tooMany.body.missing]).toEqual([409, "FILES_MISSING", { files: [5, 6].map((n) => `sha256:${sha256(photo(n))}`) }]);
     const resent = await ship(5, [5], [], 1);
     expect(resent.status).toBe(201);
     expect((await ship(6, [4], [], 1)).status).toBe(201);

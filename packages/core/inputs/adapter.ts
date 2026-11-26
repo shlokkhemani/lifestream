@@ -1,6 +1,7 @@
 import type { Instant, Json } from "../types.js";
 import type { AiAdapter } from "./ai.js";
 import type { CalendarAdapter } from "./calendar.js";
+import type { CallAudioAdapter } from "./callaudio.js";
 import type { CallsAdapter } from "./calls.js";
 import type { HealthAdapter } from "./health.js";
 import type { LabelsAdapter } from "./labels.js";
@@ -74,6 +75,8 @@ export interface Adapters {
   ai?: AiAdapter;
   /** How its records become calls. */
   calls?: CallsAdapter;
+  /** How its records become the two sides of calls the machine recorded. */
+  callaudio?: CallAudioAdapter;
   /** How its records become events and reminders. */
   calendar?: CalendarAdapter;
   /** How its records become notes and meetings. */

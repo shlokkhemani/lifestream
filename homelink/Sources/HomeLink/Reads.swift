@@ -163,18 +163,40 @@ extension HomeLink {
     public static let heldAtOnce = 5_000
 
     public func held(blobs: Set<String>) async throws -> Set<String> {
-        struct Held: Decodable { let held: [String] }
-        let asked = blobs.sorted()
+        try await holding(blobs).held
+    }
+
+    struct Holding: Equatable {
         var held = Set<String>()
+        var staged = Set<String>()
+        var partly: [String: Int64] = [:]
+
+        func whole(_ name: String) -> Bool { held.contains(name) || staged.contains(name) }
+    }
+
+    func holding(_ blobs: Set<String>) async throws -> Holding {
+        struct Answer: Decodable {
+            let held: [String]
+            let staged: [String]?
+            let partly: [String: Int64]?
+        }
+        let asked = blobs.sorted()
+        var holding = Holding()
         for start in stride(from: 0, to: asked.count, by: Self.heldAtOnce) {
             let some = Array(asked[start..<min(start + Self.heldAtOnce, asked.count)])
             let body = try JSONSerialization.data(withJSONObject: ["blobs": some], options: [.sortedKeys, .withoutEscapingSlashes])
             let response = try await contact("POST", "/v1/blobs/held", ["Content-Type": "application/json"], .json(body),
                                              timeout: Self.silence)
             guard response.status == 200 else { throw failure(response) }
-            held.formUnion(try Self.decoded(Held.self, response).held)
+            let answer = try Self.decoded(Answer.self, response)
+            holding.held.formUnion(answer.held)
+            holding.staged.formUnion(answer.staged ?? [])
+            holding.partly.merge(answer.partly ?? [:]) { _, new in new }
         }
-        return held.intersection(blobs)
+        holding.held.formIntersection(blobs)
+        holding.staged.formIntersection(blobs)
+        holding.partly = holding.partly.filter { blobs.contains($0.key) }
+        return holding
     }
 
     public struct ImportDigest: Hashable, Sendable {

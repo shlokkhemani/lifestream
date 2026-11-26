@@ -104,10 +104,12 @@ The server must take requests the way OpenAI's chat API does, as vLLM, Ollama an
 
 1. Open **Settings** › **Providers**, and click **Add server** under **Other server**.
 2. In **Server URL**, type its address, such as `http://localhost:11434/v1`.
-3. Click **Save**.
+3. If the server asks for a key, as a hosted one does, type it in **API key**. A server on your
+   own machine needs none. Lifestream keeps the key in your vault.
+4. Click **Save**.
 
 **Other server** then shows the address, and the menus of **Default models** list the models it
-serves. Click **Remove** to stop using it.
+serves. Click **Remove** to stop using it; its key goes with it.
 
 Lifestream takes a model on your server to read text only, and never picks one for a use by itself.
 For Chat, run the model in that server with a context window of 32,000 tokens or more: Chat sends

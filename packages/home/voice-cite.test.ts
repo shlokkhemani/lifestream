@@ -1,5 +1,5 @@
 import type { ExtractRow, Json, RecordRef } from "@lifestreamprotocol/core";
-import { MESSAGES_FAMILY, VOICE_FAMILY, type ChatDay } from "@lifestreamprotocol/families";
+import { CALLAUDIO_FAMILY, MESSAGES_FAMILY, VOICE_FAMILY, type CallContent, type CallPart, type ChatDay } from "@lifestreamprotocol/families";
 import { describe, expect, it } from "vitest";
 import { makeRef } from "./refs.js";
 import { citation } from "./search-contract.js";
@@ -59,7 +59,7 @@ describe("voiceOf: a cited message's or recording's voice note, from its unit ex
   ];
   for (const [name, extract, record, from, expected] of held) {
     it(name, () => {
-      const found = voiceOf(extract, record, () => from);
+      const found = voiceOf(extract, { record, item: null, at_ms: AT }, () => from);
       expect(found).toEqual(expected);
       const line = { ref: makeRef("line", { day: "2026-10-04", same: "0a0b0c0d0e0f1011", m: 0, unit: extract.unit, item: null }), kind: "line", day: "2026-10-04", opens: { page: "read" }, voice: found };
       expect(citation.parse(line)).toEqual(line);
@@ -78,10 +78,53 @@ describe("voiceOf: a cited message's or recording's voice note, from its unit ex
     ["a unit of another family", { ...day, family: "calls" }, msg(WHATSAPP, "w1")],
   ];
   for (const [name, extract, record] of none) {
-    it(`none for ${name}`, () => expect(voiceOf(extract, record, () => "Person A")).toBeUndefined());
+    it(`none for ${name}`, () => expect(voiceOf(extract, { record, item: null, at_ms: AT }, () => "Person A")).toBeUndefined());
   }
 
   it("names the families whose units hold a voice note, and no other", () => {
-    expect([MESSAGES_FAMILY, VOICE_FAMILY, "calls", "photos", "constructor"].map(voiced)).toEqual([true, true, false, false, false]);
+    expect([MESSAGES_FAMILY, VOICE_FAMILY, CALLAUDIO_FAMILY, "calls", "photos", "constructor"].map(voiced)).toEqual([true, true, true, false, false, false]);
+  });
+});
+
+describe("voiceOf: a cited call turn plays its own part from the turn's time", () => {
+  const MAC = "audio:local:macbook-pro-0001";
+  const MIC = "d".repeat(64), SOUND = "e".repeat(64);
+  const part = (track: CallPart["track"], sha256: string): CallPart => ({
+    kind: `${track}-recording`, key: "20261005T083000.000Z", track, sha256, media_type: "audio/mp4", start_ms: AT, ms: 600_000, loud_s: 300, quiet: false, asked: true,
+  });
+  const content: CallContent = {
+    short: false, source: MAC, span: { start_ms: AT, end_ms: AT + 600_000 }, mic: [part("mic", MIC)], sound: [part("sound", SOUND)],
+    holder: "Zoom", camera: false, speakers: [], stopped_ms: null, open: false, joined: null,
+  };
+  const call: ExtractRow = {
+    family: CALLAUDIO_FAMILY, unit: `${MAC}/mic-recording/20261005T083000.000Z`, reading: "r", code: "3",
+    content: content as unknown as Json, start_ms: AT, end_ms: AT + 600_000, days: ["2026-10-05"], seq: 3,
+  };
+  const mic: RecordRef = { source: MAC, kind: "mic-recording", key: "20261005T083000.000Z" };
+  const sound: RecordRef = { source: MAC, kind: "sound-recording", key: "20261005T083000.000Z" };
+  const turn = (record: RecordRef, sha256: string, at_ms: number) => ({ record, item: `recording:${sha256}`, at_ms });
+
+  it("two turns of one part play from two places, the person's own as mine", () => {
+    expect(voiceOf(call, turn(mic, MIC, AT + 1_000), () => "You")).toEqual({ audio: `sha256:${MIC}`, record: ref(mic), seconds: 600, from_s: 1, mine: true });
+    expect(voiceOf(call, turn(mic, MIC, AT + 600_500), () => "You")).toEqual({ audio: `sha256:${MIC}`, record: ref(mic), seconds: 600, from_s: 600, mine: true });
+    expect(voiceOf(call, turn(mic, MIC, AT + 254_900), () => "You")).toEqual({ audio: `sha256:${MIC}`, record: ref(mic), seconds: 600, from_s: 254, mine: true });
+  });
+
+  it("the other side's turn is named by its line, and the call's first second states no from_s", () => {
+    expect(voiceOf(call, turn(sound, SOUND, AT + 11_000), () => "Person B")).toEqual({ audio: `sha256:${SOUND}`, record: ref(sound), seconds: 600, from_s: 11, from: "Person B" });
+    expect(voiceOf(call, turn(sound, SOUND, AT), () => "Them")).toEqual({ audio: `sha256:${SOUND}`, record: ref(sound), seconds: 600, from: "Them" });
+    const cited = voiceOf(call, turn(sound, SOUND, AT + 11_000), () => "Person B");
+    const line = { ref: makeRef("line", { day: "2026-10-05", same: "0a0b0c0d0e0f1011", m: 0, unit: call.unit, item: null }), kind: "line", day: "2026-10-05", opens: { page: "read" }, voice: cited };
+    expect(citation.parse(line)).toEqual(line);
+  });
+
+  it("the call's head line plays nothing, though its record is the call's first part", () => {
+    expect(voiceOf(call, { record: mic, item: `stretch:${call.unit}`, at_ms: AT }, () => "You")).toBeUndefined();
+    expect(voiceOf(call, { record: mic, item: null, at_ms: AT }, () => "You")).toBeUndefined();
+  });
+
+  it("none for a part the call does not hold, or a short use", () => {
+    expect(voiceOf(call, turn(mic, "f".repeat(64), AT), () => "You")).toBeUndefined();
+    expect(voiceOf({ ...call, content: { short: true, source: MAC } as unknown as Json }, turn(mic, MIC, AT), () => "You")).toBeUndefined();
   });
 });

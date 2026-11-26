@@ -1,6 +1,6 @@
 import { accountOf, addDays, canonical, civilDay, dayBounds, GONE, handleId, handleOf, instantIn, type DaySettings, type Json, type RecordRef } from "@lifestreamprotocol/core";
-import type { ConversationDay, DayAtom, DayDocument, DayFileFact, RecordRead as FamilyRecordRead, UnshownOf } from "@lifestreamprotocol/families";
-import { AI_FAMILY, chatMembers, MESSAGES_FAMILY, parseMessagesUnit, partyHandle, PHOTOS_FAMILY, recordFocus, resolveChat, unitFocus } from "@lifestreamprotocol/families";
+import type { CallAudioContent, CallContent, ConversationDay, DayAtom, DayDocument, DayFileFact, RecordRead as FamilyRecordRead, UnshownOf } from "@lifestreamprotocol/families";
+import { AI_FAMILY, CALLAUDIO_FAMILY, chatMembers, MESSAGES_FAMILY, parseMessagesUnit, partyHandle, PHOTOS_FAMILY, recordFocus, resolveChat, stretchUnit, unitFocus, unitPart } from "@lifestreamprotocol/families";
 import { briefOf, leads, type BriefWindow } from "./brief.js";
 import { outsideAccess, tooBroad, type Call, type Reader as ReaderKind, type ServedRef } from "./call.js";
 import type { Cell } from "./cell.js";
@@ -45,6 +45,10 @@ const DAYS_AT_ONCE = PAGE_DAYS + 1;
 const RAW_RECORDS = 50;
 const RECORD_ATOMS = 64;
 const RECORD_UNREAD = "this call's reads ran out before that record's lines were read: read it alone, or with fewer refs";
+const CALL_UNREAD = "this call's reads ran out before that recorded call's lines were read: read it alone";
+const CALL_CHAT = `${CALLAUDIO_FAMILY}:`;
+const CALL_LEFT = "`chat` names a call that holds no line now";
+const CALLS_AT_ONCE = 8;
 const WINDOW_BEFORE_MS = STRETCH_MS / 2;
 export const HIT_CHARS = 2_000;
 export const CITES_MOST = 8;
@@ -407,7 +411,7 @@ interface Timed {
 
 interface Chat {
   key: string;
-  ai: boolean;
+  of: "messages" | "ai" | "call";
   title: string | null;
   first: string;
   last: string;
@@ -674,10 +678,15 @@ class Reader {
     const ref = readRef(given, "ref");
     switch (ref.kind) {
       case "record": return this.#record(ref.parts, given, history, args);
-      case "line": return this.page("line", { parts: ref.parts, given }, undefined, args) as ReadOne;
+      case "line": {
+        const call = this.#callLine(ref.parts);
+        if (call !== undefined) return this.#aroundAt(this.chat(call.chat), call.day, call.ref, given, args);
+        return this.page("line", { parts: ref.parts, given }, undefined, args) as ReadOne;
+      }
       case "row": return this.page("row", { parts: ref.parts, given }, undefined, args) as ReadOne;
       case "person": return this.page("people", { id: ref.parts.handle, chat: false, given, args } satisfies PeopleAddress, undefined, args) as ReadOne;
       case "chat": {
+        if (isCallChat(ref.parts.key)) return this.page("chat", { chat: this.chat(ref.parts.key) }, undefined, args) as ReadOne;
         const match = peopleOne(this.call, ref.parts.key, true);
         if (match === undefined) return this.#latest(this.chat(ref.parts.key), args);
         return this.page("people", { id: ref.parts.key, chat: true, given, args, match } satisfies PeopleAddress, undefined, args) as ReadOne;
@@ -691,7 +700,7 @@ class Reader {
 
   #chatRead(key: string, from: string | undefined, to: string | undefined, args: Args): ReadAnswer {
     const chat = this.chat(key);
-    if (from === undefined && to === undefined) return (chat.ai ? this.page("chat", { chat }, undefined, args) : this.#latest(chat, args)) as ReadAnswer;
+    if (from === undefined && to === undefined) return (chat.of === "messages" ? this.#latest(chat, args) : this.page("chat", { chat }, undefined, args)) as ReadAnswer;
     const range = rangeOf({ ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) }, this.clock(), { first: chat.first, last: chat.last });
     const lines = chat.linesOn(range.from);
     const s = lines.findIndex((line) => line.t >= range.from_ms);
@@ -700,6 +709,7 @@ class Reader {
   }
 
   chat(key: string): Chat {
+    if (isCallChat(key)) return this.#callChat(key);
     return this.sources.isAiChat(key) ? this.#aiChat(key) : this.#messagesChat(key);
   }
 
@@ -732,7 +742,7 @@ class Reader {
     const days = new Map<string, Timed[]>();
     let title: string | null = null;
     return {
-      key, ai: false, first, last,
+      key, of: "messages", first, last,
       get title() {
         return title;
       },
@@ -794,7 +804,68 @@ class Reader {
     const days = [...lines.keys()].sort();
     if (days.length === 0 && withheld) outsideAccess();
     if (days.length === 0) refused("BAD_PARAMETER", "`chat` names a conversation that holds no turn now");
-    return { key, ai: true, title, first: days[0]!, last: days.at(-1)!, linesOn: (day) => lines.get(day) ?? [] };
+    return { key, of: "ai", title, first: days[0]!, last: days.at(-1)!, linesOn: (day) => lines.get(day) ?? [] };
+  }
+
+  #callChat(given: string): Chat {
+    const held = this.#callNow(given.slice(CALL_CHAT.length));
+    if (held === undefined) return refused("BAD_PARAMETER", CALL_LEFT);
+    const { unit, content } = held;
+    const key = `${CALL_CHAT}${unit}`;
+    const parts = [...content.mic, ...content.sound].map((part): RecordRef => ({ source: content.source, kind: part.kind, key: part.key }));
+    const atoms = this.call.index().facts((read) => callAtomsOf(read, unit, parts));
+    const byDay = new Map<string, Timed[]>();
+    let title: string | null = null;
+    let withheld = false;
+    for (const { atom, m } of atoms) {
+      if (atom.start_ms === null) continue;
+      if (!this.#servesRecord(recordOf(atom)!, atom.start_ms)) {
+        withheld = true;
+        continue;
+      }
+      title ??= atom.title === "" ? null : atom.title;
+      const said = stretchUnit(atom.item ?? "") === unit ? { text: atom.line } : spoken(this.#chatAtomOf(atom));
+      const line: Line = { ref: lineRef(atom, m), at: this.at(atom.start_ms)!, day: atom.day, ...(said.from === undefined ? {} : { from: said.from }), text: said.text };
+      const held = byDay.get(atom.day);
+      if (held === undefined) byDay.set(atom.day, [{ t: atom.start_ms, line }]);
+      else held.push({ t: atom.start_ms, line });
+    }
+    const days = [...byDay.keys()].sort();
+    if (days.length === 0 && withheld) outsideAccess();
+    if (days.length === 0) refused("BAD_PARAMETER", CALL_LEFT);
+    return { key, of: "call", title, first: days[0]!, last: days.at(-1)!, linesOn: (day) => byDay.get(day) ?? [] };
+  }
+
+  #callNow(unit: string): { unit: string; content: CallContent } | undefined {
+    const view = this.call.view();
+    const held = callContentOf(view.extract(CALLAUDIO_FAMILY, unit));
+    if (held !== undefined) return { unit, content: held };
+    const part = unitPart(unit);
+    const head = part === null ? undefined : view.head(part);
+    if (part === null || head === undefined || head.version === GONE || head.start_ms === null) return undefined;
+    const holding = this.call.index().facts((read) => read.walk<{ unit: string }>(
+      "SELECT unit FROM fact WHERE of = ? AND time_ms <= ? AND end_ms >= ? ORDER BY time_ms DESC LIMIT ?",
+      [CALLAUDIO_FAMILY, head.end_ms ?? head.start_ms, head.start_ms], CALLS_AT_ONCE,
+    ).rows);
+    for (const { unit: now } of holding) {
+      const content = callContentOf(view.extract(CALLAUDIO_FAMILY, now));
+      if (content?.source === part.source && [...content.mic, ...content.sound].some((each) => each.kind === part.kind && each.key === part.key)) return { unit: now, content };
+    }
+    return undefined;
+  }
+
+  #callLine(ref: RefParts["line"]): { chat: string; day: string; ref: string } | undefined {
+    return this.call.index().facts((read) => {
+      const found = lineAtomIn(read, ref);
+      return "found" in found ? callPlaceOf(read, found.found.atom) : undefined;
+    });
+  }
+
+  #callRecord(record: RecordRef): { chat: string; day: string; ref: string } | undefined {
+    return this.call.index().facts((read) => {
+      const atom = firstLineOf(read, record);
+      return atom === undefined ? undefined : callPlaceOf(read, atom);
+    });
   }
 
   #latest(chat: Chat, args: Args): Extract<ReadOne, { what: "chat" }> {
@@ -805,8 +876,11 @@ class Reader {
   #around(chat: Chat, record: RecordRef, given: string, args: Args): Extract<ReadOne, { what: "chat" }> {
     const head = this.call.view().head(record);
     const day = head?.start_ms === null || head === undefined ? chat.last : civilDay(head.start_ms, this.clock());
+    return this.#aroundAt(chat, day, makeRef("record", record), given, args);
+  }
+
+  #aroundAt(chat: Chat, day: string, ref: string, given: string, args: Args): Extract<ReadOne, { what: "chat" }> {
     const first = day < chat.first ? day : chat.first, last = day > chat.last ? day : chat.last;
-    const ref = makeRef("record", record);
     const at = chat.linesOn(day).findIndex((line) => line.line.ref === ref);
     const start = this.#back(chat, { d: day, s: at < 0 ? 0 : at + 1 }, first, dayBounds(last, this.clock()).end_ms, 2, AROUND_DAYS);
     this.room.state({ around: given });
@@ -1062,9 +1136,8 @@ class Reader {
   }
 
   dayLine(atom: AtomRow, m: number): Line {
-    const record = recordOf(atom);
     return {
-      ref: record === undefined ? lineRef(atom, m) : makeRef("record", record),
+      ref: atomRef(atom, m),
       ...(atom.start_ms === null || atom.dated === 1 ? {} : { at: this.at(atom.start_ms)! }),
       day: atom.day, family: familyOf(atom.family),
       text: this.#unheld(atom, leads(atom.title, atom.line) ? `${atom.title}: ${atom.line}` : atom.line),
@@ -1155,10 +1228,7 @@ class Reader {
     };
     const lines = briefOf(cut, shown).lines.flatMap((line) => {
       const cited = line.atoms.flatMap((n) => atoms.get(n) ?? []);
-      const cites = [...new Set([...cited.map(({ atom, m }) => {
-        const record = recordOf(atom);
-        return record === undefined ? lineRef(atom, m) : makeRef("record", record);
-      }), ...line.refs ?? []])];
+      const cites = [...new Set([...cited.map(({ atom, m }) => atomRef(atom, m)), ...line.refs ?? []])];
       if (cites.length === 0) return [];
       return [{ text: line.text, cites: cites.slice(0, CITES_MOST), ...(cites.length > CITES_MOST ? { cites_more: cites.length - CITES_MOST } : {}) }];
     });
@@ -1378,13 +1448,16 @@ class Reader {
     }
     const ai = this.sources.aiChatOf(record);
     if (ai !== undefined) return this.#around(this.chat(ai), record, given, args);
-    const photo = this.#photoOfRecord(record, head.version);
+    const family = this.sources.recordOf(record).family;
+    const call = family === CALLAUDIO_FAMILY ? this.#callRecord(record) : undefined;
+    if (call !== undefined) return this.#aroundAt(this.chat(call.chat), call.day, call.ref, given, args);
+    const photo = this.#photoOfRecord(record, head.version, family);
     if (photo !== undefined) return this.page("photo", { given, photo }, undefined, args) as ReadOne;
     return this.page("record", { parts: record, given, history: history && !this.#gated }, undefined, args) as ReadOne;
   }
 
-  #photoOfRecord(record: RecordRef, version: string): HeldPhoto | undefined {
-    if (this.sources.recordOf(record).family !== PHOTOS_FAMILY) return undefined;
+  #photoOfRecord(record: RecordRef, version: string, family = this.sources.recordOf(record).family): HeldPhoto | undefined {
+    if (family !== PHOTOS_FAMILY) return undefined;
     return photoOfRecord(this.call.view(), version, (hex) => this.sources.photo(hex));
   }
 
@@ -1739,7 +1812,7 @@ class Reader {
   #voiceOf(atom: AtomRow | undefined, record: RecordRef | undefined): Voice | undefined {
     if (atom === undefined || record === undefined || !voiced(atom.family)) return undefined;
     const extract = this.call.view().extract(atom.family, atom.unit);
-    const voice = extract === undefined ? undefined : voiceOf(extract, record, () => spoken(this.#chatAtomOf(atom)).from);
+    const voice = extract === undefined ? undefined : voiceOf(extract, { record, item: atom.item, at_ms: atom.start_ms }, () => spoken(this.#chatAtomOf(atom)).from);
     return voice !== undefined && this.sources.held(voice.audio) ? voice : undefined;
   }
 
@@ -1810,6 +1883,7 @@ class Reader {
       }
       case "person": return this.call.named(ref.parts.handle) !== undefined;
       case "chat": {
+        if (isCallChat(ref.parts.key)) return this.#callChat(ref.parts.key) !== undefined;
         if (this.sources.isAiChat(ref.parts.key)) return this.#aiChat(ref.parts.key) !== undefined;
         return chatSpanOf(this.call, this.call.chat(ref.parts.key)) !== null;
       }
@@ -1825,6 +1899,10 @@ class Reader {
     const list = this.call.peopleFileIfReady()?.value<{ chats: PeopleSearchChat[]; people: readonly ChatWriter[] }>("answer", "list");
     const listed = list?.chats.find((each) => each.key === key);
     if (listed !== undefined) return { ref: given, kind: "chat", name: listed.label, opens: this.#chatOpens(key, listed.group, list!.people) };
+    if (isCallChat(key)) {
+      const call = this.#callChat(key);
+      return { ref: given, kind: "chat", name: call.title ?? key, opens: { page: "days", day: call.first } };
+    }
     if (this.sources.isAiChat(key)) {
       const newest = aiDays(this.call, key).at(-1);
       const content = newest === undefined ? undefined : this.call.view().extract(AI_FAMILY, newest)?.content as unknown as ConversationDay | undefined;
@@ -2165,6 +2243,40 @@ function screenUnitsOn(read: FactsRead, day: string): Map<string, number> {
     if (!more || rows.length === 0) return units;
     after = rows.at(-1)!.n;
   }
+}
+
+function atomRef(atom: AtomRow, m: number): string {
+  const record = recordOf(atom);
+  return record === undefined || atom.family === CALLAUDIO_FAMILY ? lineRef(atom, m) : makeRef("record", record);
+}
+
+function callContentOf(extract: { content: Json } | undefined): CallContent | undefined {
+  const content = extract?.content as unknown as CallAudioContent | undefined;
+  return content === undefined || content.short ? undefined : content;
+}
+
+function isCallChat(key: string): boolean {
+  return key.startsWith(CALL_CHAT) && key.length > CALL_CHAT.length;
+}
+
+function callAtomsOf(read: FactsRead, unit: string, parts: readonly RecordRef[]): { atom: AtomRow; m: number }[] {
+  const atoms: AtomRow[] = [];
+  for (const part of parts) {
+    for (let after = 0; ;) {
+      const page = read.walk<AtomRow & { id: number }>(`SELECT id, ${ATOM_COLUMNS}, names FROM atoms WHERE source = ? AND kind = ? AND key = ? AND id > ? ORDER BY id LIMIT ?`,
+        [part.source, part.kind, part.key, after], RECORD_ATOMS);
+      atoms.push(...page.rows.filter((atom) => atom.family === CALLAUDIO_FAMILY && atom.unit === unit));
+      if (!page.more) break;
+      if (page.rows.length === 0) return refused("TOO_BROAD", CALL_UNREAD);
+      after = page.rows.at(-1)!.id;
+    }
+  }
+  atoms.sort((left, right) => (left.day < right.day ? -1 : left.day > right.day ? 1 : left.n - right.n));
+  return atoms.map((atom) => ({ atom, m: ordinalOf(read, atom.day, atom.same, atom.n) }));
+}
+
+function callPlaceOf(read: FactsRead, atom: AtomRow): { chat: string; day: string; ref: string } | undefined {
+  return atom.family !== CALLAUDIO_FAMILY || atom.chat === null ? undefined : { chat: atom.chat, day: atom.day, ref: lineRef(atom, ordinalOf(read, atom.day, atom.same, atom.n)) };
 }
 
 function recordOf(atom: AtomRow): RecordRef | undefined {

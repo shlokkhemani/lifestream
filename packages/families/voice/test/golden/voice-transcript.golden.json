@@ -1,5 +1,5 @@
 {
-  "made_by": "today's code: interpreters/voice/read.ts readVoiceNote, the question interpreters/voice/synthesis-feeder.ts builds, interpreters/model/ask.ts requestOf, interpreters/model/ledger.ts request",
+  "made_by": "the request voice/e2e.test.ts writes under LIFESTREAM_FIXTURES=write: the body and its prompt's hash today's prompt's, the input and identity those the ledger's transcripts were first asked with, which the test holds",
   "runtime": {
     "family": "voice",
     "feeder": "voice-synthesis",
@@ -61,9 +61,9 @@
         "sampling": {
           "temperature": 0
         },
-        "prompt_hash": "sha256:58548a0cf2b9312f1bcf65a4c8c8d500426d1c97abd31dddefe224a2aad436ed",
+        "prompt_hash": "sha256:45663bcfaf07ce5e188824ac3f59adc04db20a2a5a8f467bd886b7e311c22312",
         "input_hash": "sha256:c449bdec977d127429c8b83e5be703b31cde68d02a43067e2b0987460718289c",
-        "body": "Transcribe the attached voice note. Write the words exactly as spoken, in the language spoken, with normal punctuation. Do not translate, summarise, or add commentary. Leave out filler sounds. Mark words you cannot make out as [inaudible]. If the recording has no speech, reply with exactly: [no speech]\nnote e1b33769ad7d34216da3db8a3d45212097431b06268dd744bbc66ee379e90321, 6.317125 s, audio/mp4",
+        "body": "Transcribe the attached voice note. Write the words exactly as spoken, in the language spoken, with normal punctuation. Write Hindi and Hinglish in Latin letters, as people type them in chats, never in Devanagari. Do not translate, summarise, or add commentary. Leave out filler sounds. Mark words you cannot make out as [inaudible]. If the recording has no speech, reply with exactly: [no speech]\nnote e1b33769ad7d34216da3db8a3d45212097431b06268dd744bbc66ee379e90321, 6.317125 s, audio/mp4",
         "attachments": [
           {
             "kind": "audio",
@@ -123,9 +123,9 @@
         "sampling": {
           "temperature": 0
         },
-        "prompt_hash": "sha256:58548a0cf2b9312f1bcf65a4c8c8d500426d1c97abd31dddefe224a2aad436ed",
+        "prompt_hash": "sha256:45663bcfaf07ce5e188824ac3f59adc04db20a2a5a8f467bd886b7e311c22312",
         "input_hash": "sha256:9c27be92a185c730637628013ed917ca858dac8c8017eaa8bf15279cb62abb78",
-        "body": "Transcribe the attached voice note. Write the words exactly as spoken, in the language spoken, with normal punctuation. Do not translate, summarise, or add commentary. Leave out filler sounds. Mark words you cannot make out as [inaudible]. If the recording has no speech, reply with exactly: [no speech]\nnote f664f4db22d66359b232a5d0713c870c264680e164f5df7ef7f883a4f05930a5, 1.0641666666666667 s, audio/mp4",
+        "body": "Transcribe the attached voice note. Write the words exactly as spoken, in the language spoken, with normal punctuation. Write Hindi and Hinglish in Latin letters, as people type them in chats, never in Devanagari. Do not translate, summarise, or add commentary. Leave out filler sounds. Mark words you cannot make out as [inaudible]. If the recording has no speech, reply with exactly: [no speech]\nnote f664f4db22d66359b232a5d0713c870c264680e164f5df7ef7f883a4f05930a5, 1.0641666666666667 s, audio/mp4",
         "attachments": [
           {
             "kind": "audio",
@@ -185,9 +185,9 @@
         "sampling": {
           "temperature": 0
         },
-        "prompt_hash": "sha256:58548a0cf2b9312f1bcf65a4c8c8d500426d1c97abd31dddefe224a2aad436ed",
+        "prompt_hash": "sha256:45663bcfaf07ce5e188824ac3f59adc04db20a2a5a8f467bd886b7e311c22312",
         "input_hash": "sha256:489ae5f48f02d7eec84c237666201f81623da779b074ede86a291a93fb6b620c",
-        "body": "Transcribe the attached voice note. Write the words exactly as spoken, in the language spoken, with normal punctuation. Do not translate, summarise, or add commentary. Leave out filler sounds. Mark words you cannot make out as [inaudible]. If the recording has no speech, reply with exactly: [no speech]\nnote f6b000e91eb3a7086735a44278a842834240cca74fd05774ebb5987318cf2bc0, 12 s, audio/mp4",
+        "body": "Transcribe the attached voice note. Write the words exactly as spoken, in the language spoken, with normal punctuation. Write Hindi and Hinglish in Latin letters, as people type them in chats, never in Devanagari. Do not translate, summarise, or add commentary. Leave out filler sounds. Mark words you cannot make out as [inaudible]. If the recording has no speech, reply with exactly: [no speech]\nnote f6b000e91eb3a7086735a44278a842834240cca74fd05774ebb5987318cf2bc0, 12 s, audio/mp4",
         "attachments": [
           {
             "kind": "audio",

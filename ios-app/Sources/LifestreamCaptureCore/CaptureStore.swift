@@ -371,6 +371,7 @@ public actor CaptureStore {
             let decoder = JSONDecoder.lifestream()
             try Self.forEachLine(domain, after: afterSequence, in: database) { _, line in
                 try update(&value, try decoder.decode(CaptureEntry.self, from: line))
+                return true
             }
             return value
         }
@@ -512,21 +513,26 @@ public actor CaptureStore {
         _ domain: CaptureDomain,
         after: UInt64,
         in database: SQLiteDatabase,
-        _ body: (UInt64, Data) throws -> Void
+        _ body: (UInt64, Data) throws -> Bool
     ) throws {
         var expected = after + 1
-        try database.query(
-            "SELECT sequence, line FROM \(domain.table) WHERE sequence > ? ORDER BY sequence",
-            .integer(Int64(clamping: after))
-        ) { row in
-            try Task.checkCancellation()
-            guard row.integer(0) == Int64(clamping: expected) else {
-                throw CaptureError.corruptState("\(domain.rawValue) history has no sequence \(expected)")
+        do {
+            try database.query(
+                "SELECT sequence, line FROM \(domain.table) WHERE sequence > ? ORDER BY sequence",
+                .integer(Int64(clamping: after))
+            ) { row in
+                try Task.checkCancellation()
+                guard row.integer(0) == Int64(clamping: expected) else {
+                    throw CaptureError.corruptState("\(domain.rawValue) history has no sequence \(expected)")
+                }
+                guard try body(expected, row.blob(1)) else { throw LinesEnd() }
+                expected += 1
             }
-            try body(expected, row.blob(1))
-            expected += 1
+        } catch is LinesEnd {
         }
     }
+
+    private struct LinesEnd: Error {}
 
     static func fact(_ key: String, in database: SQLiteDatabase) throws -> String? {
         var value: String?

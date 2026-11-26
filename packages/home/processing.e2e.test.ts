@@ -15,7 +15,7 @@ import { modelProviders, WORDS, type ModelsSettings } from "./page-models.js";
 import { runnerOf } from "./test/harness-status.js";
 import { chooseFor } from "./made.js";
 import { Models, MODELS_META, routed, routingOf as resolveRouting, serving, SINCE, type ModelRoute, type Routing, type RoutingInput, type StoredModels, type WorkRouting } from "./models.js";
-import { CHAT_NEEDS_MODEL } from "./verbs/models.js";
+import { CHAT_NEEDS_MODEL, processChoices } from "./verbs/models.js";
 import { Calls } from "./pick.js";
 import { sendKind, stands, type SentAsk } from "./asks.js";
 import { needsWords, readProcessing } from "./processing.js";
@@ -1873,5 +1873,46 @@ describe("what a timed work is routed to, and what its row says", () => {
     expect(needsWords({ kind: "text", text_chars: 500_000 }, [qwen, SCRIBE])).toBe("Needs a model for long text");
     expect(needsWords(CALLS, [qwen])).toBe("Connect a model that takes audio");
     expect(needsWords(CALLS, [])).toBe("Connect a model that takes audio");
+  });
+
+  it("process given a call's stretch routes every unfinished transcript of its parts, reopening the given-up ones, or every part of a call already transcribed (another model picked); a stretch with no parts, or an unfit route, is refused", () => {
+    const root = makeRoot("lifestream-processing-stretch-", { sources: {}, defaults: false });
+    roots.push(root);
+    const STRETCH = "audio:local:macbook-pro-0001/mic-recording/20261005T083000.000Z";
+    const OTHER = "audio:local:macbook-pro-0001/mic-recording/20261005T103000.000Z";
+    const db = openHome(openHomeFolder(root), "write");
+    try {
+      const put = (item: string, unit: string, state: "pending" | "given-up" | "done") => db.commit((tx) => {
+        tx.tables.asks.put({
+          family: "callaudio", item, prompt: "call-transcript", version: 1, input_hash: item, unit, work_id: WORK_ID, at_key: D1,
+          started: true, waits: null, retry_ms: null, given_up: null, unhideable: null, state: state === "done" ? "done" : "pending",
+        });
+        if (state === "given-up") tx.tables.asks.giveUp("callaudio", item, "call-transcript", GEMINI.id);
+      });
+      put("recording:m1", STRETCH, "given-up");
+      put("recording:s1", STRETCH, "given-up");
+      put("recording:m2", STRETCH, "pending");
+      put("recording:s2", STRETCH, "done");
+      put("recording:m9", OTHER, "given-up");
+      const routing = at([SCRIBE, GEMINI], "default");
+      const asked = (item: string, route = GEMINI.id) => db.commit((tx) => processChoices(tx.tables, routing, { family: "callaudio", item, prompt: "call-transcript", route }));
+      const found = asked(`stretch:${STRETCH}`);
+      expect(found).toEqual({ choices: ["recording:m1", "recording:m2", "recording:s1"].map((item) => ({ family: "callaudio", item, prompt: "call-transcript", route: GEMINI.id, model: GEMINI.model })) });
+      db.commit((tx) => {
+        for (const choice of "choices" in found ? found.choices : []) tx.tables.itemRoutes.set(choice);
+      });
+      const states = () => readHome(root, (read) => read.prepare("SELECT item, state FROM asks WHERE family = 'callaudio' ORDER BY item").all());
+      expect(states()).toEqual([
+        { item: "recording:m1", state: "pending" }, { item: "recording:m2", state: "pending" }, { item: "recording:m9", state: "given-up" },
+        { item: "recording:s1", state: "pending" }, { item: "recording:s2", state: "done" },
+      ]);
+      expect(asked(`stretch:${STRETCH}`, SCRIBE.id)).toEqual({ refused: "Scribe v2 can't time its words." });
+      expect(asked("recording:m9")).toMatchObject({ choices: [{ item: "recording:m9", route: GEMINI.id }] });
+      put("recording:m3", "audio:local:macbook-pro-0001/mic-recording/20261006T083000.000Z", "done");
+      expect(asked("stretch:audio:local:macbook-pro-0001/mic-recording/20261006T083000.000Z")).toMatchObject({ choices: [{ item: "recording:m3", route: GEMINI.id }] });
+      expect(asked("stretch:audio:local:macbook-pro-0001/mic-recording/20261007T083000.000Z")).toEqual({ refused: "Nothing is asked of this item." });
+    } finally {
+      db.close();
+    }
   });
 });

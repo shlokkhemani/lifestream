@@ -443,7 +443,6 @@ import XCTest
                     .models(.battery("runner-macbook-pro-0001", save: false)),
                     .models(.battery("runner-macbook-pro-0001", save: true)),
                     .models(.address(url: "http://127.0.0.1:11434/v1", input: [.text, .image])),
-                    .models(.addressNone),
                     .process(family: "photos", item: "-ph-0001", prompt: "describe", route: "openrouter:fake-model")] {
             let reply = try await host.perform(act)
             XCTAssertNil(reply, "\(act)")
@@ -457,10 +456,9 @@ import XCTest
             "models | -- | battery | runner-macbook-pro-0001 | spend",
             "models | -- | battery | runner-macbook-pro-0001 | save",
             "models | -- | address | http://127.0.0.1:11434/v1 | text,image",
-            "models | -- | address | none",
             "models | -- | process | photos | -ph-0001 | describe | openrouter:fake-model",
         ])
-        XCTAssertEqual(home.requests.map { $0["by"] as? String }, Array(repeating: "you", count: 10))
+        XCTAssertEqual(home.requests.map { $0["by"] as? String }, Array(repeating: "you", count: 9))
         let refused = await refusal { try await host.perform(.models(.default(use: .text, model: "runner:gone"))) }
         XCTAssertEqual(refused, "no model runner:gone; the home reaches openrouter:fake-model")
 
@@ -471,6 +469,22 @@ import XCTest
         XCTAssertEqual(seals.first?["value"] as? String, "sk-or-v1-fake0000")
         XCTAssertTrue(seals.last?["value"] is NSNull, "Remove sent something other than null")
         XCTAssertFalse(try HostBridge.scriptLiteral(host.state).contains("sk-or-v1"), "the key reached the state")
+
+        let before = home.requests.count
+        _ = try await host.perform(.models(.address(url: "https://api.example.com/v1", input: nil, key: "sk-fake0000")))
+        _ = try await host.perform(.models(.addressNone))
+        let address = home.requests.dropFirst(before).filter { ["seal", "models"].contains($0["verb"] as? String) }
+        XCTAssertEqual(address.map { request in
+            ([request["verb"] as? String ?? "", request["secret"] as? String ?? ""] + (request["args"] as? [String] ?? [])).joined(separator: " | ")
+        }, [
+            "seal | address",
+            "models |  | --key | -- | address | https://api.example.com/v1",
+            "models |  | -- | address | none",
+            "seal | address",
+        ], "the key is sealed before the address names it, and forgotten with the address")
+        XCTAssertEqual(address.first?["value"] as? String, "sk-fake0000")
+        XCTAssertTrue(address.last?["value"] is NSNull, "Remove left the address's key sealed")
+        XCTAssertFalse(address.contains { ($0["args"] as? [String] ?? []).contains("sk-fake0000") }, "the key reached the verb's arguments")
     }
 
     func testASealThePageAskedIsRefusedInTheHomesWordsOrAPlainSentence() async throws {

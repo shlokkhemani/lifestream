@@ -488,8 +488,8 @@ const PARAMS_FILE = JSON.parse(readFileSync(new URL('../../packages/home/contrac
  * @returns {any}
  */
 const schemaOf = shape => z.toJSONSchema(z.object(shape), { target: 'draft-7' });
-const SCHEMA_PINS = ['50ab90f99e1c1eda69173036f71771f55783057cbd794f7d7cf4b9f713566e98', '8658d7f169fb1bc0cb81b8cdb6c1b4147ff8f739da5f5ee83fb29cb1426a1bc0',
-  '4be2998cfce80cfc40a50d9e398cefcc4d1ab72e246c1c5bf96089037c97e6c2', 'e9996d7c8c1dcb787b38661525c2a1277fdcaa22bae8489eff4470fa5f314875'];
+const SCHEMA_PINS = ['50ab90f99e1c1eda69173036f71771f55783057cbd794f7d7cf4b9f713566e98', '7e61fbe11453a57e2f8f098d8a02a65b7cc15d5496f39ee359241dfa1e4d401c',
+  '4be2998cfce80cfc40a50d9e398cefcc4d1ab72e246c1c5bf96089037c97e6c2', '9d0c369f11d746c77b9cefde3dc4e0ed33ef7146b54cdc49e34bbac89b2555ad'];
 /** @type {[any, string][]} */
 const ROUTED = [[searchPeople, '/v1/people/search'], [search, '/v1/search'], [count, '/v1/count'], [read, '/v1/read']];
 

@@ -97,6 +97,7 @@ export const ALLOWED: readonly Allowed[] = [
   allow("/v1/exchange", "the device's own wire: the exchange"),
   allow("/v1/bundles/", "the device's own wire: a bundle sent"),
   allow("/v1/acquisitions/", "the device's own wire: an acquisition sent"),
+  allow("/v1/files/", "the device's own wire: a file a bundle names, sent on its own"),
   allow("/v1/imports/held", "the device's own wire: the imports the home holds"),
   allow("/v1/restore", "the device's own wire: what a restored device takes back"),
   allow("/v1/home/verify", "the device's own wire: whether this is its home"),

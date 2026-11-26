@@ -399,7 +399,7 @@ export interface ModelsOptions {
   };
   registry(): { connectors: readonly Connector[]; families: readonly Family[] };
   ledger: Pick<Ledger, "resting">;
-  found(): Omit<Found, "runners" | "secret">;
+  found(): Omit<Found, "runners">;
   runners(): Promise<RunnersListed>;
   paired(): ReadonlySet<string>;
   clock(): number;

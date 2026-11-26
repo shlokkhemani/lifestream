@@ -102,7 +102,7 @@ final class UploadInboxTests: XCTestCase {
         XCTAssertEqual(try tight.pending().map(\.name), ["large.bin"], "a file that leaves the bottom whole is taken")
     }
 
-    func testTheNextSealCarriesTheEntryAndTheBytes() async throws {
+    func testTheNextSealCarriesTheEntryAndNamesTheBytes() async throws {
         try inbox.publish(file: try handed("synthetic scan bytes", name: "scan.jpg"), name: "scan.jpg", mediaType: "image/jpeg", sharedAt: Self.sharedAt)
         try await inbox.drain(into: store)
         let exporter = CaptureExporter(store: store, exportsDirectory: root.appendingPathComponent("exports", isDirectory: true))
@@ -112,7 +112,8 @@ final class UploadInboxTests: XCTestCase {
         XCTAssertEqual(file.observations, 1)
         XCTAssertEqual(file.firstSequence, 1)
         let hash = SHA256Digest.tagged(Data("synthetic scan bytes".utf8))
-        XCTAssertEqual(bundle.manifest.files["blobs/\(hash.dropFirst(7))"]?.sha256, hash)
+        XCTAssertEqual(bundle.files.map(\.name), [hash], "the file goes on its own")
+        XCTAssertNil(bundle.manifest.files["blobs/\(hash.dropFirst(7))"])
     }
 
     func testAKillAtEveryStepRecordsTheFileOnce() async throws {

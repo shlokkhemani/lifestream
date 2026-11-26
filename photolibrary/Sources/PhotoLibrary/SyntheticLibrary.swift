@@ -3,6 +3,7 @@ import Foundation
 public final class SyntheticLibrary: PhotoSource, @unchecked Sendable {
     public enum File: Sendable, Equatable {
         case here(Data)
+        case sized(Int64, Data)
         case inCloud(Data)
         case missing
         case failing
@@ -195,6 +196,7 @@ public final class SyntheticLibrary: PhotoSource, @unchecked Sendable {
         for (index, file) in photo.files.enumerated() {
             switch file {
             case .here(let bytes), .inCloud(let bytes): snapshot.resources[index].size = sizing ? Int64(bytes.count) : nil
+            case .sized(let size, _): snapshot.resources[index].size = sizing ? size : nil
             case .missing, .failing, .offline, .stalled: snapshot.resources[index].size = nil
             }
         }
@@ -216,7 +218,7 @@ public final class SyntheticLibrary: PhotoSource, @unchecked Sendable {
         case .stalled:
             try? await Task.sleep(nanoseconds: 86_400 * 1_000_000_000)
             return .later
-        case .inCloud(let bytes), .here(let bytes):
+        case .inCloud(let bytes), .here(let bytes), .sized(_, let bytes):
             guard Int64(bytes.count) <= most else { return .noRoom }
             if case .inCloud = file { lock.withLock { downloadsMade += 1 } }
             do { try bytes.write(to: url, options: .withoutOverwriting) } catch { return .later }

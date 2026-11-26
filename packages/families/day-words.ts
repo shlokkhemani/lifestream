@@ -93,7 +93,25 @@ export function callOf(text: string): Call {
     length: match[6] ?? "" };
 }
 
-export const dictatedApp = (text: string): string | undefined => /^Dictated into ([^:(]*?)(?: \([^)]*\))?(?::|$)/u.exec(text)?.[1];
+export interface CallHead {
+  holder: string;
+  length: string;
+  title: string | null;
+  bracket: string | null;
+}
+
+const CALL_HEAD = /^(Call(?: transcript|(?: on ([\s\S]+?))?, (\d+ s|\d+ min|\d+ h \d+ min)))(?: \(([^)]*)\))?(?=: |$)/u;
+
+export function callHeadOf(atom: Pick<DayAtom, "family" | "text" | "block">): CallHead | null {
+  if (atom.family !== "callaudio") return null;
+  const match = CALL_HEAD.exec(atom.text);
+  if (!match) return null;
+  const base = match[1] as string;
+  const block = atom.block?.title ?? "";
+  return { holder: match[2] ?? "", length: match[3] ?? "", bracket: match[4] ?? null, title: block.startsWith(`${base}: `) ? block.slice(base.length + 2) : null };
+}
+
+export const dictatedApp =(text: string): string | undefined => /^Dictated into ([^:(]*?)(?: \([^)]*\))?(?::|$)/u.exec(text)?.[1];
 
 export function checkInOf(text: string): { head: string; answers: string[]; note: string } {
   const colon = text.indexOf(": ");

@@ -21,7 +21,7 @@ export class Silent extends Refusal {
   }
 }
 
-export class CutShort extends Refusal {
+class CutShort extends Refusal {
   constructor(limit: number) {
     super(413, BODY_TOO_LARGE, `the body passed ${limit} bytes`);
   }

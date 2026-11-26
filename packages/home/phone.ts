@@ -2,7 +2,9 @@ import { isObject, type BlobReader, type HomeFolder, type JsonObject } from "@li
 import { CodedRefused, iosDomainOf, openZip, Refused, verifyIosBundle, type IosBundle, type RefusedCode, type VerifiedIosBundle } from "@lifestreamprotocol/connect";
 import { zipSourceOf } from "./bundle.js";
 import { UPLOAD, type Custody, type DoorStamp, type Lane, type Sealing } from "./inbox.js";
+import { missingFiles } from "./ask-files.js";
 import { refuse } from "./refusal.js";
+import type { StagedFiles } from "./staged-files.js";
 
 
 const HISTORY_MS = 7 * 86_400_000;
@@ -21,9 +23,11 @@ export async function openPhoneBundle(folder: HomeFolder, path: string): Promise
   return await verifyIosBundle(path, zipSourceOf(folder.file(UPLOAD, path))).catch(wireCode);
 }
 
+export const PHONE_FILES = "The home lacks files this bundle names: send them, then the bundle again.";
+
 export async function sealPhoneBundle(
   folder: HomeFolder, path: string, bundle: VerifiedIosBundle, sealing: Sealing,
-  door: { lane: Lane; home: Pick<BlobReader, "has">; custody: Custody | undefined; stamp: DoorStamp },
+  door: { lane: Lane; home: Pick<BlobReader, "has">; files: Pick<StagedFiles, "carry">; custody: Custody | undefined; stamp: DoorStamp },
 ): Promise<void> {
   const { lane, home, custody } = door;
   const zip = openZip(path, undefined, zipSourceOf(folder.file(UPLOAD, path)));
@@ -35,24 +39,33 @@ export async function sealPhoneBundle(
       if (!await lane.store(hex, entry.stream(), entry.size).catch(wireCode)) refuse(422, "IOS_BUNDLE_BLOB_MISMATCH", `blob ${hash} bytes do not match its name`);
     }
     const referenced = new Set<string>();
+    const lacking = new Map<string, string[]>();
     for (const { domain } of bundle.domains) {
-      const missing: string[] = [];
       for (const hash of bundle.carried[domain] ?? []) {
         referenced.add(hash);
         const held = lane.has(hash.slice("sha256:".length));
         if (held === "other") refuse(422, "IOS_BUNDLE_BLOB_MISMATCH", `blob ${hash} is not a file in the store`);
-        if (held === "absent" && !home.has(hash)) missing.push(hash);
-      }
-      const source = Object.keys(custody ?? {}).find((id) => iosDomainOf(id) === domain);
-      const lost = source === undefined ? 0 : (custody![source]!.lost ?? []).reduce((sum, entry) => sum + entry.items, 0);
-      if (missing.length > lost) {
-        refuse(422, "IOS_BUNDLE_BLOB_MISSING", `${missing.length} missing blobs of ${domain}.jsonl, ${lost} stated lost: ${missing.slice(0, 3).join(", ")}`);
+        if (held === "absent" && !home.has(hash)) lacking.set(domain, [...lacking.get(domain) ?? [], hash]);
       }
     }
-    for (const name of ["manifest.json", ...bundle.domains.map(({ file }) => file)]) {
-      await sealing.write(`bundle/${name}`, zip.entry(name)!.stream()).catch(wireCode);
+    const staged = await door.files.carry([...lacking.values()].flat(), lane);
+    try {
+      const missing = [...lacking.values()].flat().filter((hash) => !staged.carried.includes(hash));
+      const over = bundle.domains.some(({ domain }) => {
+        const source = Object.keys(custody ?? {}).find((id) => iosDomainOf(id) === domain);
+        const lost = source === undefined ? 0 : (custody![source]!.lost ?? []).reduce((sum, entry) => sum + entry.items, 0);
+        return (lacking.get(domain) ?? []).filter((hash) => !staged.carried.includes(hash)).length > lost;
+      });
+      if (over) missingFiles({ files: [...new Set(missing)] }, PHONE_FILES);
+      for (const name of ["manifest.json", ...bundle.domains.map(({ file }) => file)]) {
+        await sealing.write(`bundle/${name}`, zip.entry(name)!.stream()).catch(wireCode);
+      }
+      sealing.seal(phoneFacts(bundle, { carried: bundle.blobs.length + staged.carried.length, referenced: referenced.size }, Date.parse(door.stamp.sealed_at)), undefined, door.stamp);
+    } catch (error) {
+      staged.undo();
+      throw error;
     }
-    sealing.seal(phoneFacts(bundle, { carried: bundle.blobs.length, referenced: referenced.size }, Date.parse(door.stamp.sealed_at)), undefined, door.stamp);
+    staged.sealed();
   } finally {
     zip.close();
   }

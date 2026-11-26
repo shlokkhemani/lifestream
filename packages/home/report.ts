@@ -525,7 +525,7 @@ function sweepSection(db: Database.Database, to_ms: number): Report["sweep"] {
 const LOOKBACK_MS = DAY_MS;
 const MINUTE_MS = 60_000;
 const UNDER = [2, 5, 15, 30] as const;
-const SENDS = { requests: "requests", bundles: "bundles_sent", bytes: "send_bytes", unanswered: "send_unanswered" } as const;
+const SENDS = { requests: "requests", bundles: "bundles_sent", files: "files_sent", bytes: "send_bytes", unanswered: "send_unanswered", cut: "send_cut" } as const;
 
 interface Entry {
   kind: string;
@@ -681,7 +681,7 @@ function sendsOf(db: Database.Database, source: string | undefined, from_ms: num
 }
 
 function sending(method: string, path: string): boolean {
-  return (method === "POST" && path === "/v1/exchange") || (method === "PUT" && path.startsWith("/v1/bundles/"));
+  return (method === "POST" && path === "/v1/exchange") || (method === "PUT" && (path.startsWith("/v1/bundles/") || path.startsWith("/v1/files/")));
 }
 
 function heardOf(path: string, from_ms: number, to_ms: number): { minutes: Map<string, Set<number>>; starts: number[] } {

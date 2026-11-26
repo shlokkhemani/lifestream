@@ -67,6 +67,26 @@ we do not owe a review or a merge.
 - **Run `npm run check` once before you send it,** and send it only when the check passes.
   [Set up to develop](./docs/contributing/develop.md) sets up your Mac and runs the tests.
 
+### How a change lands
+
+Every change reaches `main` here as one pull request, the maintainers' own included, one at a time
+and in order.
+
+- **One pull request, one change a person can name.** Its title says what changes for the person
+  who uses Lifestream, in plain words, in under 70 characters: "Google Places: each spot asked once,
+  at most 500 a day", never "fix places bug".
+- **Its description has these parts,** in this order:
+  - `## What changes`: what a person or a contributor sees now, a line each;
+  - `## Why`: the fault or the need, with `Fixes #N` for the issue it closes;
+  - `## How it was checked`: the tests run, by name and result, and for an app a before and after;
+  - `## Not in this PR`: what is left, when something is.
+- **A large feature lands in parts,** each a pull request of its own that leaves `main` working, a
+  part that is not finished switched off ("(off)" in its title).
+- **Nothing personal in a title, a description, a commit or a branch name**, as in the files.
+- **A maintainer merges** once the tests the change reaches pass. A contributor's pull request is
+  merged as their own commit, never rewritten under another name; one rebuilt by a maintainer
+  credits them with `Co-authored-by:` and says why.
+
 Every change keeps these rules. The check refuses most breaks of them.
 
 - **No personal data in any file.** Fixtures and examples use obviously fake values:

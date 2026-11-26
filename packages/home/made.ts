@@ -43,6 +43,7 @@ export function openMade(view: MadeView, input: MadeInput): (asked: { family: st
       routes.filter((route) => !not.includes(route.id) && route.model !== reply?.model && ready(route.id) !== null).map(step);
     const choice = view.tables.itemRoutes.get(family, item, row.prompt);
     if (row.state === "given-up" || shown?.state === "refused" || shown?.state === "given-up") return made("failed", FAILED, others(row.given_up, choice?.route));
+    if (row.state === "pending" && row.unhideable !== null) return made("needs", row.unhideable, routes.filter((route) => route.leaves === null && ready(route.id) !== null).map(step));
     if (choice !== undefined && choice.model !== reply?.model) {
       if (ready(choice.route) !== null) return made("waiting", QUEUED, []);
       return made("waiting", routing.routes[choice.route]?.line ?? needsWords(work, routes), others(choice.route));

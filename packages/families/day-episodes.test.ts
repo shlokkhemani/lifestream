@@ -135,6 +135,52 @@ describe("a day's episodes from atoms written for the rule", () => {
   });
 });
 
+describe("a call recording's episode", () => {
+  const file = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "callaudio", "test", "2026-10-05.day.json"), "utf8")) as EpisodesFile;
+  const calls = (atoms: DayAtom[]): string[][] => episodes({ ...file, atoms }, {}).episodes.filter((episode) => episode.kind === "call")
+    .map((episode) => [episode.id, episode.family, episode.row.name, `${episode.start_ms}-${episode.end_ms}`, episode.atoms.join(" ")]);
+  const call = file.atoms.find((atom) => atom.family === "calls")!;
+  const span = `${call.start_ms}-${call.end_ms}`;
+
+  it("joined to a call record is the call's one moment, its name and span the call's; alone its own", () => {
+    expect(calls(file.atoms)).toEqual([
+      ["e1", "callaudio", "Zoom", "1791189000000-1791190200000", "1 2 3 4 5 6 7"],
+      ["e8", "calls", "Person B", span, "8 9 10 11 12"],
+    ]);
+  });
+
+  it("its row's line is the summary's title, after how a joined call went; with no app named it is a Call", () => {
+    const lines = (atoms: DayAtom[]): [string, string[]][] => episodes({ ...file, atoms }, {}).episodes.filter((episode) => episode.kind === "call")
+      .map((episode) => [episode.row.name, episode.row.words.map((run) => run.type === "text" ? run.text : "")]);
+    expect(lines(file.atoms)).toEqual([["Zoom", ["Lease renewal"]], ["Person B", ["Called you", "Weekend plans"]]]);
+    const unnamed = file.atoms.map((atom) => atom.n === 1 ? { ...atom, text: atom.text.replace("Call on Zoom, ", "Call, "), block: { ...atom.block!, title: "Call, 20 min" } } : atom);
+    expect(lines(unnamed)[0]).toEqual(["Call", []]);
+    const dotted = file.atoms.map((atom) => atom.n === 1 ? { ...atom, text: "Call on Zoom, 20 min: Rent vs. buy. You and they weighed it.", block: { ...atom.block!, title: "Call on Zoom, 20 min: Rent vs. buy" } } : atom);
+    expect(lines(dotted)[0], "a title with a period, read from its block").toEqual(["Zoom", ["Rent vs. buy"]]);
+  });
+
+  it("joined, it reads the call record even when its own lines come first", () => {
+    const early = file.atoms.map((atom) => atom.n < 8 ? atom : { ...atom, n: atom === call ? 12 : atom.n - 1 });
+    expect(calls(early).at(-1)).toEqual(["e8", "calls", "Person B", span, "12 8 9 10 11"]);
+  });
+
+  it("alone, a turn said before its head line leaves the head first: the app's name and the head's span", () => {
+    const head = file.atoms[0]!;
+    const hello = { ...file.atoms[1]!, n: 1, start_ms: head.start_ms! - 5_000, end_ms: head.start_ms! - 4_000, text: "Them: let me call to Ben" };
+    const before = [hello, { ...head, n: 2 }, ...file.atoms.slice(2)];
+    const [episode] = episodes({ ...file, atoms: before }, {}).episodes.filter((each) => each.kind === "call");
+    expect([episode!.id, episode!.row.name, episode!.title, `${episode!.start_ms}-${episode!.end_ms}`, episode!.atoms.slice(0, 2)])
+      .toEqual(["e1", "Zoom", "Zoom", `${head.start_ms}-${head.end_ms}`, [2, 1]]);
+  });
+
+  it("without joins, it is never put with a call record it overlaps", () => {
+    const apart = file.atoms.map(({ joins: _joins, ...atom }) => atom);
+    expect(calls(apart).map(([id, family, , , atoms]) => [id, family, atoms])).toEqual([
+      ["e1", "callaudio", "1 2 3 4 5 6 7"], ["e8", "calls", "8"], ["e9", "callaudio", "9 10 11 12"],
+    ]);
+  });
+});
+
 describe("a golden day's episodes with one input changed", () => {
   const every = caseOf("2031-03-04");
   const proof = caseOf("2031-07-01");

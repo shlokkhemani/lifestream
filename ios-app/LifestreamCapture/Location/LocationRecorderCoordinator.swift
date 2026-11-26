@@ -192,16 +192,6 @@ final class LocationRecorderCoordinator: NSObject, @preconcurrency CLLocationMan
 
     var authorizationStatus: CLAuthorizationStatus { fallbackManager.authorizationStatus }
 
-    var backgroundRecordingAllowed: Bool {
-        switch authorizationStatus {
-        case .authorizedAlways: true
-        case .authorizedWhenInUse: backgroundSession != nil
-        default: false
-        }
-    }
-
-    var keepsProcessRunning: Bool { recorder?.keepsProcessRunning ?? false }
-
     func authorizationAnswer() async -> CLAuthorizationStatus {
         let now = fallbackManager.authorizationStatus
         guard platformServicesEnabled, fallbackManagerIsActive, now == .notDetermined else { return now }

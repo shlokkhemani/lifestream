@@ -336,7 +336,7 @@ describe("the door checks the bundle whole", () => {
         modified: "2026-08-31T04:30:00Z", pinned: false, pin_order: 0, deleted_at: null, purged: false, rich: { hash: `sha256:${sha256(archive)}`, bytes: archive.length }, attachments: [] },
     };
     const unstated = await phone.ship(phoneBundle({ entries: { "notes.jsonl": [note] }, custody: { [notes]: { seal: 1 } }, second: 4 }));
-    expect([unstated.status, unstated.body.code]).toEqual([422, "IOS_BUNDLE_BLOB_MISSING"]);
+    expect([unstated.status, unstated.body.code]).toEqual([409, "FILES_MISSING"]);
     const stated = await phone.ship(phoneBundle({ entries: { "notes.jsonl": [note] }, custody: { [notes]: { seal: 1, lost: [{ items: 1, what: "files this phone no longer holds" }] } }, second: 5 }));
     expect(stated.status).toBe(201);
     report.door = { gone: goneAnswer.status, mixed: counts, note: { unstated: unstated.body, stated: stated.status } };
@@ -384,9 +384,9 @@ describe("the phone measured", () => {
     expect((await phone.ship(phoneBundle({ entries: {
       "location.jsonl": [fix(-15), moves(-8, "high_rate_expected"), fix(-7), fix(-3)],
       "energy.jsonl": [
-        window(-45, -30, { requests_battery: 3, requests_power: 1, bundles_sent_battery: 1, send_bytes_battery: 2000, send_bytes_power: 500, send_unanswered_battery: 1 }),
+        window(-45, -30, { requests_battery: 3, requests_power: 1, bundles_sent_battery: 1, send_bytes_battery: 2000, send_bytes_power: 500, send_unanswered_battery: 1, files_sent_battery: 2, send_cut_battery: 1 }),
         line("energy", "power_state", -20, { battery_level: 0.5, battery_state: "unplugged" }, true),
-        window(-5, 0, { requests_power: 2, bundles_sent_power: 2, send_bytes_power: 4000, ship_passes: 2 }),
+        window(-5, 0, { requests_power: 2, bundles_sent_power: 2, files_sent_power: 1, send_bytes_power: 4000, ship_passes: 2 }),
       ],
     }, custody: { [location]: { seal: 2 }, [energy]: { seal: 1 } }, second: 2 }))).status).toBe(201);
     await until("both location bundles and the energy one imported", () => ran(location) === 2 && ran(energy) === 1);
@@ -413,7 +413,9 @@ describe("the phone measured", () => {
       for (const [name, n] of Object.entries(hour)) total[name] = (total[name] ?? 0) + n;
       return total;
     }, {});
-    expect(sends).toEqual({ requests: 6, requests_battery: 3, bundles: 3, bundles_battery: 1, bytes: 6500, bytes_battery: 2000, unanswered: 1, unanswered_battery: 1 });
+    expect(sends).toEqual({
+      requests: 6, requests_battery: 3, bundles: 3, bundles_battery: 1, files: 3, files_battery: 2, bytes: 6500, bytes_battery: 2000, unanswered: 1, unanswered_battery: 1, cut: 1, cut_battery: 1,
+    });
     expect(quiet).toMatchObject({ import_seconds: null, sends: null, newest_fix: { moving_minutes: 0, quiet: 0, without: 0, age_seconds: null } });
     expect(Object.values(quiet.latency).map((each) => [each.entries, each.seconds, each.under])).toEqual(Array(4).fill([0, null, null]));
     const days = Object.values(phones.days);

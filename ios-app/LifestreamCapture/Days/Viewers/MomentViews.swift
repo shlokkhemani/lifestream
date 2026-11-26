@@ -15,7 +15,7 @@ struct MomentBody: View {
         case .thread(nil, _): Inspector.Line(text: "This conversation is not in Lifestream.")
         case .quiet(let chat): PageThread(day: day, chat: chat, group: true, marks: Set(moment.marks))
         case .ai(let work, let turns): MomentAI(work: work, turns: turns)
-        case .call(let figure, let group, let name, let others, let week): MomentCall(figure: figure, group: group, name: name, others: others, week: week)
+        case .call(let figure, let group, let name, let others, let week, _): MomentCall(figure: figure, group: group, name: name, others: others, week: week)
         case .mail(let list, let letters): MomentMail(list: list, letters: letters, only: $only)
         case .stay(let todayMs, _, let note, let inside): MomentStay(todayMs: todayMs, slug: moment.place?.slug, note: note, inside: inside)
         case .move(let km, let lengthMs, let from, let to, let mode, let legs, let note):

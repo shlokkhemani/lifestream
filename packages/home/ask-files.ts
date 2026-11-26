@@ -73,11 +73,14 @@ export interface Missing {
   readonly photos?: readonly string[];
   readonly audio?: readonly string[];
   readonly seconds?: readonly number[];
+  readonly files?: readonly string[];
 }
 
-export function missingFiles(missing: Missing): never {
+export const QUESTION_FILES = "The question's files are not all in Lifestream: send them, then ask again.";
+
+export function missingFiles(missing: Missing, words: string): never {
   const named = Object.fromEntries(Object.entries(missing).filter(([, list]) => list !== undefined && list.length > 0));
-  return refuse(409, "FILES_MISSING", "The question's files are not all in Lifestream: send them, then ask again.", undefined, { missing: named });
+  return refuse(409, "FILES_MISSING", words, undefined, { missing: named });
 }
 
 export interface Staged {
@@ -384,7 +387,7 @@ export function openStage(folder: HomeFolder, clock: () => number = Date.now): S
         return { audio: joinedAs, ms: msOf(joinedAs) };
       }
       const short = unjoinable(note, seconds);
-      if (short.length > 0) missingFiles({ seconds: short });
+      if (short.length > 0) missingFiles({ seconds: short }, QUESTION_FILES);
       return joinNote(note, seconds);
     },
     async carry(named, lane, stored) {

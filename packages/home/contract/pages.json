@@ -7029,6 +7029,7 @@
                         "messages",
                         "mail",
                         "calls",
+                        "callaudio",
                         "calendar",
                         "notes",
                         "ai",
@@ -8561,6 +8562,7 @@
                     "messages",
                     "mail",
                     "calls",
+                    "callaudio",
                     "calendar",
                     "notes",
                     "ai",
@@ -8654,6 +8656,7 @@
                               "messages",
                               "mail",
                               "calls",
+                              "callaudio",
                               "calendar",
                               "notes",
                               "ai",
@@ -10430,6 +10433,7 @@
               "messages",
               "mail",
               "calls",
+              "callaudio",
               "calendar",
               "notes",
               "ai",
@@ -10465,6 +10469,7 @@
                         "messages",
                         "mail",
                         "calls",
+                        "callaudio",
                         "calendar",
                         "notes",
                         "ai",
@@ -17364,6 +17369,16 @@
                                 "mine": {
                                   "type": "boolean"
                                 },
+                                "who": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "words": {
                                   "type": "string"
                                 },
@@ -17384,16 +17399,59 @@
                                 },
                                 "marked": {
                                   "type": "boolean"
+                                },
+                                "heard": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "record": {
+                                          "type": "object",
+                                          "properties": {
+                                            "source": {
+                                              "type": "string"
+                                            },
+                                            "kind": {
+                                              "type": "string"
+                                            },
+                                            "key": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "source",
+                                            "kind",
+                                            "key"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        "from_ms": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        }
+                                      },
+                                      "required": [
+                                        "record",
+                                        "from_ms"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 }
                               },
                               "required": [
                                 "at_ms",
                                 "mine",
+                                "who",
                                 "words",
                                 "full",
                                 "files",
                                 "tools",
-                                "marked"
+                                "marked",
+                                "heard"
                               ],
                               "additionalProperties": false
                             }
@@ -17560,6 +17618,389 @@
                               }
                             ]
                           },
+                          "recording": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "summary": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "stopped_ms": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "turns": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "at_ms": {
+                                          "anyOf": [
+                                            {
+                                              "type": "integer",
+                                              "minimum": 0
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "mine": {
+                                          "type": "boolean"
+                                        },
+                                        "who": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "words": {
+                                          "type": "string"
+                                        },
+                                        "full": {
+                                          "type": "boolean"
+                                        },
+                                        "files": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "tools": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "marked": {
+                                          "type": "boolean"
+                                        },
+                                        "heard": {
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "record": {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "source": {
+                                                      "type": "string"
+                                                    },
+                                                    "kind": {
+                                                      "type": "string"
+                                                    },
+                                                    "key": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "source",
+                                                    "kind",
+                                                    "key"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                "from_ms": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                }
+                                              },
+                                              "required": [
+                                                "record",
+                                                "from_ms"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "at_ms",
+                                        "mine",
+                                        "who",
+                                        "words",
+                                        "full",
+                                        "files",
+                                        "tools",
+                                        "marked",
+                                        "heard"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "made": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "by": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "at_ms": {
+                                            "anyOf": [
+                                              {
+                                                "type": "integer",
+                                                "minimum": 0
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "state": {
+                                            "enum": [
+                                              "done",
+                                              "off",
+                                              "needs",
+                                              "waiting",
+                                              "failed"
+                                            ]
+                                          },
+                                          "line": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "ask": {
+                                            "anyOf": [
+                                              {
+                                                "type": "object",
+                                                "properties": {
+                                                  "family": {
+                                                    "type": "string"
+                                                  },
+                                                  "item": {
+                                                    "type": "string"
+                                                  },
+                                                  "prompt": {
+                                                    "type": "string"
+                                                  }
+                                                },
+                                                "required": [
+                                                  "family",
+                                                  "item",
+                                                  "prompt"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "choose": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "value": {
+                                                  "type": "string"
+                                                },
+                                                "words": {
+                                                  "type": "string"
+                                                },
+                                                "note": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "value",
+                                                "words",
+                                                "note"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "by",
+                                          "at_ms",
+                                          "state",
+                                          "line",
+                                          "ask",
+                                          "choose"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "summarised": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "by": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "at_ms": {
+                                            "anyOf": [
+                                              {
+                                                "type": "integer",
+                                                "minimum": 0
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "state": {
+                                            "enum": [
+                                              "done",
+                                              "off",
+                                              "needs",
+                                              "waiting",
+                                              "failed"
+                                            ]
+                                          },
+                                          "line": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string"
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "ask": {
+                                            "anyOf": [
+                                              {
+                                                "type": "object",
+                                                "properties": {
+                                                  "family": {
+                                                    "type": "string"
+                                                  },
+                                                  "item": {
+                                                    "type": "string"
+                                                  },
+                                                  "prompt": {
+                                                    "type": "string"
+                                                  }
+                                                },
+                                                "required": [
+                                                  "family",
+                                                  "item",
+                                                  "prompt"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          },
+                                          "choose": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "value": {
+                                                  "type": "string"
+                                                },
+                                                "words": {
+                                                  "type": "string"
+                                                },
+                                                "note": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "value",
+                                                "words",
+                                                "note"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "by",
+                                          "at_ms",
+                                          "state",
+                                          "line",
+                                          "ask",
+                                          "choose"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "summary",
+                                  "stopped_ms",
+                                  "turns",
+                                  "made",
+                                  "summarised"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "view": {
                             "enum": [
                               "call"
@@ -17572,6 +18013,7 @@
                           "name",
                           "others",
                           "week",
+                          "recording",
                           "view"
                         ],
                         "additionalProperties": false
@@ -21828,6 +22270,15 @@
                         "placeholder": {
                           "type": "string"
                         },
+                        "key_field": {
+                          "type": "string"
+                        },
+                        "key_about": {
+                          "type": "string"
+                        },
+                        "key_placeholder": {
+                          "type": "string"
+                        },
                         "save": {
                           "type": "string"
                         }
@@ -21838,6 +22289,9 @@
                         "remove",
                         "field",
                         "placeholder",
+                        "key_field",
+                        "key_about",
+                        "key_placeholder",
                         "save"
                       ],
                       "additionalProperties": false

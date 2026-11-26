@@ -1,3 +1,4 @@
+import DeviceFiles
 import Foundation
 import XCTest
 @testable import HomeLink
@@ -237,8 +238,8 @@ final class TurnTests: XCTestCase {
         let measured = expectation(description: "each request's metrics reach the app")
         measured.expectedFulfillmentCount = 2
         let heard = Heard()
-        let transport = URLSessionTransport(protocolClasses: [Stub.self]) { request, metrics, status in
-            heard.add("\(request.url.path) \(status.map(String.init) ?? "unanswered")", metrics.taskInterval.duration >= 0)
+        let transport = URLSessionTransport(protocolClasses: [Stub.self]) { request, metrics, ending in
+            heard.add("\(request.url.path) \(ending.status.map(String.init) ?? "unanswered")", metrics.taskInterval.duration >= 0)
             measured.fulfill()
         }
         let link = try await paired(transport, network: MovableNetwork(.home))
@@ -252,6 +253,52 @@ final class TurnTests: XCTestCase {
         XCTAssertEqual(Stub.seen.map(\.kind), ["later", nil], "the upload states its kind, as the door reads it")
         XCTAssertEqual(Stub.seen.first?.length, "3", "and its length")
     }
+
+    func testACallerThatEndsARequestInItsBodyIsSaidToHaveCutItOnEveryBody() async throws {
+        let file = try bundle()
+        let bodies: [(String, HomeRequest.Body)] = [
+            ("a file", .file(file)),
+            ("a stream", .stream(size: 3, open: HomeRequest.Opener { try DeviceFiles(.plain).reader(file) })),
+            ("bytes", .bytes(Data("zip".utf8))),
+        ]
+        for (what, body) in bodies {
+            let started = expectation(description: "\(what) reached the home")
+            let measured = expectation(description: "\(what)'s metrics reached the app")
+            let ending = Ended()
+            Silent.started = { started.fulfill() }
+            let transport = URLSessionTransport(protocolClasses: [Silent.self]) { _, _, said in
+                ending.set(said)
+                measured.fulfill()
+            }
+            let request = HomeRequest(method: "PUT", url: URL(string: "\(home)/v1/files/sha256:00aa")!, headers: [:], body: body,
+                                      timeout: 30)
+            let sending = Task { try await transport.perform(request) }
+            await fulfillment(of: [started], timeout: 30)
+            sending.cancel()
+            do {
+                _ = try await sending.value
+                XCTFail("\(what): a cancelled request answered")
+            } catch {}
+            await fulfillment(of: [measured], timeout: 30)
+            XCTAssertEqual(ending.value, .cut, what)
+        }
+    }
+}
+
+private final class Ended: @unchecked Sendable {
+    private let lock = NSLock()
+    private var said: URLSessionTransport.Ending?
+    var value: URLSessionTransport.Ending? { lock.withLock { said } }
+    func set(_ ending: URLSessionTransport.Ending) { lock.withLock { said = ending } }
+}
+
+private final class Silent: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var started: @Sendable () -> Void = {}
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Self.started() }
+    override func stopLoading() {}
 }
 
 private final class GatedTransport: HomeTransport, @unchecked Sendable {

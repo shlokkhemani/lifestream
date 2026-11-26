@@ -6,7 +6,7 @@ import XCTest
 @testable import LifestreamCaptureCore
 
 final class SealTests: XCTestCase {
-    func testSealCarriesEachSourceAfterItsPositionAndTheBlobsItsEntriesReference() async throws {
+    func testSealCarriesEachSourceAfterItsPositionAndNamesTheFilesItsEntriesReference() async throws {
         let (store, exporter) = try rig()
         let shared = try await store.storeBlob(Data("shared".utf8))
         let photo = try await store.storeBlob(Data("photo".utf8))
@@ -14,16 +14,19 @@ final class SealTests: XCTestCase {
         try await append(store, .camera, at: 3, blob: shared)
         try await append(store, .photos, at: 4, blob: photo)
 
-        let first = try await sealed(exporter)
+        let made = try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1").bundles
+        let first = try bundle(made, .location), camera = try bundle(made, .camera), photos = try bundle(made, .photos)
+        XCTAssertEqual(made.count, 3, "each source that names a file the home lacks seals alone")
         XCTAssertEqual(first.manifest.schemaVersion, 3)
         XCTAssertEqual(first.manifest.device.installID, store.install.id)
         XCTAssertEqual(range(first, .location), [1, 3])
-        XCTAssertEqual(range(first, .camera), [1, 1])
+        XCTAssertEqual(range(camera, .camera), [1, 1])
         XCTAssertNil(first.manifest.files["motion.jsonl"], "a domain with nothing new is not carried")
-        XCTAssertEqual(blobs(first), [shared, photo])
-        XCTAssertEqual(first.manifest.custody, ["location:local:unit-0001": SourceCustody(seal: 1),
-                                                "camera:local:unit-0001": SourceCustody(seal: 1),
-                                                "apple-photos:local:unit-0001": SourceCustody(seal: 1)],
+        XCTAssertEqual([listed(first), listed(camera), listed(photos)], [[], [shared], [photo]])
+        XCTAssertEqual(made.map(blobs), [[], [], []], "a shipping seal carries no file")
+        XCTAssertEqual([first, camera, photos].map(\.manifest.custody), [["location:local:unit-0001": SourceCustody(seal: 1)],
+                                                     ["camera:local:unit-0001": SourceCustody(seal: 1)],
+                                                     ["apple-photos:local:unit-0001": SourceCustody(seal: 1)]],
                        "one seal per source carried, none for a source with nothing")
         XCTAssertEqual(first.url.lastPathComponent, CaptureExporter.filename(for: first.manifest.bundleID))
         let manifest = try XCTUnwrap(JSONSerialization.jsonObject(
@@ -36,7 +39,8 @@ final class SealTests: XCTestCase {
         let canonical = try JSONSerialization.data(withJSONObject: identity, options: [.sortedKeys, .withoutEscapingSlashes])
         XCTAssertEqual(SHA256Digest.tagged(canonical), first.manifest.bundleID)
 
-        let again = try await sealed(exporter, now: Date(timeIntervalSince1970: 1_900_000_000))
+        let again = try bundle(try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1",
+                                                      now: Date(timeIntervalSince1970: 1_900_000_000)).bundles, .location)
         XCTAssertEqual(range(again, .location), [1, 3])
 
         let carried: [CaptureDomain: UInt64] = [.location: 3, .camera: 1, .photos: 1]
@@ -45,11 +49,12 @@ final class SealTests: XCTestCase {
 
         try await append(store, .location, at: 5)
         try await append(store, .camera, at: 6, blob: shared)
-        let next = try await sealed(exporter, after: carried, seal: 2)
+        let nextMade = try await exporter.seal(plan(after: carried, seal: 2), hardware: .synthetic, appVersion: "1").bundles
+        let next = try bundle(nextMade, .location), nextCamera = try bundle(nextMade, .camera)
         XCTAssertEqual(range(next, .location), [4, 4])
-        XCTAssertEqual(range(next, .camera), [2, 2])
-        XCTAssertNil(next.manifest.files["photos.jsonl"])
-        XCTAssertEqual(blobs(next), [shared])
+        XCTAssertEqual(range(nextCamera, .camera), [2, 2])
+        XCTAssertTrue(nextMade.allSatisfy { $0.manifest.files["photos.jsonl"] == nil })
+        XCTAssertEqual(listed(nextCamera), [shared])
         XCTAssertEqual(next.manifest.custody["location:local:unit-0001"], SourceCustody(seal: 2))
     }
 
@@ -72,12 +77,13 @@ final class SealTests: XCTestCase {
         let floor = try await store.photoExportFloor()
         XCTAssertEqual(floor, 2)
 
-        let reshipped = try await sealed(exporter)
+        let reshipped = try bundle(try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1").bundles, .photos)
         XCTAssertEqual(range(reshipped, .photos), [1, 3])
-        XCTAssertEqual(blobs(reshipped), [shared, newer])
+        XCTAssertEqual(listed(reshipped), [shared, newer], "in the order of the lines that name them")
         XCTAssertEqual(reshipped.manifest.custody["apple-photos:local:unit-0001"]?.lost,
                        [Lost(items: 1, what: CaptureExporter.clearedPhotoCopies)])
-        let above = try await sealed(exporter, after: [.photos: 2], seal: 2)
+        let above = try bundle(try await exporter.seal(plan(after: [.photos: 2], seal: 2), hardware: .synthetic, appVersion: "1").bundles,
+                               .photos)
         XCTAssertEqual(range(above, .photos), [3, 3])
         XCTAssertNil(above.manifest.custody["apple-photos:local:unit-0001"]?.lost)
     }
@@ -152,7 +158,7 @@ final class SealTests: XCTestCase {
         let held = asked.intersection([homes])
         let firstMade = try await exporter.seal(plan(), held: held, hardware: .synthetic, appVersion: "1")
         let first = try XCTUnwrap(firstMade.bundles.first)
-        XCTAssertEqual(blobs(first), [lacked], "the file the home holds is not carried")
+        XCTAssertEqual(listed(first), [lacked], "the file the home holds is not named to send")
         XCTAssertNil(first.manifest.custody["apple-photos:local:unit-0001"]?.lost)
         let lines = String(decoding: try await store.jsonl(.photos), as: UTF8.self)
         XCTAssertTrue(lines.contains(homes), "and is named in its entry")
@@ -163,10 +169,10 @@ final class SealTests: XCTestCase {
 
         let againMade = try await exporter.seal(plan(), held: held, hardware: .synthetic, appVersion: "1")
         let again = try XCTUnwrap(againMade.bundles.first)
-        XCTAssertEqual(blobs(again), [])
+        XCTAssertEqual(listed(again), [])
         XCTAssertEqual(again.manifest.custody["apple-photos:local:unit-0001"]?.lost,
                        [Lost(items: 1, what: CaptureExporter.clearedPhotoCopies)], "only the copy the home lacks is lost")
-        try artifact("phone-held.json", ["carried": blobs(first).sorted(), "named": [homes], "asked": asked.sorted(),
+        try artifact("phone-held.json", ["listed": listed(first), "named": [homes], "asked": asked.sorted(),
                                          "lost_after_clearing": again.manifest.custody["apple-photos:local:unit-0001"]?.lost?.map(\.items) ?? []])
     }
 
@@ -252,13 +258,16 @@ final class SealTests: XCTestCase {
         let video = try await store.storeBlob(Data(repeating: 0x56, count: Int(CaptureExporter.sharedBytes)))
         try await append(store, .location, at: 0)
         try await append(store, .photos, at: 1, blob: video)
+        _ = try await store.append(domain: .health, draft: .init(kind: "synthetic", observedAt: "2026-09-01T00:00:02Z",
+            payload: .object(["padding": .string(String(repeating: "h", count: Int(CaptureExporter.sharedBytes)))])))
 
         free.withLock { $0 = Room.bottomBytes + 1_000_000 }
         let tight = try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1")
-        XCTAssertEqual(tight.bundles.map { Set($0.manifest.custody.keys) }, [["location:local:unit-0001"]], "location's bundle goes")
-        XCTAssertEqual(tight.satOut, [:], "the photos waiting for room is no failure")
-        XCTAssertEqual(tight.bundles.first?.manifest.satOut?.contains("apple-photos:local:unit-0001"), true,
-                       "location's bundle cannot speak for photos")
+        XCTAssertEqual(tight.bundles.map { Set($0.manifest.custody.keys) }, [["location:local:unit-0001"], ["apple-photos:local:unit-0001"]],
+                       "location's bundle goes, and the photos' too: it carries its records, the 8 MB video sent on its own")
+        XCTAssertEqual(tight.satOut, [:], "the health records waiting for room is no failure")
+        XCTAssertEqual(tight.bundles.first?.manifest.satOut?.contains("apple-health:local:unit-0001"), true,
+                       "location's bundle cannot speak for health")
         let toFree = try XCTUnwrap(tight.toFree, "the bytes to free are said")
         XCTAssertTrue((Int64(CaptureExporter.sharedBytes) - 1_000_000..<Int64(CaptureExporter.sharedBytes) - 800_000).contains(toFree),
                       "\(toFree)")
@@ -268,10 +277,114 @@ final class SealTests: XCTestCase {
         } catch { XCTAssertEqual(error as? CaptureError, .full) }
 
         free.withLock { $0 = Room.keepBytes }
-        let roomy = try await exporter.seal(plan(after: [.location: 1]), hardware: .synthetic, appVersion: "1")
-        XCTAssertEqual(roomy.bundles.map { Set($0.manifest.custody.keys) }, [["apple-photos:local:unit-0001"]])
-        XCTAssertEqual(roomy.bundles.first.map(blobs), [video])
+        let roomy = try await exporter.seal(plan(after: [.location: 1, .photos: 1]), hardware: .synthetic, appVersion: "1")
+        XCTAssertEqual(roomy.bundles.map { Set($0.manifest.custody.keys) }, [["apple-health:local:unit-0001"]])
         XCTAssertNil(roomy.toFree, "every bundle made: nothing to free")
+    }
+
+    func testAShippingSealWritesNoFileIntoItsArchiveAndListsThemInRecordOrderWhileTheCopyCarriesThem() async throws {
+        let (store, exporter) = try rig()
+        var named: [String] = []
+        for (second, bytes) in ["zulu", "alpha", "mike"].enumerated() {
+            let hash = try await store.storeBlob(Data(bytes.utf8))
+            named.append(hash)
+            try await append(store, .photos, at: second, blob: hash)
+        }
+        try await append(store, .photos, at: 3, blob: named[0])
+        XCTAssertNotEqual(named, named.sorted(), "the files are not in name order")
+        let shipping = try bundle(try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1").bundles, .photos)
+        XCTAssertEqual(listed(shipping), named, "each once, in the order of the line that first names it")
+        XCTAssertEqual(shipping.files.map(\.bytes), [4, 5, 4])
+        XCTAssertEqual(try members(shipping), ["manifest.json", "photos.jsonl"], "the archive holds the records alone")
+
+        let copied = try await exporter.copy(hardware: .synthetic, appVersion: "1")
+        let copy = try XCTUnwrap(copied)
+        XCTAssertEqual(blobs(copy), Set(named), "the person's copy carries every file")
+        XCTAssertEqual(copy.files, [], "and names none to send")
+        XCTAssertEqual(Set(try members(copy).filter { $0.hasPrefix("blobs/") }), Set(named.map { "blobs/" + $0.dropFirst(7) }))
+    }
+
+    func testASourceNamingAFileTheStoreLacksSealsAloneAndLocationSharesWithTheRest() async throws {
+        let (store, exporter) = try rig()
+        let staged = try await store.storeBlob(Data("a photo the door holds staged, not in its store".utf8))
+        let held = try await store.storeBlob(Data("a note the store holds".utf8))
+        try await append(store, .location, at: 0)
+        try await append(store, .motion, at: 1)
+        try await append(store, .photos, at: 2, blob: staged)
+        try await append(store, .voice, at: 3, blob: held)
+        let made = try await exporter.seal(plan(), held: [held], hardware: .synthetic, appVersion: "1").bundles
+        XCTAssertEqual(made.map { Set($0.manifest.custody.keys) },
+                       [["location:local:unit-0001", "motion:local:unit-0001", "voice-notes:local:unit-0001"],
+                        ["apple-photos:local:unit-0001"]],
+                       "a file only staged is not held: photos seals alone; the voice note the store holds shares")
+        XCTAssertEqual(made.map(listed), [[], [staged]])
+    }
+
+    func testASliceStopsAtTheBoundOfNamedBytesAndTheNextSealGoesOnFromIt() async throws {
+        let (store, exporter) = try rig()
+        let part = Int(CaptureExporter.namedBytes) * 2 / 5
+        var files: [String] = []
+        for index in 0..<3 { files.append(try await store.storeBlob(Data(repeating: UInt8(index + 1), count: part))) }
+        let large = try await store.storeBlob(Data(repeating: 9, count: Int(CaptureExporter.namedBytes)))
+        let small = try await store.storeBlob(Data("small".utf8))
+        for (second, hash) in (files + [small, large, small]).enumerated() { try await append(store, .photos, at: second, blob: hash) }
+        try await append(store, .photos, at: 6)
+
+        let first = try bundle(try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1").bundles, .photos)
+        XCTAssertEqual(range(first, .photos), [1, 2], "two files of 40 % fit; the third would pass the bound")
+        XCTAssertEqual(listed(first), Array(files.prefix(2)))
+        let second = try bundle(try await exporter.seal(plan(after: [.photos: 2], seal: 2), hardware: .synthetic,
+                                                        appVersion: "1").bundles, .photos)
+        XCTAssertEqual(range(second, .photos), [3, 4], "the next goes on from it, and stops before the large file")
+        XCTAssertEqual(listed(second), [files[2], small])
+        let third = try bundle(try await exporter.seal(plan(after: [.photos: 4], seal: 3), hardware: .synthetic,
+                                                       appVersion: "1").bundles, .photos)
+        XCTAssertEqual(range(third, .photos), [5, 5], "a file of the bound is a bundle of its own records")
+        XCTAssertEqual(listed(third), [large])
+        let fourth = try bundle(try await exporter.seal(plan(after: [.photos: 5], seal: 4), hardware: .synthetic,
+                                                        appVersion: "1").bundles, .photos)
+        XCTAssertEqual(range(fourth, .photos), [6, 7])
+
+        let held = try bundle(try await exporter.seal(plan(), held: Set(files), hardware: .synthetic, appVersion: "1").bundles,
+                              .photos)
+        XCTAssertEqual(range(held, .photos), [1, 4], "a file the store holds weighs nothing in the bound")
+        let copied = try await exporter.copy(hardware: .synthetic, appVersion: "1")
+        let copy = try XCTUnwrap(copied)
+        XCTAssertEqual(range(copy, .photos), [1, 7], "the person's copy has no bound")
+    }
+
+    func testASliceCutAtTheBoundStatesOnlyItsOwnClearedCopiesLost() async throws {
+        let (store, exporter) = try rig()
+        let first = Data(repeating: 1, count: Int(CaptureExporter.namedBytes) / 2 + 1)
+        let second = Data(repeating: 2, count: Int(CaptureExporter.namedBytes) / 2 + 1)
+        let cleared = Data("a photo the home imported".utf8)
+        for (at, data) in [first, second, cleared].enumerated() {
+            try await append(store, .photos, at: at, blob: try await store.storeBlob(data))
+        }
+        try await store.clearImportedPhotos(through: 3)
+        _ = try await store.storeBlob(first)
+        _ = try await store.storeBlob(second)
+
+        let cut = try bundle(try await exporter.seal(plan(), hardware: .synthetic, appVersion: "1").bundles, .photos)
+        XCTAssertEqual(range(cut, .photos), [1, 1], "the second file would pass the bound")
+        XCTAssertEqual(listed(cut), [SHA256Digest.tagged(first)])
+        XCTAssertNil(cut.manifest.custody["apple-photos:local:unit-0001"]?.lost,
+                     "the copy cleared past the slice is not this bundle's: the door must answer for its real photo")
+        let rest = try bundle(try await exporter.seal(plan(after: [.photos: 2], seal: 2), hardware: .synthetic,
+                                                      appVersion: "1").bundles, .photos)
+        XCTAssertEqual(rest.manifest.custody["apple-photos:local:unit-0001"]?.lost,
+                       [Lost(items: 1, what: CaptureExporter.clearedPhotoCopies)], "the slice that holds it states it")
+    }
+
+    func testAPendingBundleSealedBeforeFilesWereListedReadsAsNamingNone() throws {
+        let old = Data(#"[{"id":"sha256:aa","file":"lifestream-ios-aa.zip","pass":"p-0001","seals":{"location:local:unit-0001":2}}]"#.utf8)
+        let read = try JSONDecoder.lifestream().decode([PendingBundle].self, from: old)
+        XCTAssertEqual(read, [PendingBundle(id: "sha256:aa", file: "lifestream-ios-aa.zip", pass: "p-0001",
+                                            seals: ["location:local:unit-0001": 2])])
+        XCTAssertEqual(read.first?.files, [], "its files travel inside it")
+        let listed = PendingBundle(id: "sha256:bb", file: "b.zip", pass: "p-0001", seals: [:],
+                                   files: [PendingBundle.File(name: "sha256:cc", bytes: 3)])
+        XCTAssertEqual(try JSONDecoder.lifestream().decode(PendingBundle.self, from: JSONEncoder.lifestream().encode(listed)), listed)
     }
 
     func testRemovingBundlesKeepsOnlyTheNamesKept() async throws {
@@ -297,6 +410,26 @@ final class SealTests: XCTestCase {
                         now: Date? = nil) async throws -> BuiltExportBundle {
         let bundle = try await exporter.seal(plan(after: after, seal: seal), hardware: .synthetic, appVersion: "1", now: now).bundles.first
         return try XCTUnwrap(bundle)
+    }
+
+    private func bundle(_ made: [BuiltExportBundle], _ domain: CaptureDomain) throws -> BuiltExportBundle {
+        try XCTUnwrap(made.first { $0.manifest.custody["\(domain.product):local:unit-0001"] != nil }, "no bundle seals \(domain)")
+    }
+
+    private func listed(_ bundle: BuiltExportBundle) -> [String] {
+        bundle.files.map(\.name)
+    }
+
+    private func members(_ bundle: BuiltExportBundle) throws -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-Z1", bundle.url.path]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init).sorted()
     }
 
     private func rig() throws -> (CaptureStore, CaptureExporter) {

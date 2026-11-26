@@ -1,7 +1,9 @@
-import { MODEL_USES, unfit, unfitWords, USE_IDS, type UseId } from "@lifestreamprotocol/model";
+import type { ItemRoute, ReadTables } from "@lifestreamprotocol/core";
+import { CALLAUDIO_FAMILY, stretchUnit } from "@lifestreamprotocol/families";
+import { ADDRESS_SECRET, MODEL_USES, unfit, unfitWords, USE_IDS, type UseId } from "@lifestreamprotocol/model";
 import { chooseFor } from "../made.js";
 import { CHOOSE_MODEL, modelsAt, modelsRead, OFF_STEP, type ModelsRead } from "../models-read.js";
-import { itemUsesOf, readRouting, runnerPause, storedModels, type StoredModels } from "../models.js";
+import { itemUsesOf, readRouting, runnerPause, storedModels, type Routing, type StoredModels } from "../models.js";
 import { heldRunners } from "../principals.js";
 import { refuse } from "../refusal.js";
 import { effective, personal, planned, reset } from "../settings.js";
@@ -12,18 +14,19 @@ import { CLI } from "../cli-name.js";
 
 const USAGE = `models | models default <${USE_IDS.join("|")}> <model|none> [--thinking <level>] | models file <runner unit> <file id> fetch|remove | `
   + "models runner <runner unit> pause [--reason <words>] | models runner <runner unit> resume | models battery <runner unit> save|spend | "
-  + "models address <url> [text|text,image] | models address none | models process <family> <item> <prompt> <route>";
+  + "models address <url> [text|text,image] [--key] | models address none | models process <family> <item> <prompt> <route>";
 
 const PROCESS_REFUSED = "PROCESS_REFUSED";
 const NO_RUNNER = "That runner isn't connected.";
 export const CHAT_NEEDS_MODEL = "Chat always has a model: choose one to answer in Chat.";
 
 export async function models(ctx: VerbContext, args: readonly string[]) {
-  const { positionals, values } = readArgs("models", args, { reason: { type: "string" }, thinking: { type: "string" } }, USAGE, { min: 0, max: 5 });
+  const { positionals, values } = readArgs("models", args, { reason: { type: "string" }, thinking: { type: "string" }, key: { type: "boolean" } }, USAGE, { min: 0, max: 5 });
   const [action, ...rest] = positionals;
   const usage = (): never => fail(`usage: ${CLI} ${USAGE}`);
   if (values.reason !== undefined && !(action === "runner" && rest[1] === "pause")) fail("--reason states why a runner's calls pause: models runner <runner unit> pause --reason <words>");
   if (values.thinking !== undefined && !(action === "default" && rest[0] === "chat" && rest[1] !== OFF_STEP.value)) fail("--thinking states the level Chat's model thinks at: models default chat <model> --thinking <level>");
+  if (values.key === true && !(action === "address" && rest[0] !== "none")) fail(`--key sends the key sealed as ${ADDRESS_SECRET} to the address: models address <url> --key`);
   switch (action) {
     case undefined:
       return printed(ctx, readOf(ctx));
@@ -91,7 +94,11 @@ export async function models(ctx: VerbContext, args: readonly string[]) {
         break;
       }
       if (url === undefined || more.length > 0) return usage();
-      planned(ctx.folder, { "model.transports.address": { url, ...(input === undefined ? {} : { input: input.split(",").map((each) => each.trim()).filter((each) => each !== "") }) } }).write();
+      planned(ctx.folder, { "model.transports.address": {
+        url,
+        ...(input === undefined ? {} : { input: input.split(",").map((each) => each.trim()).filter((each) => each !== "") }),
+        ...(values.key === true ? { secret: ADDRESS_SECRET } : {}),
+      } }).write();
       break;
     }
     case "process": {
@@ -101,10 +108,10 @@ export async function models(ctx: VerbContext, args: readonly string[]) {
       const registry = await ctx.registry();
       const chosen = ctx.db.commit((tx) => {
         const routing = readRouting(tx.tables, { connectors: registry.connectors, blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, now_ms: ctx.now(), day: settings.day });
-        const found = chooseFor(tx.tables, routing, { family, item, prompt, route });
+        const found = processChoices(tx.tables, routing, { family, item, prompt, route });
         if ("refused" in found) refuse(422, PROCESS_REFUSED, found.refused);
-        tx.tables.itemRoutes.set(found.choice);
-        return { family, item, prompt, route: found.choice.route };
+        for (const choice of found.choices) tx.tables.itemRoutes.set(choice);
+        return { family, item, prompt, route: found.choices[0]!.route };
       });
       ctx.out(`${family} ${item} ${prompt}: ${chosen.route}`);
       return { chosen };
@@ -116,6 +123,25 @@ export async function models(ctx: VerbContext, args: readonly string[]) {
   return printed(ctx, readOf(ctx));
 }
 models.usage = USAGE;
+
+export function processChoices(tables: Pick<ReadTables, "asks">, routing: Routing, asked: { family: string; item: string; prompt: string; route: string }): { choices: ItemRoute[] } | { refused: string } {
+  const choices: ItemRoute[] = [];
+  for (const item of processedItems(tables, asked)) {
+    const found = chooseFor(tables, routing, { ...asked, item });
+    if ("refused" in found) return found;
+    choices.push(found.choice);
+  }
+  return { choices };
+}
+
+function processedItems(tables: Pick<ReadTables, "asks">, asked: { family: string; item: string; prompt: string }): string[] {
+  const unit = asked.family === CALLAUDIO_FAMILY ? stretchUnit(asked.item) : null;
+  if (unit === null) return [asked.item];
+  const parts = tables.asks.ofUnit(asked.family, unit).filter((row) => row.prompt === asked.prompt);
+  const left = parts.filter((row) => row.state !== "done");
+  const chosen = left.length > 0 ? left : parts;
+  return chosen.length === 0 ? [asked.item] : chosen.map((row) => row.item);
+}
 
 export function storedOf(ctx: Pick<VerbContext, "db">): StoredModels {
   const view = ctx.db.view();

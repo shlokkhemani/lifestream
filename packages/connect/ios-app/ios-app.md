@@ -4,7 +4,12 @@ The phone ships one ZIP: `manifest.json`, one `<domain>.jsonl` per domain it rec
 the blobs those lines name as `blobs/<hex>`. The door seals it as the Mac's bundles are sealed:
 the blobs go into the lane's blob store, every other member is a file of the delivery at
 `bundle/<member>`, and the ZIP is not kept, so `blobs/` holds each photo, video and voice note
-once; a file outside `bundle/` refuses the delivery (`BUNDLE_MANIFEST`). A shipment derives one source
+once; a file outside `bundle/` refuses the delivery (`BUNDLE_MANIFEST`). A file may instead travel
+on its own before the bundle that names it, `PUT /v1/files/sha256:<hex>` from the byte the door
+holds; the door stages it and links it into the lane when that bundle seals, so a sealed bundle
+holds its staged files as if it carried them (the door's page, "A phone's files"). A bundle naming
+a file neither it, the lane, the stage nor the home holds, past the files it states lost, is 409
+`FILES_MISSING` with their names. A shipment derives one source
 per domain file it carries; each derived source's delivery holds the same files, and its
 connector reads only its own domain's file. A domain the home has no source for
 (`iosBundleSources` names it with source null) lands nothing.

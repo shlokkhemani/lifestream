@@ -403,6 +403,22 @@ describe("private pages", () => {
     ]);
   });
 
+  it("leaves a private page's link into a folder only another branch holds, and names one no branch holds", () => {
+    const pages = "**/.build/\n\n# Private pages: kept out of git\n/AGENTS.md\n";
+    const main = repo({ ".gitignore": pages, "packages/core/here.ts": "export {};\n" });
+    git(main, "commit", "-qm", "one");
+    const lane = `${main}-lane`;
+    roots.push(lane);
+    git(main, "worktree", "add", "-q", "-b", "wp-lane", lane);
+    write(lane, "packages/core/fam/fam.ts", "export {};\n");
+    git(lane, "add", "-A");
+    git(lane, "commit", "-qm", "two");
+    write(main, "AGENTS.md", "# Agents\n\n[fam](./packages/core/fam/fam.md) [gone](./packages/core/gone/gone.md)\n");
+    expect(check("a private page linking one a lane holds", main)).toEqual([
+      "AGENTS.md:3: link ./packages/core/gone/gone.md: no packages/core/gone/gone.md",
+    ]);
+  });
+
   it("refuses a link from a page in git to a private page, there or not, and a page in git only private pages link", () => {
     const root = repo({
       ".gitignore": ignored,

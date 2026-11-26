@@ -3,8 +3,8 @@
   "zone": "America/New_York",
   "day_start_hour": 4,
   "window": {"start_ms":1789804800000,"end_ms":1789891200000},
-  "renderer": "13/3-7414146adf6d/7",
-  "inputs": "sha256:9ca4547b828758cab027b5be4ba97e63234e1935a1e4ea8779a44b90f36e34c0",
+  "renderer": "14/3-7414146adf6d/7",
+  "inputs": "sha256:8061ddf6e90d56a15e63f6c1571b1657a86d83904424e7bd397408d8d8448cf8",
   "counts": {"total":164,"per_family":{"health":164}},
   "coverage": [{"family":"health","sources":[{"source":"apple-health:person-a@example.com:cloud","read":"through"},{"source":"screen-time:local:iphone-aa01","read":"through"},{"source":"whoop:1:cloud","read":"through"}]}],
   "atoms": [

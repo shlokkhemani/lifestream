@@ -29,6 +29,16 @@ extension CaptureExporter {
     }
 }
 
+extension HomeLink {
+    func deliver(_ pending: PendingBundle, of custody: PhoneCustody, kind: WriteKind = .new) async throws -> FreshAnswer {
+        var files: [HomeLink.File] = []
+        for file in pending.files {
+            files.append(HomeLink.File(name: file.name, url: try await custody.blobFile(file.name), bytes: Int64(file.bytes)))
+        }
+        return try await send(bundle: custody.file(pending), id: pending.id, files: files, kind: kind)
+    }
+}
+
 extension CaptureStore {
     static func restored(root: URL, processInstanceID: UUID = UUID(), waitSeconds: Double = 60,
                          volume: Volume? = nil) async throws -> CaptureStore {

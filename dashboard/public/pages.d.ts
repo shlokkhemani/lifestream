@@ -136,6 +136,14 @@ export interface CallFigure {
   label: string;
 }
 
+export interface CallRecording {
+  summary: string | null;
+  stopped_ms: number | null;
+  turns: MomentTurn[];
+  made: Made | null;
+  summarised: Made | null;
+}
+
 export interface CallWeek {
   current: boolean;
   calls: WeekCall[];
@@ -729,6 +737,9 @@ export interface ModelServerWords {
   remove: string;
   field: string;
   placeholder: string;
+  key_field: string;
+  key_about: string;
+  key_placeholder: string;
   save: string;
 }
 
@@ -842,11 +853,13 @@ export interface MomentTimed {
 export interface MomentTurn {
   at_ms: number | null;
   mine: boolean;
+  who: string | null;
   words: string;
   full: boolean;
   files: string[];
   tools: string[];
   marked: boolean;
+  heard: TurnHeard | null;
 }
 
 export interface MomentUnit {
@@ -876,6 +889,7 @@ export type MomentView =
     name: string;
     others: OtherCall[];
     week: CallWeek | null;
+    recording: CallRecording | null;
   }
   | {
     view: "mail";
@@ -1173,7 +1187,7 @@ export interface ScreenAccount {
   actions: number;
 }
 
-export type SearchFamily = "messages" | "mail" | "calls" | "calendar" | "notes" | "ai" | "web" | "screen" | "photos" | "health" | "money" | "physical" | "listening" | "voice" | "phone";
+export type SearchFamily = "messages" | "mail" | "calls" | "callaudio" | "calendar" | "notes" | "ai" | "web" | "screen" | "photos" | "health" | "money" | "physical" | "listening" | "voice" | "phone";
 
 export type SearchRow =
   | {
@@ -1487,6 +1501,11 @@ export interface Tile {
 export interface TripDay {
   day: string;
   line: string;
+}
+
+export interface TurnHeard {
+  record: MomentRecord;
+  from_ms: number;
 }
 
 export interface VoiceNote {

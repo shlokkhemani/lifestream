@@ -3,8 +3,8 @@
   "zone": "America/New_York",
   "day_start_hour": 4,
   "window": {"start_ms":1789977600000,"end_ms":1790064000000},
-  "renderer": "13/3-7414146adf6d/7",
-  "inputs": "sha256:aaae96d524d086ac3114adb3bbbfbcd060582856705dd86e6b2341ab7fcb23a0",
+  "renderer": "14/3-7414146adf6d/7",
+  "inputs": "sha256:f3f6e377f9a38a2ff0b238fd685d475527b017df3a4d22c911dd5cf8b1c358d8",
   "counts": {"total":12,"per_family":{"physical":12}},
   "coverage": [{"family":"physical","sources":[{"source":"checkin:local:iphone-0001","read":"through"},{"source":"google-timeline:person-a@example.com:export","read":"none"},{"source":"location:local:iphone-0001","read":"through"},{"source":"motion:local:iphone-0001","read":"through"}]}],
   "atoms": [

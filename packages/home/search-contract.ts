@@ -196,7 +196,7 @@ const excerpt = text(undefined, undefined, "excerpt");
 const term = text(undefined, undefined, "term");
 const picture = text(undefined, undefined, "picture");
 
-export const FAMILIES = ["messages", "mail", "calls", "calendar", "notes", "ai", "web", "screen", "photos", "health", "money", "physical", "listening", "voice", "phone"] as const;
+export const FAMILIES = ["messages", "mail", "calls", "callaudio", "calendar", "notes", "ai", "web", "screen", "photos", "health", "money", "physical", "listening", "voice", "phone"] as const;
 export const family = oneOf(...FAMILIES);
 export type Family = Of<typeof family>;
 
@@ -609,7 +609,7 @@ export const opens = either(
 
 const thing = { ref, opens };
 const placed = { day, at: instant, title: words, chat: ref, chat_title: words };
-const voice = object({ audio: words, record: ref }, { seconds: int(), from: name, mine: oneOf(true) });
+const voice = object({ audio: words, record: ref }, { seconds: int(), from_s: int(), from: name, mine: oneOf(true) });
 export type Voice = Of<typeof voice>;
 export const citation = tagged("kind", {
   record: object({ ...thing, kind: oneOf("record") }, { ...placed, voice }),

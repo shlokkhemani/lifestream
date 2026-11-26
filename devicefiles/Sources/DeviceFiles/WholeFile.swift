@@ -258,11 +258,13 @@ public final class Reader {
     private let opening: Unsealing?
     private let name: String
     private var ended = false
+    private var skipping: Int64
 
-    init(descriptor: Int32, opening: Unsealing?, name: String) {
+    init(descriptor: Int32, opening: Unsealing?, name: String, skipping: Int64 = 0) {
         self.descriptor = descriptor
         self.opening = opening
         self.name = name
+        self.skipping = skipping
     }
 
     deinit {
@@ -283,14 +285,21 @@ public final class Reader {
             if read == 0 {
                 ended = true
                 close()
-                if let last = try opening?.finish(), !last.isEmpty { return last }
+                if let last = try opening?.finish(), case let kept = skipped(last), !kept.isEmpty { return kept }
                 return nil
             }
             chunk.count = read
-            let plain = try opening?.update(chunk) ?? chunk
+            let plain = skipped(try opening?.update(chunk) ?? chunk)
             if !plain.isEmpty { return plain }
         }
         return nil
+    }
+
+    private func skipped(_ plain: Data) -> Data {
+        guard skipping > 0 else { return plain }
+        let dropped = min(Int64(plain.count), skipping)
+        skipping -= dropped
+        return Data(plain.dropFirst(Int(dropped)))
     }
 
     public func close() {

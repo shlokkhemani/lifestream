@@ -829,7 +829,7 @@ class HomeProcess implements Main {
     this.#call = ownPasses.call;
     this.#models = new Models({
       settings: () => this.settings, registry: () => this.registry, ledger: this.#ledger, clock: this.now, day: () => this.settings.day,
-      found: () => ({ programs: this.#programsAt(), door: this.#door, held: (name) => this.#vault.held(name) }),
+      found: () => ({ programs: this.#programsAt(), door: this.#door, held: (name) => this.#vault.held(name), secret: (name) => this.#listSecret(name) }),
       runners: () => listRunners(this.#door, this.#drive, this.#doorFetch),
       paired: () => heldRunners(this.folder),
       unset: () => unfilled(personal(this.folder)),
@@ -2038,6 +2038,12 @@ class HomeProcess implements Main {
     const value = this.#vaultRead(name);
     this.#record({ at_ms: this.now(), secret: name, op: "get", lane: "model", task: `call:${key}`, ok: value !== undefined });
     return value === undefined ? {} : { [name]: value };
+  }
+
+  #listSecret(name: string): string | undefined {
+    const value = this.#vaultRead(name);
+    this.#record({ at_ms: this.now(), secret: name, op: "get", lane: "models", task: "list", ok: value !== undefined });
+    return value;
   }
 
   #vaultRead(name: string): string | undefined {

@@ -155,7 +155,7 @@ export function notesFamily(given: readonly Given<NotesAdapter>[]): Family {
 export const NOTES_COLLECTIONS: Readonly<Record<string, Collection>> = {
   meetings: {
     keys: ["title"],
-    measures: { minutes: { unit: "min", ops: OPS, time: "start", split: "whole", readings: ["events.minutes"], from: "derived" } },
+    measures: { minutes: { unit: "min", ops: OPS, time: "start", split: "whole", readings: ["events.minutes", "callaudio.minutes"], from: "derived" } },
   },
 };
 

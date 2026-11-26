@@ -300,7 +300,7 @@ final class PhotoLibraryTests: XCTestCase {
         let library = PhotoLibrary(synthetic)
         let directory = try temporaryDirectory()
 
-        let fetched = try await library.files(of: "MIXED", network: false, into: directory)
+        let fetched = try await library.files(of: "MIXED", network: false, costly: false, into: directory)
         let local = try XCTUnwrap(fetched)
         XCTAssertEqual(local.files.count, 5)
         XCTAssertEqual(local.snapshot.resources.map(\.size), [5, 6, nil, nil, nil], "the size of each file the library holds, here or in iCloud")
@@ -309,20 +309,20 @@ final class PhotoLibraryTests: XCTestCase {
                        "iCloud without the network and a network error come later, never refused")
         XCTAssertEqual(synthetic.downloads, 0)
 
-        let named = try await library.files(of: "MIXED", only: ["pairedVideo", "fullSizePhoto"], network: true, into: directory)
+        let named = try await library.files(of: "MIXED", only: ["pairedVideo", "fullSizePhoto"], network: true, costly: false, into: directory)
         XCTAssertEqual(try XCTUnwrap(named).files.dropFirst(2).first, .unasked, "a file not named is never read")
         XCTAssertEqual(try XCTUnwrap(named).files.first, .unasked)
         XCTAssertEqual(try XCTUnwrap(named).files[3], .refused(.downloadFailed))
         XCTAssertEqual(synthetic.downloads, 1, "the one named file only iCloud held")
 
-        let fetchedAgain = try await library.files(of: "MIXED", network: true, into: directory)
+        let fetchedAgain = try await library.files(of: "MIXED", network: true, costly: false, into: directory)
         let downloaded = try XCTUnwrap(fetchedAgain)
         XCTAssertEqual(try Data(contentsOf: try fileURL(downloaded.files[1])), Data("motion".utf8))
         XCTAssertEqual(synthetic.downloads, 2)
         XCTAssertEqual(downloaded.files[4], .later, "a network error is the device's to retry")
 
         synthetic.delete("MIXED")
-        let gone = try await library.files(of: "MIXED", network: true, into: directory)
+        let gone = try await library.files(of: "MIXED", network: true, costly: false, into: directory)
         XCTAssertNil(gone, "a photo no longer in the library has no files to fetch")
     }
 
@@ -331,9 +331,28 @@ final class PhotoLibraryTests: XCTestCase {
         synthetic.statesSizes = false
         synthetic.put(Self.photo("BIG", taken: Self.day), files: [.here(Data(repeating: 0x42, count: 100))])
         let directory = try temporaryDirectory()
-        let fetched = try await PhotoLibrary(synthetic).files(of: "BIG", network: false, room: 50, into: directory)
+        let fetched = try await PhotoLibrary(synthetic).files(of: "BIG", network: false, costly: false, room: 50, into: directory)
         XCTAssertEqual(try XCTUnwrap(fetched).files, [.noRoom])
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [], "no file, whole or partial")
+    }
+
+    func testOnACostlyPathAVideoOf500MBWaitsUnaskedAndOneLessIsFetched() async throws {
+        let synthetic = SyntheticLibrary()
+        let movie = PhotoResource(typeRaw: 2, uti: "com.apple.quicktime-movie", originalFilename: "IMG_0002.MOV")
+        synthetic.put(Self.photo("LARGE", taken: Self.day, resources: [movie, Self.still]),
+                      files: [.sized(PhotoLibrary.wifiVideoBytes, Data("large".utf8)), .here(Data("still".utf8))])
+        synthetic.put(Self.photo("SMALLER", taken: Self.day, resources: [movie]),
+                      files: [.sized(PhotoLibrary.wifiVideoBytes - 1, Data("smaller".utf8))])
+        let directory = try temporaryDirectory()
+        let library = PhotoLibrary(synthetic)
+        let waits = try await library.files(of: "LARGE", network: false, costly: true, into: directory)
+        XCTAssertEqual(try XCTUnwrap(waits).files, [.waits, .waits], "the photo waits whole")
+        XCTAssertEqual(synthetic.filesAsked, 0, "and nothing of it is asked for")
+        let smaller = try await library.files(of: "SMALLER", network: false, costly: true, into: directory)
+        XCTAssertEqual(try XCTUnwrap(smaller).files.count(where: { if case .file = $0 { true } else { false } }), 1)
+        let free = try await library.files(of: "LARGE", network: false, costly: false, into: directory)
+        XCTAssertEqual(try XCTUnwrap(free).files.count(where: { if case .file = $0 { true } else { false } }), 2,
+                       "a free path takes it")
     }
 
     func testAFileStillBeingWrittenComesLaterWithNoRequest() async throws {
@@ -341,7 +360,7 @@ final class PhotoLibraryTests: XCTestCase {
         synthetic.put(Self.photo("WRITING", taken: Self.day, resources: [Self.still, Self.motion]),
                       files: [.here(Data()), .here(Data("v".utf8))])
         let directory = try temporaryDirectory()
-        let files = try await PhotoLibrary(synthetic).files(of: "WRITING", network: true, into: directory)
+        let files = try await PhotoLibrary(synthetic).files(of: "WRITING", network: true, costly: false, into: directory)
         let fetched = try XCTUnwrap(files)
         XCTAssertEqual(fetched.snapshot.resources.map(\.size), [0, 1])
         XCTAssertEqual(fetched.files.first, .later, "a file that states 0 bytes is still being written")
@@ -354,7 +373,7 @@ final class PhotoLibraryTests: XCTestCase {
         synthetic.put(Self.photo("LIVE", taken: Self.day, resources: [Self.still, Self.motion]),
                       files: [.here(Data(repeating: 0x42, count: 100)), .here(Data("v".utf8))])
         let directory = try temporaryDirectory()
-        let fetched = try await PhotoLibrary(synthetic).files(of: "LIVE", network: false, room: 50, into: directory)
+        let fetched = try await PhotoLibrary(synthetic).files(of: "LIVE", network: false, costly: false, room: 50, into: directory)
         XCTAssertEqual(try XCTUnwrap(fetched).files, [.noRoom, .noRoom])
         XCTAssertEqual(synthetic.filesAsked, 1, "the second file is never asked")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [])

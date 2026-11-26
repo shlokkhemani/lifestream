@@ -5,7 +5,17 @@ public struct PendingBundle: Sendable, Equatable, Codable {
     public let file: String
     public let pass: String
     public let seals: [String: Int]
+    public let files: [File]
     public var last: Request?
+
+    public struct File: Sendable, Equatable, Codable {
+        public let name: String
+        public let bytes: UInt64
+
+        public init(name: String, bytes: UInt64) {
+            self.name = name; self.bytes = bytes
+        }
+    }
 
     public struct Request: Sendable, Equatable, Codable {
         public let heard: Heard?
@@ -29,8 +39,16 @@ public struct PendingBundle: Sendable, Equatable, Codable {
         public var answered: Bool { heard != nil && heard != .notYet }
     }
 
-    public init(id: String, file: String, pass: String, seals: [String: Int], last: Request? = nil) {
-        self.id = id; self.file = file; self.pass = pass; self.seals = seals; self.last = last
+    public init(id: String, file: String, pass: String, seals: [String: Int], files: [File] = [], last: Request? = nil) {
+        self.id = id; self.file = file; self.pass = pass; self.seals = seals; self.files = files; self.last = last
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(id: container.decode(String.self, forKey: .id), file: container.decode(String.self, forKey: .file),
+                      pass: container.decode(String.self, forKey: .pass), seals: container.decode([String: Int].self, forKey: .seals),
+                      files: container.decodeIfPresent([File].self, forKey: .files) ?? [],
+                      last: container.decodeIfPresent(Request.self, forKey: .last))
     }
 
     public var sources: Set<String> { Set(seals.keys) }

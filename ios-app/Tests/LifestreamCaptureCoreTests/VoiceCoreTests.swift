@@ -42,8 +42,9 @@ final class VoiceCoreTests: XCTestCase {
         )
         .sealEverything(appVersion: "1.0.0")
         let bundle = try XCTUnwrap(sealed)
-        let blobPath = "blobs/\(hash.dropFirst("sha256:".count))"
-        XCTAssertEqual(bundle.manifest.files[blobPath]?.sha256, SHA256Digest.tagged(bytes))
+        XCTAssertEqual(bundle.files, [PendingBundle.File(name: SHA256Digest.tagged(bytes), bytes: UInt64(bytes.count))],
+                       "the seal names the recording, sent on its own")
+        XCTAssertNil(bundle.manifest.files["blobs/\(hash.dropFirst("sha256:".count))"])
         XCTAssertEqual(bundle.manifest.files["voice.jsonl"]?.observations, 1)
         XCTAssertNil(bundle.manifest.files["camera.jsonl"], "a domain with nothing new is not carried")
     }

@@ -45,6 +45,27 @@ final class ExportInventoryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: old.temporaryURL), try Data(contentsOf: optimized.temporaryURL))
     }
 
+    func testAnInventoryForASendThatCarriesNoFileChecksItsHashAndComputesNoCRC() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try CaptureStore(root: root)
+        let hash = try await store.storeBlob(Data(repeating: 0x5A, count: 1_048_577))
+        let checksummed = try await store.validatedBlobInventory(archiveChecksum: true, hashes: [hash])
+        let unchecksummed = try await store.validatedBlobInventory(archiveChecksum: false, hashes: [hash])
+        let carried = try XCTUnwrap(checksummed.first), named = try XCTUnwrap(unchecksummed.first)
+        XCTAssertEqual([named.hash, String(named.bytes)], [hash, "1048577"], "the hash is checked either way")
+        XCTAssertNotEqual(carried.crc32, 0)
+        XCTAssertEqual(named.crc32, 0, "no archive takes it: no CRC-32")
+        let url = named.url
+        try Data(repeating: 0x5B, count: 1_048_577).write(to: url)
+        do {
+            _ = try await store.validatedBlobInventory(archiveChecksum: false, hashes: [hash])
+            XCTFail("bytes that are not their name are refused")
+        } catch let error as CaptureError {
+            XCTAssertTrue(String(describing: error).contains("content-addressed"), "\(error)")
+        }
+    }
+
     func testMutationAfterInventoryCannotRelabelArchivedBytes() async throws {
         for atomic in [false, true] {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

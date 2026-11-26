@@ -751,8 +751,15 @@ enum CannedHome {
         private let lock = NSLock()
         private var seals: [String: Int] = [:]
         private var taken: [[String]] = []
+        private var files: Set<String> = []
 
         func seal(of source: String) -> Int? { lock.withLock { seals[source] } }
+
+        func put(file name: String) { lock.withLock { _ = files.insert(name) } }
+
+        func holding(_ asked: [String]) -> [String: Any] {
+            lock.withLock { ["held": [String](), "staged": asked.filter(files.contains), "partly": [String: Int64]()] }
+        }
 
         func take(_ file: URL) -> Bool {
             guard let manifest = try? StoredZIPWriter.readManifest(from: file) else { return false }
@@ -1348,6 +1355,15 @@ enum CannedHome {
             }
             if request.method == "POST", request.url.path == "/v1/refresh", case .json(let body) = request.body, CannedHome.refusesRefresh(body) {
                 return reply(409, ["code": "NOT_OFFERED", "message": "nothing of it refreshes from here"])
+            }
+            if request.method == "POST", request.url.path == "/v1/blobs/held", case .json(let body) = request.body {
+                let asked = ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any])?["blobs"] as? [String] ?? []
+                return reply(200, CannedHome.bundles.holding(asked))
+            }
+            if request.method == "PUT", request.url.path.hasPrefix("/v1/files/") {
+                let name = String(request.url.path.dropFirst("/v1/files/".count))
+                CannedHome.bundles.put(file: name)
+                return reply(201, ["file": name])
             }
             if request.method == "PUT", request.url.path.hasPrefix("/v1/bundles/"), case .file(let file) = request.body {
                 guard CannedHome.bundles.take(file) else { return reply(422, ["code": "IOS_BUNDLE_BAD_MANIFEST", "message": "no manifest reads"]) }

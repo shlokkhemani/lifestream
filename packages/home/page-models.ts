@@ -57,6 +57,9 @@ export const WORDS = {
   addServer: "Add server",
   serverField: "Server URL",
   serverPlaceholder: "http://localhost:11434/v1",
+  serverKey: "API key",
+  serverKeyAbout: "Only if the server asks for one.",
+  serverKeyPlaceholder: "sk-…",
   save: "Save",
   finds: "search by meaning",
   marks: "finds personal details to hide",
@@ -198,7 +201,8 @@ function connectionsOf(read: ModelsRead, inputs: ModelsInputs, here: string): Co
       }
       case "address": return [{
         kind: "address", id: connection.id, label: WORDS.server, url: inputs.settings.model.transports?.address?.url ?? null, line: connection.line,
-        words: { about: WORDS.serverAbout, add: WORDS.addServer, remove: WORDS.remove, field: WORDS.serverField, placeholder: WORDS.serverPlaceholder, save: WORDS.save },
+        words: { about: WORDS.serverAbout, add: WORDS.addServer, remove: WORDS.remove, field: WORDS.serverField, placeholder: WORDS.serverPlaceholder,
+          key_field: WORDS.serverKey, key_about: WORDS.serverKeyAbout, key_placeholder: WORDS.serverKeyPlaceholder, save: WORDS.save },
       }];
     }
   });

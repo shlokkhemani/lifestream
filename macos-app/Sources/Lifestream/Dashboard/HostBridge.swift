@@ -192,17 +192,27 @@ enum HostAct: Equatable {
         case file(runner: String, id: String, fetch: Bool)
         case runner(String, pause: Bool)
         case battery(String, save: Bool)
-        case address(url: String, input: [ModelInput]?)
+        static let addressSecret = "address"
+
+        case address(url: String, input: [ModelInput]?, key: String? = nil)
         case addressNone
 
         var args: [String] {
             switch self {
-            case .default(let use, let model, let thinking): ["default", use.rawValue, model] + (thinking.map { ["--thinking", $0] } ?? [])
+            case .default(let use, let model, _): ["default", use.rawValue, model]
             case .file(let runner, let id, let fetch): ["file", runner, id, fetch ? "fetch" : "remove"]
             case .runner(let runner, let pause): ["runner", runner, pause ? "pause" : "resume"]
             case .battery(let runner, let save): ["battery", runner, save ? "save" : "spend"]
-            case .address(let url, let input): ["address", url] + (input.map { [$0.map(\.rawValue).joined(separator: ",")] } ?? [])
+            case .address(let url, let input, _): ["address", url] + (input.map { [$0.map(\.rawValue).joined(separator: ",")] } ?? [])
             case .addressNone: ["address", "none"]
+            }
+        }
+
+        var options: [String] {
+            switch self {
+            case .default(_, _, let thinking?): ["--thinking", thinking]
+            case .address(_, _, .some): ["--key"]
+            default: []
             }
         }
     }
@@ -615,11 +625,17 @@ enum HostAct: Equatable {
             return boolean(body["none"]) == true && Set(body.keys) == ["type", "act", "do", "none"] ? .addressNone : nil
         case "address":
             guard let url = body["url"] as? String, !url.isEmpty, url.count <= urlLimit, url != ModelsAct.off else { return nil }
-            guard let said = body["input"] else { return Set(body.keys) == ["type", "act", "do", "url"] ? .address(url: url, input: nil) : nil }
+            guard Set(body.keys).isSubset(of: ["type", "act", "do", "url", "input", "key"]) else { return nil }
+            var key: String?
+            if let said = body["key"] {
+                guard let typed = said as? String, (1...valueLimit).contains(typed.count), !typed.contains(where: \.isWhitespace) else { return nil }
+                key = typed
+            }
+            guard let said = body["input"] else { return .address(url: url, input: nil, key: key) }
             guard let names = strings(said, most: ModelInput.allCases.count) else { return nil }
             let input = names.compactMap(ModelInput.init(rawValue:))
             guard input.count == names.count, input.first == .text, Set(input).count == input.count else { return nil }
-            return .address(url: url, input: input)
+            return .address(url: url, input: input, key: key)
         default:
             return nil
         }
