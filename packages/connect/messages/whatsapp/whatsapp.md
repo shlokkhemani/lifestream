@@ -111,13 +111,15 @@ sticker (`ZMESSAGETYPE` 1, 20 or 15, whatever its session) by its `ZWAMEDIAITEM.
 blob, and its sender as a `jid` (`ZFROMJID` unless it names a group, else the chat) when the chat
 is one-to-one, the session no status or broadcast, and the owner did not send it.
 
-`adapter-calls.ts` (`whatsappCalls`, version 1) reads a `call` record for the calls family
-(`packages/core/inputs/calls.ts`): the call event's `ZDATE`, `ZDURATION` and `ZGROUPJIDSTRING`,
-the aggregate's `ZINCOMING`, `ZMISSED` and `ZVIDEO`, each participant's `ZJIDSTRING`. An incoming
-call is missed only when WhatsApp states it missed, else not answered (declined, or answered on
-another device); it is video when the aggregate states `ZVIDEO` 1, else voice. Every snapshot
-restates the bytes sent and received, the outcomes, the missed reason and the link token: none is
-read.
+`adapter-calls.ts` (`whatsappCalls`, version 2) reads a `call` record for the calls family
+(`packages/core/inputs/calls.ts`): the call event's `ZDATE`, `ZDURATION`, `ZGROUPJIDSTRING` and
+`ZOUTCOME`, the aggregate's `ZINCOMING`, `ZMISSED` and `ZVIDEO`, each
+participant's `ZJIDSTRING`. An incoming call is missed only when WhatsApp states it missed; one
+answered on another device (`ZOUTCOME` 5, which a Mac states for a call the phone took) is
+answered, its length unknown, as this copy holds no duration for it; any other is not answered
+(declined, or rung out). It is video when the aggregate states `ZVIDEO` 1, else voice. Every
+snapshot restates the bytes sent and received, the participants' outcomes, the missed reason and
+the link token: none is read.
 
 ## Ledger
 

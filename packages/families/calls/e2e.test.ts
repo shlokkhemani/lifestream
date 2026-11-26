@@ -402,6 +402,18 @@ describe("calls family: what must be impossible for WhatsApp calls", () => {
     home.artifact("words.json", compared);
   });
 
+  it("a call answered on another device prints as not answered, or one WhatsApp states missed prints as answered", () => {
+    const home = newHome(true);
+    const elsewhere = { id: "WA00000000000000000000000000000007", at: at("2026-09-20T16:10:00Z"), incoming: true };
+    const missed = { id: "WA00000000000000000000000000000008", at: at("2026-09-20T16:40:00Z"), incoming: true, missed: true };
+    home.deliver(WA_MAC, SNAPSHOT_1, [elsewhere, missed].map((input) => whatsappCall(input, { outcome: 5 })));
+    const day = home.render("2026-09-20", labels("Person A", SHELLS));
+    expect(day.txt.split("\n").slice(3, 5)).toEqual([
+      "12:10 WhatsApp voice call with Person A, they called, answered",
+      "12:40 Missed WhatsApp voice call from Person A",
+    ]);
+  });
+
   it("one call on two WhatsApp replicas prints twice", () => {
     const rows = (tick: WhatsAppTick) => WHATSAPP_CALLS.map((input) => whatsappCall(input, tick));
     const results = [[WA_MAC, WA_PHONE], [WA_PHONE, WA_MAC]].map((order) => {
