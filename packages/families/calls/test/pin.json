@@ -4,7 +4,7 @@
     "code": "3:sha256:44024794f9914712f3a922fa2826ff318bf87f57e85900991a0e4fded1e3adbd",
     "adapters": {
       "calls/apple-calls": "1",
-      "calls/whatsapp": "1",
+      "calls/whatsapp": "2",
       "messages/imessage": "1",
       "messages/whatsapp": "2"
     }

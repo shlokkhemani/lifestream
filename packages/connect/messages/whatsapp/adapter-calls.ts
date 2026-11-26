@@ -2,11 +2,13 @@ import { instant, isObject, type Adapters, type Call, type Json, type JsonObject
 import { canonicalJid } from "@lifestreamprotocol/core";
 
 export const whatsappCalls: NonNullable<Adapters["calls"]> = {
-  version: "1",
+  version: "2",
   kinds: ["call"],
   services: { "whatsapp-voice": "WhatsApp voice call", "whatsapp-video": "WhatsApp video call" },
   call: ({ version }) => readCall(version.content),
 };
+
+const ANSWERED_ELSEWHERE = 5;
 
 function readCall(content: Json): Call | null {
   if (!isObject(content) || content.type !== "whatsapp.call" || !isObject(content.call) || !isObject(content.aggregate) || !Array.isArray(content.participants)) return null;
@@ -22,10 +24,11 @@ function readCall(content: Json): Call | null {
   const end = start_ms + Math.round(seconds * 1000);
   const direction = aggregate.ZINCOMING === 1 ? "incoming" : "outgoing";
   const group = text(call.ZGROUPJIDSTRING);
+  const answeredElsewhere = direction === "incoming" && call.ZOUTCOME === ANSWERED_ELSEWHERE && aggregate.ZMISSED !== 1;
   return {
     service: aggregate.ZVIDEO === 1 ? "whatsapp-video" : "whatsapp-voice",
     direction,
-    outcome: seconds > 0 ? "connected" : direction === "incoming" && aggregate.ZMISSED === 1 ? "missed" : "not-connected",
+    outcome: seconds > 0 || answeredElsewhere ? "connected" : direction === "incoming" && aggregate.ZMISSED === 1 ? "missed" : "not-connected",
     start_ms,
     end_ms: end > start_ms ? end : null,
     parties: [...new Set(content.participants.flatMap((value: Json) => {
