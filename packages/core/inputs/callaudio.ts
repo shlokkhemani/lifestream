@@ -47,6 +47,8 @@ export interface CallAudioPart {
   ended_by: string;
   /** Every app that held the microphone while it recorded, each once, in the order first seen. */
   holders: readonly string[];
+  /** Every app that played sound while it recorded, each once, in the order first seen. */
+  players: readonly string[];
   /** Whether a camera was on while it recorded. */
   camera: boolean;
   /** How loud it was, or null for a part whose sidecar states no loudness, such as one sealed after a crash. */

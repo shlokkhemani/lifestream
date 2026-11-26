@@ -31,10 +31,10 @@ Lifestream answers only while your Mac is awake, wherever your iPhone is.
 
 ## What your iPhone sends on cellular
 
-On cellular or a phone's hotspot, your iPhone sends what it records now at any size, a batch of
-photos too. Your past, such as older photos and older Health samples, waits for Wi-Fi. **Mobile
-data** has two choices: **What I record now**, the first, and **Everything, including my past**,
-which sends your past too. With Low Data Mode on, only new sends under 50 MB go and your past waits,
+On cellular or a phone's hotspot, your iPhone sends what it records now, a batch of photos too;
+a new video of 500 MB or more waits for Wi-Fi. Your past, such as older photos and older Health
+samples, waits for Wi-Fi too. **Mobile data** has two choices: **What I record now**, the first,
+and **Everything, including my past**, which sends your past and large videos too. With Low Data Mode on, only new sends under 50 MB go and your past waits,
 whatever you chose. **Connectors** › **Lifestream** then says **Older photos and history wait for
 Wi-Fi** or **Low Data Mode is on, so only small new sends go**, and its **Send now** sends them on
 any network. [Photos](./connectors/photos.md) says what waits for photos.

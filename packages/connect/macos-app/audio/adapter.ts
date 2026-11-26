@@ -17,12 +17,14 @@ function partOf(track: "mic" | "sound", start_ms: number, stated_end_ms: number 
   if (!isObject(audio) || typeof audio.sha256 !== "string" || typeof audio.media_type !== "string" || typeof audio.duration_ms !== "number") return null;
   if (typeof content.part !== "number" || typeof content.ended_by !== "string") return null;
   const room = Array.isArray(content.room) ? content.room.filter(isObject) : [];
-  const holders: string[] = [];
-  for (const entry of room) {
-    for (const holder of Array.isArray(entry.holders) ? entry.holders : []) {
-      if (typeof holder === "string" && !holders.includes(holder)) holders.push(holder);
+  const appsOf = (field: "holders" | "players"): string[] => {
+    const apps: string[] = [];
+    for (const entry of room) {
+      const stated = entry[field];
+      for (const app of Array.isArray(stated) ? stated : []) if (typeof app === "string" && !apps.includes(app)) apps.push(app);
     }
-  }
+    return apps;
+  };
   const part: CallAudioPart = {
     track,
     start_ms,
@@ -32,7 +34,8 @@ function partOf(track: "mic" | "sound", start_ms: number, stated_end_ms: number 
     ms: audio.duration_ms,
     part: content.part,
     ended_by: content.ended_by,
-    holders,
+    holders: appsOf("holders"),
+    players: appsOf("players"),
     camera: Array.isArray(content.camera) && content.camera.length > 0,
     loudness: loudnessOf(content.loudness),
     outputs: room.flatMap((entry) => outputOf(entry)),

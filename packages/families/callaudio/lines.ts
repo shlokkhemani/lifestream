@@ -72,7 +72,8 @@ export function callTurns(content: CallContent, heard: (item: string) => readonl
     const segments = heard(partItem(part));
     return segments === null ? [] : [{ key: part.key, track: part.track, start_ms: part.start_ms, segments }];
   });
-  return turnsOf(parts, content.speakers).map((turn) => ({ ...turn, part: byKey.get(`${turn.track}\0${turn.key}`)! }));
+  return turnsOf(parts, content.speakers).filter((turn) => turn.start_ms >= content.span.start_ms)
+    .map((turn) => ({ ...turn, part: byKey.get(`${turn.track}\0${turn.key}`)! }));
 }
 
 export function bracketOf(state: PartsState): string | null {

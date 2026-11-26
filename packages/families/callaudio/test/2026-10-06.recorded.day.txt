@@ -1,0 +1,28 @@
+Day 2026-10-06 (Tuesday) in Asia/Kolkata, 04:00 to 2026-10-07 04:00 (24 h)
+19 atoms: callaudio 19, calls 0
+
+09:00–09:20 Call on Chrome, 20 min: Synthetic call (5)
+  09:00–09:20 Call on Chrome, 20 min: Synthetic call. Two synthetic voices go over a schedule.
+  09:00 Them: The budget for Monday morning looks ready.
+  You: Can we move the budget to Monday morning?
+  09:10 Them: The garden for Monday morning looks ready.
+  You: Can we move the garden to Monday morning?
+10:31–10:57 Call on com.example.app-1, 27 min: Synthetic call (14)
+  10:31–10:57 Call on com.example.app-1, 27 min: Synthetic call. Two synthetic voices go over a schedule.
+  10:31 Them: The kitchen for Monday morning looks ready.
+  You: Yes, I see. Can we move the report to Monday morning?
+  You: Can we move the kitchen to Monday morning?
+  10:37 You: Can we move the schedule to Monday morning? Okay, sure.
+  Them: The schedule for Monday morning looks ready.
+  10:38 You: Can we move the invoice to Monday morning? Hmm, true.
+  Them: The invoice for Monday morning looks ready.
+  10:47 You: Can we move the roof to Monday morning?
+  10:48 Them: The roof for Monday morning looks ready.
+  You: Right, go on.
+  Them: The draft for Monday morning looks ready.
+  You: Yes, I see.
+  You: Can we move the draft to Monday morning?
+
+Coverage
+callaudio: audio:local:macbook-pro-0001 read into the day
+calls: no sources
