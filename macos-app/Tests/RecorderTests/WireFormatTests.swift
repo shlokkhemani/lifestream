@@ -10,7 +10,7 @@ final class WireFormatTests: XCTestCase {
         XCTAssertEqual(InputLogState.allCases.map(\.rawValue),
                        ["recording", "permission_required", "stopped", "off"])
         XCTAssertEqual(AudioTrackState.allCases.map(\.rawValue),
-                       ["recording", "idle", "withheld", "permission_required", "stopped", "failed"])
+                       ["recording", "idle", "withheld", "permission_required", "stopped", "failed", "held_back"])
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("runtime-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

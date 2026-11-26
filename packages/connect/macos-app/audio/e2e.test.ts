@@ -95,6 +95,22 @@ describe("audio recordings: each of these is impossible", () => {
     }
   });
 
+  it("a recording the person stopped is refused, or an ending outside the list lands", async () => {
+    const home = openTestHome();
+    try {
+      const stopped = recordingFiles({ at: "2026-09-30T12:00:00.000Z", until: "2026-09-30T12:01:00.000Z", override: { ended_by: "stopped" } });
+      const read = await home.land(audioRecordings, deliver(home, AUDIO_SOURCE, stopped, AUDIO_FACTS));
+      expect(read).toMatchObject({ new: 1, refused: 0 });
+      const unknown = recordingFiles({ at: "2026-09-30T12:05:00.000Z", until: "2026-09-30T12:06:00.000Z", override: { ended_by: "paused" } });
+      const refused = await home.land(audioRecordings, deliver(home, AUDIO_SOURCE, unknown, { snapshot_taken_at: "2026-09-30T12:10:00.000Z" }));
+      expect(refused).toMatchObject({ new: 0, refused: 1 });
+      expect(refused.refusals[0]!.violations).toEqual([expect.stringContaining('ended_by "paused" is outside the closed list')]);
+      artifact(home.dir, "landed.json", { read, refused });
+    } finally {
+      home.close();
+    }
+  });
+
   it("a sidecar outside the contract lands", async () => {
     const home = openTestHome();
     try {

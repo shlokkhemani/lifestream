@@ -297,9 +297,11 @@ import XCTest
         let synced = ShippingPresentation(read: true, paired: true, lastOutcome: "shipped", lastRunAt: now, zone: zone)
         let recording = RecorderPresentation(status: RuntimeStatus(state: .recording), running: true)
         XCTAssertEqual(StatusMenuEntry.order.map { $0.title(recording, synced) },
-                       ["Recording", recording.detail, nil, "Open Lifestream", "Pause recording", nil,
+                       ["Recording", recording.detail, "", "Stop recording", nil, "Open Lifestream", "Pause recording", nil,
                         "Lifestream: synced 16:00", "Sync now", "Settings…", nil, "Quit Lifestream"])
 
+        XCTAssertEqual(StatusMenuEntry.order.filter { !$0.shown(recording) }, [.microphone, .stopMicrophone],
+                       "no line about the microphone while no app holds it")
         XCTAssertEqual(RecorderPresentation(status: RuntimeStatus(state: .recording), running: true).signal, .engaged)
         XCTAssertTrue(RecorderPresentation(status: RuntimeStatus(state: .recording), running: true).recording)
         XCTAssertEqual(RecorderPresentation(status: RuntimeStatus(state: .stopped), running: false).signal, .idle)
@@ -309,7 +311,7 @@ import XCTest
         let refused = ActOutcome.failed(.refused(RecorderPresentation.startFailed))
         let failed = RecorderPresentation(status: RuntimeStatus(state: .stopped), running: false, start: refused)
         XCTAssertEqual(StatusMenuEntry.order.map { $0.title(failed, synced) },
-                       ["Recording paused", RecorderPresentation.startFailed, nil, "Open Lifestream", "Start recording", nil,
+                       ["Recording paused", RecorderPresentation.startFailed, "", "Stop recording", nil, "Open Lifestream", "Start recording", nil,
                         "Lifestream: synced 16:00", "Sync now", "Settings…", nil, "Quit Lifestream"])
         XCTAssertTrue(failed.failed)
         let again = RecorderPresentation(status: RuntimeStatus(state: .stopped), running: false, start: .running)

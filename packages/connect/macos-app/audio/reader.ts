@@ -5,7 +5,7 @@ export const SOUND_RECORDING = "sound-recording";
 
 const STEM = /^(\d{8}T\d{6}\.\d{3}Z)\.(mic|sound)(?:-([1-9]\d*))?$/u;
 const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-const ENDINGS = new Set(["holders_gone", "part_limit", "recorder_stopped", "withheld", "setting_off", "device_changed", "failed", "interrupted"]);
+const ENDINGS = new Set(["holders_gone", "part_limit", "recorder_stopped", "stopped", "withheld", "setting_off", "device_changed", "failed", "interrupted"]);
 const REQUIRED = ["type", "until", "track", "detected_at", "part", "ended_by", "room", "camera", "audio"];
 const OPTIONAL = ["latency_ms", "device", "session", "loudness"];
 const AUDIO = ["bit_rate", "bytes", "channels", "codec", "duration_ms", "file", "media_type", "sample_rate", "sha256"];

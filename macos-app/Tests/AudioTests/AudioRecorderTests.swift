@@ -13,6 +13,7 @@ final class AudioRecorderTests: XCTestCase {
     private var permission = AudioAuthorization.granted
     private var soundPermission = AudioAuthorization.granted
     private let t0 = Instants.date("2026-09-30T10:00:00.000Z")
+    private var now = Instants.date("2026-09-30T10:00:00.000Z")
     private let zoom = "us.zoom.xos"
     private let chrome = "com.google.Chrome"
 
@@ -23,6 +24,7 @@ final class AudioRecorderTests: XCTestCase {
         sound = FakeAudioSource()
         permission = .granted
         soundPermission = .granted
+        now = t0
     }
 
     override func tearDownWithError() throws {
@@ -35,7 +37,7 @@ final class AudioRecorderTests: XCTestCase {
                           fits: @escaping @Sendable () -> Bool = { true }) -> AudioRecorder {
         AudioRecorder(directory: store, files: DeviceFiles(.plain), scratch: store, modes: modes, sources: AudioSources(mic: source, sound: sound),
                       permission: { [unowned self] track in track == .mic ? permission : soundPermission },
-                      partLength: partLength, clock: { [t0] in t0 }, fits: fits)
+                      partLength: partLength, clock: { [unowned self] in now }, fits: fits)
     }
 
     private func at(_ seconds: Double) -> Date { t0.addingTimeInterval(seconds) }
@@ -87,6 +89,135 @@ final class AudioRecorderTests: XCTestCase {
         recorder.waitUntilIdle()
         XCTAssertEqual(source.started.count, 1)
         XCTAssertEqual(recorder.status, AudioStatus(mic: .stopped, sound: .stopped, files: 1))
+    }
+
+    func testAStopEndsTheSessionAsStoppedAndKeepsWhatWasRecorded() {
+        let recorder = recorder()
+        recorder.start()
+        session(recorder, seconds: 2)
+        XCTAssertEqual(recorder.micUse, .recording(holders: [zoom], since: at(0)))
+
+        recorder.holdBack()
+        recorder.waitUntilIdle()
+        XCTAssertEqual(sealed().map(\.endedBy), ["stopped"], "the stop seals the file with its own ending")
+        XCTAssertEqual(sealed().first?.audio?.durationMs ?? 0, 2_000, accuracy: 25, "what was recorded before the stop is kept")
+        XCTAssertFalse(source.capturing)
+        XCTAssertFalse(sound.capturing)
+        XCTAssertEqual(recorder.status, AudioStatus(mic: .heldBack, sound: .heldBack, files: 1))
+        XCTAssertEqual(recorder.micUse, .stopped(holders: [zoom]))
+
+        recorder.update(Uses.use(at: at(5), holders: [(chrome, Uses.microphone), (zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 1, "an app joining a stopped use records nothing")
+    }
+
+    func testAStopHoldsThroughAShortReleaseAndClearsAfterTheHold() {
+        let recorder = recorder()
+        recorder.start()
+        session(recorder, seconds: 1)
+        recorder.holdBack()
+        recorder.waitUntilIdle()
+        XCTAssertEqual(AudioRecorder.stopHold, 120)
+
+        recorder.update(Uses.use(at: at(10)))
+        recorder.update(Uses.use(at: at(10 + AudioRecorder.stopHold - 1), holders: [(zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 1, "an app that lets go and takes the mic back stays stopped")
+        XCTAssertEqual(recorder.status.mic, .heldBack)
+
+        recorder.update(Uses.use(at: at(200)))
+        recorder.update(Uses.use(at: at(200 + AudioRecorder.stopHold - 0.001)))
+        recorder.waitUntilIdle()
+        XCTAssertNil(recorder.micUse, "with no app on the mic, the menu says nothing")
+
+        recorder.update(Uses.use(at: at(200 + AudioRecorder.stopHold), holders: [(zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 2, "a use after the hold records")
+        XCTAssertEqual(recorder.micUse, .recording(holders: [zoom], since: at(200 + AudioRecorder.stopHold)))
+    }
+
+    func testAnotherAppRecordsWhileTheStoppedAppIsOffTheMic() {
+        let facetime = "com.apple.FaceTime"
+        let recorder = recorder()
+        recorder.start()
+        session(recorder, seconds: 1)
+        recorder.holdBack()
+        recorder.update(Uses.use(at: at(10)))
+        recorder.update(Uses.use(at: at(20), holders: [(facetime, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 2, "a hold on Zoom never stops FaceTime")
+        XCTAssertEqual(recorder.status.mic, .recording)
+        XCTAssertEqual(recorder.micUse, .recording(holders: [facetime], since: at(20)), "the menu names what records, and offers Stop")
+
+        recorder.update(Uses.use(at: at(30), holders: [(facetime, Uses.microphone), (zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(recorder.status, AudioStatus(mic: .heldBack, sound: .heldBack, files: 1))
+        XCTAssertEqual(recorder.micUse, .stopped(holders: [zoom]), "only the held-back app is named")
+    }
+
+    func testEachHoldClearsOnItsOwnAppsTimeOffTheMic() {
+        let filter = "com.example.noise-filter"
+        let recorder = recorder()
+        recorder.start()
+        session(recorder, seconds: 1)
+        recorder.holdBack()
+        recorder.update(Uses.use(at: at(5), holders: [(zoom, Uses.microphone), (filter, Uses.microphone)]))
+        recorder.update(Uses.use(at: at(10), holders: [(filter, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 2, "the filter alone records: it was never stopped")
+
+        recorder.update(Uses.use(at: at(10 + AudioRecorder.stopHold - 1), holders: [(filter, Uses.microphone), (zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(recorder.status.mic, .heldBack, "Zoom back within its hold is still stopped")
+        recorder.update(Uses.use(at: at(200), holders: [(filter, Uses.microphone)]))
+        recorder.update(Uses.use(at: at(200 + AudioRecorder.stopHold), holders: [(filter, Uses.microphone), (zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(recorder.status.mic, .recording, "Zoom's hold cleared though the filter never left the mic")
+        XCTAssertEqual(recorder.micUse, .recording(holders: [filter, zoom].sorted(), since: at(200)))
+    }
+
+    func testAHoldOutlivesTheRecorderAndLeavesNoFileOnceCleared() {
+        let holds = store.appendingPathComponent(AudioHolds.fileName)
+        let first = recorder()
+        first.start()
+        session(first, seconds: 1)
+        first.holdBack()
+        first.waitUntilIdle()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: holds.path), "the stop is saved at once")
+        first.stop()
+
+        now = at(50)
+        let second = recorder()
+        second.start()
+        second.update(Uses.use(at: at(50 + AudioRecorder.stopHold - 1), holders: [(zoom, Uses.microphone)]))
+        second.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 1, "a relaunch never resumes a stopped use")
+        XCTAssertEqual(second.micUse, .stopped(holders: [zoom]))
+        second.update(Uses.use(at: at(200)))
+        second.stop()
+
+        let third = recorder()
+        third.start()
+        third.update(Uses.use(at: at(200 + AudioRecorder.stopHold), holders: [(zoom, Uses.microphone)]))
+        third.waitUntilIdle()
+        XCTAssertEqual(source.started.count, 2, "the hold saved off the mic clears by its own time")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: holds.path), "a cleared hold leaves no file")
+    }
+
+    func testStopIsOfferedWhenOnlyTheOtherSideRecords() {
+        permission = .denied
+        let recorder = recorder()
+        recorder.start()
+        recorder.update(Uses.use(at: at(0), holders: [(zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(recorder.status, AudioStatus(mic: .permissionRequired, sound: .recording))
+        XCTAssertEqual(recorder.micUse, .recording(holders: [zoom], since: at(0)))
+
+        recorder.holdBack()
+        recorder.waitUntilIdle()
+        XCTAssertFalse(sound.capturing)
+        XCTAssertEqual(recorder.status, AudioStatus(mic: .heldBack, sound: .heldBack))
+        XCTAssertEqual(recorder.micUse, .stopped(holders: [zoom]))
     }
 
     func testAStartWithNoHolderIsIdle() {

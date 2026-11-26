@@ -106,6 +106,7 @@ public struct AudioSidecar: Codable, Equatable, Sendable {
         case holdersGone = "holders_gone"
         case partLimit = "part_limit"
         case recorderStopped = "recorder_stopped"
+        case stopped
         case withheld
         case deviceChanged = "device_changed"
         case failed

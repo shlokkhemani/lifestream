@@ -14,13 +14,14 @@ public enum AudioPlan {
         case unknown
     }
 
-    public static func decide(_ track: AudioTrack, use: DeviceUse?, modes: RecordingModes,
-                              running: Bool, permission: @autoclosure () -> AudioAuthorization) -> Decision {
+    public static func decide(_ track: AudioTrack, use: DeviceUse?, modes: RecordingModes, running: Bool,
+                              heldBack: Set<String>, permission: @autoclosure () -> AudioAuthorization) -> Decision {
         guard running else { return .idle(.stopped) }
         guard let use else { return .idle(.idle) }
         guard let audio = use.audio else { return .unknown }
         let holders = audio.microphone
         guard !holders.isEmpty else { return .idle(.idle) }
+        guard !holders.contains(where: { heldBack.contains($0.app) }) else { return .idle(.heldBack) }
         guard holders.allSatisfy({ recorded($0, modes) }) else { return .idle(.withheld) }
         switch track {
         case .mic:
@@ -72,4 +73,5 @@ public enum AudioTrackState: String, Codable, CaseIterable, Sendable {
     case permissionRequired = "permission_required"
     case stopped
     case failed
+    case heldBack = "held_back"
 }
