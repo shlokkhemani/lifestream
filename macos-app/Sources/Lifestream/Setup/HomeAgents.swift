@@ -108,9 +108,18 @@ enum Launcher {
         let environment = job == .dashboard ? ["VIEWER_STATE_DIR": machine.appendingPathComponent("dashboard").path] : [:]
         let folders = job == .runner ? ["--pass", machine.appendingPathComponent("runner/door-token").path,
                                         "--files", machine.appendingPathComponent("models").path] : []
+        let script = (job == .dashboard ? checkoutDashboard(machine) : nil) ?? release.appendingPathComponent(program.script).path
         return Command(executable: node,
-                       arguments: [node, release.appendingPathComponent(program.script).path] + program.arguments + folders,
+                       arguments: [node, script] + program.arguments + folders,
                        environment: environment)
+    }
+
+    static func checkoutDashboard(_ machine: URL) -> String? {
+        guard let named = try? String(contentsOf: machine.appendingPathComponent("dashboard-from"), encoding: .utf8) else { return nil }
+        let checkout = named.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard checkout.hasPrefix("/") else { return nil }
+        let server = URL(fileURLWithPath: checkout).appendingPathComponent("dashboard/server.mjs").path
+        return FileManager.default.fileExists(atPath: server) ? server : nil
     }
 
 

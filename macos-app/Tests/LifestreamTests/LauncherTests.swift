@@ -28,4 +28,37 @@ final class LauncherTests: XCTestCase {
         try FileManager.default.removeItem(at: release.appendingPathComponent("RELEASE.json"))
         XCTAssertNil(Launcher.command(.home, machine: machine))
     }
+
+    func testTheDashboardRunsFromTheCheckoutItsMachineNamesAndOtherwiseFromTheRelease() throws {
+        let machine = FileManager.default.temporaryDirectory.appendingPathComponent("launcher-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: machine) }
+        let release = machine.appendingPathComponent("releases/0000000000000000000000000000000000000000")
+        try FileManager.default.createDirectory(at: release, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: release.appendingPathComponent("RELEASE.json"))
+        try FileManager.default.createSymbolicLink(at: machine.appendingPathComponent("current"), withDestinationURL: release)
+        let resolved = release.resolvingSymlinksInPath().path
+        let node = "\(resolved)/node"
+        let fromRelease = [node, "\(resolved)/dashboard/server.mjs"]
+        let checkout = machine.appendingPathComponent("checkout")
+        try FileManager.default.createDirectory(at: checkout.appendingPathComponent("dashboard"), withIntermediateDirectories: true)
+        try Data().write(to: checkout.appendingPathComponent("dashboard/server.mjs"))
+        let empty = machine.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let named = machine.appendingPathComponent("dashboard-from")
+        let state = ["VIEWER_STATE_DIR": machine.appendingPathComponent("dashboard").path]
+
+        XCTAssertEqual(Launcher.command(.dashboard, machine: machine)?.arguments, fromRelease)
+
+        try Data("\(checkout.path)\n".utf8).write(to: named)
+        XCTAssertEqual(Launcher.command(.dashboard, machine: machine)?.arguments, [node, "\(checkout.path)/dashboard/server.mjs"])
+        XCTAssertEqual(Launcher.command(.dashboard, machine: machine)?.executable, node)
+        XCTAssertEqual(Launcher.command(.dashboard, machine: machine)?.environment, state)
+        XCTAssertEqual(Launcher.command(.mcp, machine: machine)?.arguments, [node, "\(resolved)/mcp/server.mjs"])
+
+        try Data(empty.path.utf8).write(to: named)
+        XCTAssertEqual(Launcher.command(.dashboard, machine: machine)?.arguments, fromRelease)
+
+        try Data("checkout".utf8).write(to: named)
+        XCTAssertEqual(Launcher.command(.dashboard, machine: machine)?.arguments, fromRelease)
+    }
 }

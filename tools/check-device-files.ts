@@ -73,7 +73,7 @@ export const ALLOWED: readonly Allowed[] = [
   allow("Lifestream/Needs/RecoveryKeyFile.swift", [".write(to:"], "writes the recovery key to the file the person picked, outside the two folders"),
   allow("Lifestream/Setup/AppPlacement.swift", ["copyItem", "attributesOfItem", "replaceItemAt"], "copies the app bundle into Applications, puts it over the app already there and reads its size"),
   allow("Lifestream/Setup/BundledRelease.swift", ["temporaryDirectory", ".write(to:", "FileHandle(", "Data(contentsOf:"], "unpacks the release the app bundle carries, code and no record, into its output"),
-  allow("Lifestream/Setup/HomeAgents.swift", [".write(to:"], "writes the launchd jobs' plists in ~/Library/LaunchAgents"),
+  allow("Lifestream/Setup/HomeAgents.swift", [".write(to:", "String(contentsOf:"], "writes the launchd jobs' plists in ~/Library/LaunchAgents and reads dashboard-from, the checkout a developer names for the dashboard job"),
   allow("Lifestream/Setup/SetupStart.swift", ["FileHandle("], "reads the tail of the home's and the door's logs, files the home writes"),
   allow("Lifestream/Setup/SetupWorld.swift", ["Data(contentsOf:"], "reads the home's HOME.json, a file the home writes"),
   allow("Lifestream/Setup/Uninstall.swift", ["temporaryDirectory", ".write(to:"], "the uninstall script must outlive the folders it deletes"),
