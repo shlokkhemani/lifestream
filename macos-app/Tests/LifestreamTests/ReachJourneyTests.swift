@@ -30,7 +30,7 @@ import XCTest
                         credentials: StoredPass(stored), folder: folder.appendingPathComponent("link"), transport: door,
                         clock: time.clock, pacer: time.pacer, files: DeviceFiles(.plain))
         shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
-                                               domains: { _ in [] }, record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                               domains: { _ in [] }, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         notified = NoticeLog()
         coordinator = ShippingCoordinator(shipper: shipper, link: link, notices: notified.notices, explain: { nil })
         coordinator.changed = { [unowned self] in

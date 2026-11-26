@@ -10,7 +10,7 @@ import { LLM_REPORT, MODELS } from '../public/kit-gallery-llm.js';
 import { HOST_STATE, REPORT } from '../public/kit-gallery-report.js';
 import { AI_PAGE, detailOf, OPENED } from '../public/ui/connectors/dialog.js';
 import { detailMarkup } from '../public/ui/connectors/detail.js';
-import { SETTINGS_MODELS } from '../public/ui/connectors/settings.js';
+import { SETTINGS_PROVIDERS } from '../public/ui/connectors/settings.js';
 import { AT_REST } from '../public/ui/connectors/view.js';
 import { openDoor } from '../lib/door.mjs';
 import { createViewer } from '../server.mjs';
@@ -102,7 +102,7 @@ test('P3: each AI row pushes its own page: the model, the hiding, a mark when it
           const shape = connector.processing?.rows.find(each => `${AI_PAGE}${each.member}` === page)?.shape;
           if (shape === 'needs') {
             assert.deepEqual(inside.panels[0].rows[0].mark, { look: 'needs-you' }, `${connector.id} ${page}: marked`);
-            if (state) assert.deepEqual(inside.panels[0].rows[0].act, { open: SETTINGS_MODELS }, `${connector.id} ${page}: to Models`);
+            if (state) assert.deepEqual(inside.panels[0].rows[0].act, { open: SETTINGS_PROVIDERS }, `${connector.id} ${page}: to Providers`);
             needs += 1;
           }
           const markup = detailMarkup(inside, AT_REST);
@@ -142,7 +142,7 @@ async function standInDoor() {
     /** @param {number} status @param {unknown} body */
     const json = (status, body) => response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     if (path === '/v1/connectors') return json(200, { position: '1:0', ...door.report });
-    if (path === '/v1/page/models') return json(200, { ...MODELS, position: '1:0' });
+    if (path === '/v1/page/models/defaults' || path === '/v1/page/models/providers') return json(200, { ...MODELS, position: '1:0' });
     if (path === '/v1/feed') {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.write(': open\n\n');

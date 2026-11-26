@@ -92,6 +92,13 @@ extension PhoneShipper {
     }
 }
 
+extension Device {
+    init(_ mobile: MobileData.Moment, charging: Bool, spare: Int64, changeRoom: Int64? = .max) {
+        self.init(pastMoves: mobile.decide(.later, bytes: 0).moves, iCloud: mobile.internet.decide(.later, bytes: .max).moves,
+                  charging: charging, spare: spare, changeRoom: changeRoom)
+    }
+}
+
 extension PhotoPass.Home {
     @MainActor static func of(_ shipper: PhoneShipper) async -> Self {
         let link = shipper.link
@@ -100,6 +107,6 @@ extension PhotoPass.Home {
         if let saved = link.saved, source != nil { caughtUp = (try? await shipper.custody.caughtUp(.photos, saved)) ?? false }
         let history = source.flatMap { link.saved?.sources[$0]?.history } ?? true
         return Self(caughtUp: caughtUp, history: history, start: PhoneSettings.start(of: .photos, in: link.saved?.settings),
-                    wanted: { try await link.photosWanted(source: source ?? "") })
+                    wanted: { owed in try await link.photosWanted(source: source ?? "", owed: owed) })
     }
 }

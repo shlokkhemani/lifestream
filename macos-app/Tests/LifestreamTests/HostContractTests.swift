@@ -297,6 +297,17 @@ final class HostContractTests: XCTestCase {
             XCTAssertEqual(act(["act": "home-setting", "key": "history.start", "value": value]), .failure(.unreadable(nil)), "\(value)")
         }
         XCTAssertEqual(HostAct.HomeSetting.historyStart("2026-05-23").args, ["set", #"{"history.start":"2026-05-23"}"#])
+        for choice in MobileData.Choice.allCases {
+            XCTAssertEqual(act(["act": "home-setting", "key": "devices.macbook-pro-0001.mobile_data", "value": choice.rawValue]),
+                           .success(.mobileData(key: "devices.macbook-pro-0001.mobile_data", choice: choice)), choice.rawValue)
+        }
+        for value: Any in ["all", "metered", "", NSNull(), 1] {
+            XCTAssertEqual(act(["act": "home-setting", "key": "devices.macbook-pro-0001.mobile_data", "value": value]),
+                           .failure(.unreadable(nil)), "\(value)")
+        }
+        for key in ["devices..mobile_data", "devices.macbook-pro-0001.mobile_data.x", "devices.a.b.mobile_data", "device.macbook-pro-0001.mobile_data"] {
+            XCTAssertEqual(act(["act": "home-setting", "key": key, "value": "now"]), .failure(.unreadable(nil)), key)
+        }
         let choice: [String: Any] = ["privacy.level": "all", "privacy.chat": "names"]
         XCTAssertEqual(act(["act": "home-setting", "settings": choice]),
                        .success(.homeSetting(.privacy([.word(.chat, "names"), .word(.level, "all")]))))

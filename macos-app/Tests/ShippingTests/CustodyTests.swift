@@ -57,7 +57,7 @@ class CustodyTests: XCTestCase {
                     }
                 }
             },
-            clock: clock.read, record: { _ in }, network: .free, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+            clock: clock.read, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
     }
 
     private func batch(_ at: String) throws -> String {

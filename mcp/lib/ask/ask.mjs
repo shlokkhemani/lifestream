@@ -1435,11 +1435,11 @@ function turnOf(chat, n, asked, title) {
   };
 }
 
-const NO_MODEL = 'Chat needs a model: choose one in Settings › AI models.';
+const NO_MODEL = 'Chat needs a model: choose one in Settings › Default models.';
 const NO_DEFAULT = 'Chat has no default model: choose one from the menu.';
 const CHOOSE_MODEL = 'Choose a model';
 const CONNECT_MODEL = 'Connect a model…';
-const OPEN_MODELS = 'Open AI models';
+const OPEN_MODELS = 'Open Providers';
 
 /**
  * @param {Row} row

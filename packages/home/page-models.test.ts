@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { RunnerFile, UseId } from "@lifestreamprotocol/model";
 import { ADDRESS_WINDOW, CHOOSE_MODEL, MENU } from "./models-read.js";
-import type { ModelRoute, StoredModels, StoredRunner } from "./models.js";
-import { modelsFindHandler, modelsFound, modelsHandler, modelsPage, WORDS, type FoundWork, type ModelsInputs, type ModelsSettings } from "./page-models.js";
+import { leftWords, routeName, secondsLeft, type ModelRoute, type StoredModels, type StoredRunner } from "./models.js";
+import { modelDefaults, modelDefaultsHandler, modelProviders, modelProvidersHandler, modelsFindHandler, modelsFound, WORDS, type FoundWork, type ModelsInputs, type ModelsSettings } from "./page-models.js";
 import { servePages } from "./page-serve.js";
 import { PAGES, type ModelMenu } from "./pages.js";
 import type { Ask } from "./reads.js";
@@ -63,25 +63,33 @@ const STORED: StoredModels = { routes: ROUTES, runners: [MINI, RUNNER], connecti
 const NONE: Record<UseId, string | null> = { pictures: null, audio: null, text: null, chat: null, search: null, hiding: null };
 const SETTINGS: ModelsSettings = { defaults: NONE, thinking: { chat: null }, model: { cap: 4 }, runners: {}, connectors: {}, unit: HOME };
 
-const page = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsInputs> = {}) =>
-  modelsPage({ stored: STORED, settings: { ...SETTINGS, ...settings }, pauses: [], now_ms: NOW, day: DAY, ...more });
+const inputsOf = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsInputs> = {}): ModelsInputs =>
+  ({ stored: STORED, settings: { ...SETTINGS, ...settings }, pauses: [], now_ms: NOW, day: DAY, ...more });
+const page = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsInputs> = {}) => modelDefaults(inputsOf(settings, more));
+const providers = (settings: Partial<ModelsSettings> = {}, more: Partial<ModelsInputs> = {}) => modelProviders(inputsOf(settings, more));
+const KEY_FIELD = { label: WORDS.keyField("OpenRouter"), placeholder: WORDS.keyPlaceholder, add: WORDS.addKey, remove: WORDS.remove };
+const SERVER_WORDS = { about: WORDS.serverAbout, add: WORDS.addServer, remove: WORDS.remove, field: WORDS.serverField, placeholder: WORDS.serverPlaceholder, save: WORDS.save };
 const useOf = (answer: ReturnType<typeof page>, use: UseId) => answer.uses.find((each) => each.use === use)!;
 const listed = (menu: Pick<ModelMenu, "rows" | "local">): string[] => [...menu.rows, ...menu.local?.rows ?? []].map((row) => row.value);
 
-async function served(inputs: ModelsInputs): Promise<unknown> {
-  const routes = servePages({ models: modelsHandler({ read: () => ({ position: "7:1", inputs }) }) }, () => DAY);
-  const ask = { url: PAGES.models.route, now_ms: NOW, held: { machine: "machine-0001" } } as unknown as Ask;
-  return JSON.parse((await routes.get(PAGES.models.route)!(ask)).body as string) as unknown;
+async function served(name: "modelDefaults" | "modelProviders", inputs: ModelsInputs): Promise<unknown> {
+  const read = { read: () => ({ position: "7:1", inputs }) };
+  const routes = servePages({ modelDefaults: modelDefaultsHandler(read), modelProviders: modelProvidersHandler(read) }, () => DAY);
+  const ask = { url: PAGES[name].route, now_ms: NOW, held: { machine: "machine-0001" } } as unknown as Ask;
+  return JSON.parse((await routes.get(PAGES[name].route)!(ask)).body as string) as unknown;
 }
 
-describe("the models page", () => {
+describe("the default models page", () => {
   it("is the page's shape, its six uses in the order Settings draws them", () => {
     const answer = page();
-    PAGES.models.shape.parse({ position: "1:1", today: "2026-06-01", ...answer });
+    PAGES.modelDefaults.shape.parse({ position: "1:1", today: "2026-06-01", ...answer });
+    PAGES.modelProviders.shape.parse({ position: "1:1", today: "2026-06-01", ...providers() });
     expect(answer.uses.map((each) => [each.use, each.label])).toEqual([
-      ["pictures", "Photos"], ["audio", "Voice notes"], ["text", "Text"], ["chat", "Chat"], ["search", "Search by meaning"], ["hiding", "Hiding details"],
+      ["chat", "Chat"], ["pictures", "Photos"], ["audio", "Voice notes"], ["text", "Text"], ["search", "Search by meaning"], ["hiding", "Hiding details"],
     ]);
-    expect([PAGES.models.route, PAGES.models.device, PAGES.models.models, PAGES.models.moves]).toEqual(["/v1/page/models", false, false, ["streams"]]);
+    for (const [name, route] of [["modelDefaults", "/v1/page/models/defaults"], ["modelProviders", "/v1/page/models/providers"]] as const) {
+      expect([PAGES[name].route, PAGES[name].device, PAGES[name].models, PAGES[name].moves], name).toEqual([route, false, false, ["streams"]]);
+    }
   });
 
   it("each use's menu is the models usable now, local ones under Local, each its name; then More, and Off last but for Chat", () => {
@@ -122,7 +130,7 @@ describe("the models page", () => {
 
   it("Chat's use carries its chosen model's levels, worded, the one a pick starts at suggested; a kept level the model lacks reads as that start", () => {
     const chat = useOf(page({ defaults: { ...NONE, chat: OPUS.id }, thinking: { chat: "high" } }), "chat");
-    expect(chat.thinking).toEqual({ value: "high", words: "High", levels: [
+    expect(chat.thinking).toEqual({ label: WORDS.thinking, value: "high", words: "High", levels: [
       { value: "low", name: "Low", chosen: false, suggested: false },
       { value: "medium", name: "Medium", chosen: false, suggested: true },
       { value: "high", name: "High", chosen: true, suggested: false },
@@ -150,55 +158,86 @@ describe("the models page", () => {
 
   it("places name one model per place the first run offers: a plan's suggested model, disabled until signed in, and each runner's, this Mac by name", () => {
     expect(useOf(page(), "pictures").places).toEqual([
-      { place: WORDS.thisMac, value: R_QWEN.id, line: WORDS.download("Qwen 3.5 4B", "4 GB"), ready: true, leaves: false },
-      { place: "Claude", value: HAIKU.id, line: WORDS.connect("Claude"), ready: false, leaves: true },
-      { place: "ChatGPT", value: LUNA.id, line: null, ready: true, leaves: true },
+      { place: WORDS.thisMac, value: R_QWEN.id, line: WORDS.download("Qwen 3.5 4B", "4 GB"), working: false, ready: true, leaves: false },
+      { place: "Claude", value: HAIKU.id, line: WORDS.connect("Claude"), working: false, ready: false, leaves: true },
+      { place: "ChatGPT", value: LUNA.id, line: null, working: false, ready: true, leaves: true },
     ]);
     expect(useOf(page(), "audio").places).toEqual([
-      { place: WORDS.thisMac, value: R_PARAKEET.id, line: null, ready: true, leaves: false },
-      { place: WORDS.on("Mac mini"), value: M_PARAKEET.id, line: null, ready: true, leaves: false },
+      { place: WORDS.thisMac, value: R_PARAKEET.id, line: null, working: false, ready: true, leaves: false },
+      { place: WORDS.on("Mac mini"), value: M_PARAKEET.id, line: null, working: false, ready: true, leaves: false },
     ]);
     expect(useOf(page(), "chat").places.map((each) => each.value)).toEqual([OPUS.id, SOL.id]);
+    const fetching = { ...QWEN, state: "fetching" as const, fetched_bytes: 1_000_000_000 };
+    const runner = { ...RUNNER, files: [fetching, ...RUNNER.files.slice(1)], left: { [QWEN.id]: 170 } };
+    expect(useOf(page({}, { stored: { ...STORED, runners: [MINI, runner] } }), "pictures").places[0]).toMatchObject({ line: "Downloading · 3 min left", working: true });
   });
+});
 
-  it("connections come this Mac first, then the other runners, the plans, the keys and the address; a runner's files carry the home's words and acts", () => {
-    const answer = page({ model: { cap: 4, transports: { address: { url: "http://127.0.0.1:1234/v1" } } } as ModelsSettings["model"], runners: {} },
+describe("the providers page", () => {
+  it("lists the accounts, then each runner's local models, then the other server; every word is the home's", () => {
+    const answer = providers({ model: { cap: 4, transports: { address: { url: "http://127.0.0.1:1234/v1" } } } as ModelsSettings["model"], runners: {} },
       { pauses: [{ target: `runner:${OTHER}`, by: "you", at_ms: NOW - 60_000 }] });
+    expect(answer.accounts).toBe(WORDS.accounts);
     expect(answer.connections.map((each) => [each.kind, each.id])).toEqual([
-      ["runner", `runner:${UNIT}`], ["runner", `runner:${OTHER}`], ["plan", "claude"], ["plan", "codex"], ["key", "openrouter"], ["address", "address"],
+      ["plan", "claude"], ["plan", "codex"], ["key", "openrouter"], ["runner", `runner:${UNIT}`], ["runner", `runner:${OTHER}`], ["address", "address"],
     ]);
-    const [mine, mini, claude, codex, openrouter, address] = answer.connections;
+    const [claude, codex, openrouter, mine, mini, address] = answer.connections;
     expect([claude, codex, openrouter, address]).toEqual([
-      { kind: "plan", id: "claude", name: "Claude", line: "Sign in to Claude again", signed: false },
-      { kind: "plan", id: "codex", name: "ChatGPT", line: null, signed: true },
-      { kind: "key", id: "openrouter", name: "OpenRouter", line: "Add the key for OpenRouter", held: false },
-      { kind: "address", id: "address", url: "http://127.0.0.1:1234/v1", line: ADDRESS_WINDOW },
+      { kind: "plan", id: "claude", name: "Claude", line: "Sign in to Claude again", signed: false, words: WORDS.unsigned },
+      { kind: "plan", id: "codex", name: "ChatGPT", line: null, signed: true, words: WORDS.signed },
+      { kind: "key", id: "openrouter", name: "OpenRouter", line: WORDS.keyLine, held: false, words: null, key: KEY_FIELD },
+      { kind: "address", id: "address", label: WORDS.server, url: "http://127.0.0.1:1234/v1", line: ADDRESS_WINDOW, words: SERVER_WORDS },
     ]);
-    expect(page().connections.filter((each) => each.kind === "address"), "the address is stated unset, so Settings can add one").toEqual([
-      { kind: "address", id: "address", url: null, line: null },
+    expect(providers().connections.filter((each) => each.kind === "address"), "the server is stated unset, so Settings can add one").toEqual([
+      { kind: "address", id: "address", label: WORDS.server, url: null, line: null, words: SERVER_WORDS },
     ]);
-    if (mine?.kind !== "runner" || mini?.kind !== "runner") throw new Error("the runners come first");
-    expect([mine.unit, mine.place, mini.unit, mini.place]).toEqual([UNIT, WORDS.thisMac, OTHER, WORDS.on("Mac mini")]);
-    expect([mine.line, mine.paused, mine.battery, mini.paused, mini.battery]).toEqual([null, false, { on: true, line: WORDS.batteryHeld }, true, null]);
-    expect(mini.line).toMatch(/^Paused since /u);
-    expect(mine.files.map((each) => [each.id, each.about, each.size, each.suggested, each.fits, each.acts])).toEqual([
-      ["qwen3.5-4b", "Describes photos and sums up text · suggested for this Mac's 16 GB", "4 GB", true, true, ["fetch"]],
-      ["parakeet-unified-en-0.6b", "Transcribes voice notes in English · suggested for this Mac's 16 GB", "0.7 GB", true, true, ["remove"]],
-      ["nemotron-3.5-asr-0.6b", "Transcribes voice notes in English, Hindi and 2 more languages", "0.8 GB", false, true, ["fetch"]],
-      ["qwen3.5-35b-a3b", `Describes photos and sums up text · ${WORDS.needs(48)}`, "22 GB", false, false, []],
-      ["embeddinggemma-2-q8-512", "Search by meaning · suggested for this Mac's 16 GB", "0.5 GB", true, true, ["fetch"]],
+    if (mine?.kind !== "runner" || mini?.kind !== "runner") throw new Error("the runners follow the accounts");
+    expect([mine.unit, mine.place, mini.unit, mini.place]).toEqual([UNIT, WORDS.localOn("MacBook Pro"), OTHER, WORDS.localOn("Mac mini")]);
+    expect([mine.line, mine.paused, mine.run, mine.battery, mine.none]).toEqual([null, false, { label: WORDS.run, on: true, line: null },
+      { label: WORDS.saveBattery, on: true, line: WORDS.batteryLine }, null]);
+    expect([mini.line, mini.paused, mini.run, mini.battery]).toEqual([null, true, { label: WORDS.run, on: false, line: WORDS.runOff }, null]);
+    expect(mine.files.map((each) => [each.id, each.line, each.working, each.fits, each.words, each.acts.map((act) => [act.act, act.words])])).toEqual([
+      ["qwen3.5-4b", `Describes photos and sums up text · 4 GB · ${WORDS.recommended}`, false, true, null, [["fetch", WORDS.fetch]]],
+      ["parakeet-unified-en-0.6b", `Transcribes voice notes in English · 0.7 GB · ${WORDS.recommended}`, false, true, WORDS.downloaded, [["remove", WORDS.remove]]],
+      ["nemotron-3.5-asr-0.6b", "Transcribes voice notes in English, Hindi and 2 more languages · 0.8 GB", false, true, null, [["fetch", WORDS.fetch]]],
+      ["qwen3.5-35b-a3b", WORDS.needs(48), false, false, null, []],
+      ["embeddinggemma-2-q8-512", `Search by meaning · 0.5 GB · ${WORDS.recommended}`, false, true, null, [["fetch", WORDS.fetch]]],
     ]);
     expect(mine.found).toEqual([]);
+    const alone = providers({}, { stored: { ...STORED, runners: [RUNNER] } }).connections.find((each) => each.kind === "runner");
+    expect(alone?.kind === "runner" ? alone.place : null, "one Mac's runner is plain Local models").toBe(WORDS.local);
+  });
+
+  it("a downloading file reads Downloading and the time left the home measured, working, with Cancel; a runner away holds every act", () => {
+    const fetching = { ...QWEN, state: "fetching" as const, fetched_bytes: 1_000_000_000 };
+    const fileOf = (runner: StoredRunner) => {
+      const mine = providers({}, { stored: { ...STORED, runners: [runner] } }).connections.find((each) => each.kind === "runner");
+      return mine?.kind === "runner" ? mine.files[0]! : null;
+    };
+    expect(fileOf({ ...RUNNER, files: [fetching] })).toMatchObject({ line: "Downloading", working: true, acts: [{ act: "cancel", words: WORDS.cancel }] });
+    expect(fileOf({ ...RUNNER, files: [fetching], left: { [QWEN.id]: 170 } })?.line).toBe("Downloading · 3 min left");
+    expect(fileOf({ ...RUNNER, files: [fetching], present: false })?.acts).toEqual([]);
+    expect([30, 60, 170, 3_599, 7_200].map(leftWords)).toEqual(["less than a minute left", "1 min left", "3 min left", "about 1 hr left", "about 2 hr left"]);
+    expect([
+      secondsLeft({ bytes: 1_000, fetched_bytes: 600 }, { at_ms: 0, bytes: 200 }, 4_000),
+      secondsLeft({ bytes: 1_000, fetched_bytes: 200 }, { at_ms: 0, bytes: 200 }, 4_000),
+      secondsLeft({ bytes: 1_000, fetched_bytes: 600 }, { at_ms: 4_000, bytes: 200 }, 4_000),
+    ]).toEqual([4, undefined, undefined]);
   });
 
   it("pins a full answer and an empty one, which the apps decode", async () => {
     const address = { cap: 4, transports: { address: { url: "http://127.0.0.1:1234/v1" } } } as ModelsSettings["model"];
+    const full: ModelsInputs = {
+      stored: { ...STORED, runners: [MINI, { ...RUNNER, files: RUNNER.files.map((each) => each.id === NEMOTRON.id ? { ...each, state: "fetching", fetched_bytes: 300_000_000 } : each), left: { [NEMOTRON.id]: 170 } }] },
+      pauses: [{ target: `runner:${OTHER}`, by: "you", at_ms: NOW - 60_000 }], now_ms: NOW, day: DAY,
+      settings: { ...SETTINGS, model: address, defaults: { ...NONE, pictures: LUNA.id, audio: R_PARAKEET.id, text: GONE.id, chat: OPUS.id, search: R_GEMMA.id, hiding: R_PARAKEET.id }, thinking: { chat: "high" } },
+    };
+    const empty: ModelsInputs = { stored: { routes: [], runners: [], connections: {} }, settings: SETTINGS, pauses: [], now_ms: NOW, day: DAY };
     const pinned = {
-      "models.full": await served({
-        stored: STORED, pauses: [{ target: `runner:${OTHER}`, by: "you", at_ms: NOW - 60_000 }], now_ms: NOW, day: DAY,
-        settings: { ...SETTINGS, model: address, defaults: { ...NONE, pictures: LUNA.id, audio: R_PARAKEET.id, text: GONE.id, chat: OPUS.id, search: R_GEMMA.id, hiding: R_PARAKEET.id }, thinking: { chat: "high" } },
-      }),
-      "models.empty": await served({ stored: { routes: [], runners: [], connections: {} }, settings: SETTINGS, pauses: [], now_ms: NOW, day: DAY }),
+      "modelDefaults.full": await served("modelDefaults", full),
+      "modelDefaults.empty": await served("modelDefaults", empty),
+      "modelProviders.full": await served("modelProviders", full),
+      "modelProviders.empty": await served("modelProviders", empty),
     };
     for (const [name, answer] of Object.entries(pinned)) {
       const fixture = clientFixture(`pages/${name}`, answer);
@@ -211,20 +250,31 @@ describe("the models find page", () => {
   const inputs = (settings: Partial<ModelsSettings> = {}): ModelsInputs => ({ stored: STORED, settings: { ...SETTINGS, ...settings }, pauses: [], now_ms: NOW, day: DAY });
   const VOICE: FoundWork = { id: "connector-a/voice", kind: "audio" };
 
-  it("answers the usable models that fit the use and match the words, laid out as a menu's rows; nothing for blank words, and No matches when nothing matches", () => {
+  it("answers the usable models that fit the use and match the words, grouped under where each comes from; nothing for blank words, and No matches when nothing matches", () => {
     const chat = modelsFound(inputs({ defaults: { ...NONE, chat: SOL.id } }), "chat", undefined, "GPT");
     expect(chat).toEqual({
-      placeholder: MENU.search, rows: [{ value: SOL.id, name: "GPT-6.2 Sol", account: null, chosen: true }, { value: LUNA.id, name: "GPT-6 Luna", account: null, chosen: false }],
-      local: null, none: null,
+      placeholder: MENU.search,
+      groups: [{ label: "ChatGPT", rows: [{ value: SOL.id, name: "GPT-6.2 Sol", account: null, chosen: true }, { value: LUNA.id, name: "GPT-6 Luna", account: null, chosen: false }] }],
+      none: null,
     });
-    expect(modelsFound(inputs(), "chat", undefined, " ")).toEqual({ placeholder: MENU.search, rows: [], local: null, none: null });
-    expect(modelsFound(inputs(), "chat", undefined, "claude")).toEqual({ placeholder: MENU.search, rows: [], local: null, none: MENU.none });
-    expect(modelsFound(inputs(), "audio", undefined, "parakeet").local?.rows.map((each) => [each.value, each.account])).toEqual([[R_PARAKEET.id, "MacBook Pro"], [M_PARAKEET.id, "Mac mini"]]);
+    expect(modelsFound(inputs(), "chat", undefined, " ")).toEqual({ placeholder: MENU.search, groups: [], none: null });
+    expect(modelsFound(inputs(), "chat", undefined, "claude")).toEqual({ placeholder: MENU.search, groups: [], none: MENU.none });
+    const local = modelsFound(inputs(), "audio", undefined, "parakeet").groups;
+    expect(local.map((group) => [group.label, group.rows.map((each) => [each.value, each.account])]), "one name on two Macs under Local says each Mac")
+      .toEqual([[MENU.local, [[R_PARAKEET.id, "MacBook Pro"], [M_PARAKEET.id, "Mac mini"]]]]);
+  });
+
+  it("groups come in order: the plans, Claude then ChatGPT, then OpenRouter, then Local", () => {
+    const vision: ModelRoute = { ...SCRIBE, id: "openrouter:vendor-a/vision-1", model: "vendor-a/vision-1", name: "Vision One", input: ["text", "image"], suggested: ["pictures"], state: "ready", line: null };
+    const routes = [...ROUTES.map((each) => each.transport === "claude" ? { ...each, state: "ready", line: null } as ModelRoute : each), vision];
+    const found = modelsFound({ ...inputs(), stored: { ...STORED, routes } }, "pictures", undefined, "a");
+    expect(found.groups.map((group) => group.label)).toEqual(["Claude", "ChatGPT", "OpenRouter", MENU.local]);
+    expect(found.groups.filter((group) => group.label !== MENU.local).flatMap((group) => group.rows).map((row) => row.account), "the header names the account").not.toContain("Claude");
   });
 
   it("a stream's work marks the work's own pick", () => {
     const found = modelsFound(inputs({ connectors: { "connector-a": { "llm.voice": M_PARAKEET.id } } }), "audio", VOICE, "parakeet");
-    expect(found.local?.rows.map((each) => [each.value, each.chosen])).toEqual([[R_PARAKEET.id, false], [M_PARAKEET.id, true]]);
+    expect(found.groups[0]?.rows.map((each) => [each.value, each.chosen])).toEqual([[R_PARAKEET.id, false], [M_PARAKEET.id, true]]);
   });
 
   it("is served with use or work and the words; a use it does not know, or a work of another use, is refused", async () => {
@@ -240,11 +290,17 @@ describe("the models find page", () => {
     };
     const found = await asked("use=chat&q=claude");
     PAGES.modelsFind.shape.parse(found);
-    expect((found as { rows: { value: string }[] }).rows.map((each) => each.value)).toEqual([OPUS.id, HAIKU.id]);
-    expect(await asked("work=connector-a/voice&q=parakeet")).toMatchObject({ local: { rows: [{ value: R_PARAKEET.id }, { value: M_PARAKEET.id }] } });
+    expect((found as { groups: { label: string; rows: { value: string }[] }[] }).groups.map((each) => [each.label, each.rows.map((row) => row.value)])).toEqual([["Claude", [OPUS.id, HAIKU.id]]]);
+    expect(await asked("work=connector-a/voice&q=parakeet")).toMatchObject({ groups: [{ label: MENU.local, rows: [{ value: R_PARAKEET.id }, { value: M_PARAKEET.id }] }] });
     expect([await asked("use=films&q=a"), await asked("use=chat&work=connector-a/voice&q=a"), await asked("q=a"), await asked("work=connector-b/voice&q=a")])
       .toEqual(["BAD_PARAMETER", "BAD_PARAMETER", "BAD_PARAMETER", "WORK_UNKNOWN"]);
     const fixture = clientFixture("pages/modelsFind.claude", found);
     expect(fixture.held, "homelink/Tests/Fixtures/pages/modelsFind.claude.json is this answer: LIFESTREAM_FIXTURES=write writes it").toBe(fixture.written);
+  });
+});
+
+describe("an OpenRouter model's name", () => {
+  it("drops the maker OpenRouter puts before it; another provider's name is kept whole", () => {
+    expect([routeName("openrouter", "Qwen: Qwen4 Max"), routeName("openrouter", "Vision One"), routeName("claude", "Claude: Opus")]).toEqual(["Qwen4 Max", "Vision One", "Claude: Opus"]);
   });
 });

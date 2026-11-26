@@ -24,7 +24,7 @@ import { newest, type Feed } from "./feed.js";
 import { freshSourcesOf } from "./freshness.js";
 import { photoNamed, photoOfRecord, preparedFile, readPhoto, unheldWords, type PreparedFile } from "./photo.js";
 import { modelsAt, modelsRead } from "./models-read.js";
-import { modelsFindHandler, modelsHandler, type ModelsReads } from "./page-models.js";
+import { modelDefaultsHandler, modelProvidersHandler, modelsFindHandler, type ModelsReads } from "./page-models.js";
 import { storedModels } from "./models.js";
 import { NOTHING_MADE, openMade, type MadeInput } from "./made.js";
 import type { Made } from "./streams-report.js";
@@ -1514,7 +1514,8 @@ export function openReads(input: {
     settings: settingsHandler(settingsReads),
     settingsPage: settingsPageHandler(settingsReads),
     storage: storageHandler(storageReads),
-    models: modelsHandler(modelsHeld),
+    modelDefaults: modelDefaultsHandler(modelsHeld),
+    modelProviders: modelProvidersHandler(modelsHeld),
     modelsFind: modelsFindHandler({
       ...modelsHeld,
       work: (id) => {

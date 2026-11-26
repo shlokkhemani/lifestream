@@ -555,7 +555,7 @@ export async function onboardingHome({ door, day }) {
   /** @type {unknown[] | null} */
   let modes = null;
   let up = true;
-  /** @type {import('../../public/pages.js').Models | null} */
+  /** @type {import('../../public/lib/model-menu.js').Models | null} */
   let models = MODELS_BARE;
   let modelsRead = 0;
   /** @type {import('../../public/types.js').PrivacyRead} */
@@ -657,7 +657,7 @@ export async function onboardingHome({ door, day }) {
       }
       return send(200, answer);
     }
-    if (path === '/v1/page/models') {
+    if (path === '/v1/page/models/defaults' || path === '/v1/page/models/providers') {
       modelsRead += 1;
       return models ? send(200, models) : send(503, { error: 'NOT_NOW', message: 'Lifestream is busy.' });
     }
@@ -759,7 +759,7 @@ export async function onboardingHome({ door, day }) {
     held(setup) {
       kept = setup;
     },
-    /** @param {import('../../public/pages.js').Models | null} next */
+    /** @param {import('../../public/lib/model-menu.js').Models | null} next */
     modelsMoved(next) {
       models = next;
       tell({ kind: 'models', key: 'models' });

@@ -2,7 +2,7 @@ import type { RunnerAnswer, RunnerCall, RunnerFailure } from "@lifestreamprotoco
 import type { Row } from "./files.js";
 
 export interface Library {
-  fetch(row: Row, progress: (bytes: number) => void, signal: AbortSignal): Promise<void>;
+  fetch(row: Row, progress: (fetched: number, bytes?: number) => void, signal: AbortSignal): Promise<void>;
   remove(row: Row, signal: AbortSignal): Promise<void>;
   run(row: Row, call: RunnerCall, signal: AbortSignal): Promise<RunnerAnswer>;
   close(): Promise<void>;

@@ -155,7 +155,7 @@ public struct ShippingSchedule: Codable, Sendable, Equatable {
     public var pass: String?
     public var pairedAt: Date?
     public var sending: Sending?
-    public var waitsForNetwork: Bool?
+    public var waitsFor: String?
 
     public init() {}
 
@@ -164,7 +164,7 @@ public struct ShippingSchedule: Codable, Sendable, Equatable {
         case lastRunAt = "last_run_at"
         case lastOutcome = "last_outcome"
         case pairedAt = "paired_at"
-        case waitsForNetwork = "waits_for_network"
+        case waitsFor = "waits_for"
     }
 
     static let encoder: JSONEncoder = {

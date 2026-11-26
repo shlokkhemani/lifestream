@@ -163,8 +163,8 @@ if [[ -e LifestreamCapture/Private/google-places-api-key.txt ]]; then
   fail "LifestreamCapture/Private/google-places-api-key.txt: the phone holds no Google key; delete it"
 fi
 rg -Fq 'if pressed { return .now }' LifestreamCapture/Shipping/PhoneShipper.swift &&
-  rg -Fq '!Transfer.mayMove(.new, bytes:' LifestreamCapture/Shipping/PhoneShipper.swift ||
-  fail "shipping asks HomeLink's network rule of every bundle, but a pressed one (Ship now, Refresh now)"
+  rg -Fq 'link.mobile(pressed: false).decide(.new, bytes:' LifestreamCapture/Shipping/PhoneShipper.swift ||
+  fail "shipping asks HomeLink's MobileData of every bundle, but a pressed one (Ship now, Refresh now)"
 rg -Fq 'AppRuntime.shared.bootstrap(launchOptions: launchOptions)' LifestreamCapture/App/AppDelegate.swift ||
   fail "all launches must bootstrap without waiting for a view"
 if rg -n 'Task[ ({.]' LifestreamCapture/Location/AppOwnedRecorder.swift; then

@@ -2,20 +2,21 @@ import { digest, type DaySettings, type Json } from "@lifestreamprotocol/core";
 import { MODEL_USES, unfit, unfitWords, USE_IDS, workNeed, type RunnerFile, type UseId } from "@lifestreamprotocol/model";
 import type { Pause } from "./jobs.js";
 import { runnerUnit } from "./lifecycle.js";
-import { CHOOSE_MODEL, connectionOf, foundOf, MENU, modelList, modelsAt, modelsRead, runnerConnection, storedRunnerLine, usable, type ModelsRead, type ReadModel } from "./models-read.js";
+import { CHOOSE_MODEL, connectionOf, foundOf, MENU, modelGroups, modelsAt, modelsRead, runnerConnection, storedRunnerLine, usable, type ModelsRead, type ReadModel } from "./models-read.js";
 import { fileLine, gigabytes, itemUsesOf, opening, runnerPause, savesBattery, WORK_MEMBER, type ModelRoute, type StoredModels, type StoredRunner, type WorkNeeds } from "./models.js";
 import { refuse } from "./refusal.js";
 import type { AnswerOf, Body, PageAsk, PageHandler } from "./pages.js";
 import type { Settings } from "./settings.js";
-import { pausedWords, when } from "./stream-words.js";
 
-export type ModelsPage = Body<AnswerOf<"models">>;
+export type ModelDefaults = Body<AnswerOf<"modelDefaults">>;
+export type ModelProviders = Body<AnswerOf<"modelProviders">>;
 export type ModelsFound = Body<AnswerOf<"modelsFind">>;
-type Use = ModelsPage["uses"][number];
+type Use = ModelDefaults["uses"][number];
 type Place = Use["places"][number];
 type Thinking = NonNullable<Use["thinking"]>;
-type Connection = ModelsPage["connections"][number];
-type File = Extract<Connection, { kind: "runner" }>["files"][number];
+type Connection = ModelProviders["connections"][number];
+type Runner = Extract<Connection, { kind: "runner" }>;
+type File = Runner["files"][number];
 
 export type ModelsSettings = Pick<Settings, "defaults" | "thinking" | "model" | "runners" | "connectors" | "unit">;
 
@@ -29,14 +30,39 @@ export interface ModelsInputs {
 
 export const WORDS = {
   off: MENU.off,
+  thinking: "Thinking",
+  accounts: "Accounts",
+  local: "Local models",
+  localOn: (name: string) => `Local models on ${name}`,
   thisMac: "On this Mac",
   on: (name: string) => `On ${name}`,
   connect: (name: string) => `Connect ${name} first`,
   download: (name: string, size: string) => `Download ${name} · ${size}`,
-  suggestedFor: (where: string, memory_gb: number) => `suggested for ${where}'s ${memory_gb} GB`,
-  needs: (memory_gb: number) => `Needs a Mac with ${memory_gb} GB`,
-  saveBattery: "Runs only today's and yesterday's items on battery; the rest wait until it's plugged in.",
-  batteryHeld: "On battery · older items wait until it's plugged in",
+  recommended: "Recommended",
+  needs: (memory_gb: number) => `Needs ${memory_gb} GB of memory`,
+  run: "Run local models",
+  runOff: "Local work waits until you turn this on.",
+  saveBattery: "Save battery",
+  batteryLine: "On battery, only recent items run.",
+  none: "No models on this machine yet.",
+  downloaded: "Downloaded",
+  fetch: "Download",
+  again: "Try again",
+  remove: "Remove",
+  cancel: "Cancel",
+  signed: "Signed in",
+  unsigned: "Not signed in",
+  keyLine: "Hundreds of models with one key.",
+  connected: "Connected",
+  keyField: (name: string) => `${name} key`,
+  keyPlaceholder: "sk-or-…",
+  addKey: "Add key",
+  server: "Other server",
+  serverAbout: "Any OpenAI-compatible server, like vLLM or another Mac.",
+  addServer: "Add server",
+  serverField: "Server URL",
+  serverPlaceholder: "http://localhost:11434/v1",
+  save: "Save",
   finds: "search by meaning",
   marks: "finds personal details to hide",
 } as const;
@@ -61,30 +87,37 @@ function languageWords(codes: readonly string[]): string {
   return listed([...named, counted]);
 }
 
-function aboutFile(file: RunnerFile, runner: Pick<StoredRunner, "memory_gb">, suggested: boolean, where: string): string {
+function doesOf(file: RunnerFile): string {
   const said = file.output === "vectors" ? [WORDS.finds] : file.output === "marks" ? [WORDS.marks]
     : itemUsesOf({ ...file, leaves: null }).map((kind) => kind === "audio" && file.languages.length > 0 ? `${DOES.audio} in ${languageWords(file.languages)}` : DOES[kind]);
-  const fits = runner.memory_gb >= file.memory_gb;
-  return [opening(listed(said)), ...suggested && fits ? [WORDS.suggestedFor(where, runner.memory_gb)] : [], ...fits ? [] : [WORDS.needs(file.memory_gb)]].join(" · ");
+  return opening(listed(said));
+}
+
+function fileLineOf(file: RunnerFile, runner: Pick<StoredRunner, "memory_gb" | "left">, recommended: boolean): string {
+  if (runner.memory_gb < file.memory_gb) return WORDS.needs(file.memory_gb);
+  const said = fileLine(file, runner.left?.[file.id]);
+  if (said !== null && file.state !== "absent") return said;
+  return [doesOf(file), gigabytes(file.bytes), ...recommended ? [WORDS.recommended] : []].join(" · ");
 }
 
 function actsOf(file: RunnerFile, fits: boolean): File["acts"] {
   switch (file.state) {
-    case "absent": return fits ? ["fetch"] : [];
-    case "fetching": return ["cancel"];
-    case "ready": return ["remove"];
-    case "failed": return ["fetch"];
+    case "absent": return fits ? [{ act: "fetch", words: WORDS.fetch }] : [];
+    case "fetching": return [{ act: "cancel", words: WORDS.cancel }];
+    case "ready": return [{ act: "remove", words: WORDS.remove }];
+    case "failed": return [{ act: "fetch", words: WORDS.again }];
   }
 }
 
-function pickOf(row: ReadModel, stored: StoredModels): Pick<Place, "line" | "ready"> | null {
+function pickOf(row: ReadModel, stored: StoredModels): Pick<Place, "line" | "ready" | "working"> | null {
   const runner = stored.runners.find((each) => runnerConnection(each.unit) === row.connection);
   const file = runner?.files.find((each) => each.id === row.model);
   if (runner === undefined || file === undefined || file.state === "ready") return null;
-  if (runner.memory_gb < file.memory_gb) return { line: WORDS.needs(file.memory_gb), ready: false };
+  if (runner.memory_gb < file.memory_gb) return { line: WORDS.needs(file.memory_gb), ready: false, working: false };
   const held = storedRunnerLine(runner);
-  if (held !== null) return { line: held, ready: false };
-  return { line: file.state === "absent" ? WORDS.download(file.name, gigabytes(file.bytes)) : row.line, ready: true };
+  if (held !== null) return { line: held, ready: false, working: false };
+  if (file.state === "absent") return { line: WORDS.download(file.name, gigabytes(file.bytes)), ready: true, working: false };
+  return { line: fileLine(file, runner.left?.[file.id]), ready: true, working: file.state === "fetching" };
 }
 
 const placeOf = (runner: Pick<StoredRunner, "unit" | "name">, here: string): string => runner.unit === here ? WORDS.thisMac : WORDS.on(runner.name);
@@ -98,10 +131,10 @@ function placesOf(use: UseId, read: ModelsRead, stored: StoredModels, here: stri
     if (row === undefined) return [];
     if (connection.kind === "plan") {
       const ready = row.state === "ready";
-      return [{ place: connection.name, value: row.id, line: ready ? null : WORDS.connect(connection.name), ready, leaves: row.leaves !== null }];
+      return [{ place: connection.name, value: row.id, line: ready ? null : WORDS.connect(connection.name), working: false, ready, leaves: row.leaves !== null }];
     }
     const runner = stored.runners.find((each) => runnerConnection(each.unit) === connection.id)!;
-    const pick = pickOf(row, stored) ?? { line: row.state === "ready" ? null : row.line, ready: runner.present && runner.below === null };
+    const pick = pickOf(row, stored) ?? { line: row.state === "ready" ? null : row.line, ready: runner.present && runner.below === null, working: false };
     return [{ place: placeOf(runner, here), value: row.id, ...pick, leaves: row.leaves !== null }];
   });
 }
@@ -112,7 +145,7 @@ function thinkingOf(row: ReadModel | undefined, wanted: string | null): Thinking
   const suggested = start !== null && row.thinking.includes(start) ? start : row.thinking[0]!;
   const value = wanted !== null && row.thinking.includes(wanted) ? wanted : suggested;
   return {
-    value, words: levelWords(value),
+    label: WORDS.thinking, value, words: levelWords(value),
     levels: row.thinking.map((level) => ({ value: level, name: levelWords(level), chosen: level === value, suggested: level === suggested })),
   };
 }
@@ -137,25 +170,26 @@ function useOf(use: UseId, read: ModelsRead, inputs: ModelsInputs, here: string)
   };
 }
 
-function runnerOf(runner: StoredRunner, inputs: ModelsInputs, routes: readonly ModelRoute[], here: string): Connection {
-  const pause = inputs.pauses.find((each) => each.target === runnerPause(runner.unit));
-  const where = runner.unit === here ? "this Mac" : runner.name;
-  const suggestedOf = (file: RunnerFile) => routes.some((route) => connectionOf(route) === runnerConnection(runner.unit) && route.model === file.id && route.suggested.length > 0);
+function runnerOf(runner: StoredRunner, inputs: ModelsInputs, routes: readonly ModelRoute[], label: string): Runner {
+  const paused = inputs.pauses.some((each) => each.target === runnerPause(runner.unit));
+  const line = storedRunnerLine(runner);
+  const away = line !== null;
+  const recommended = (file: RunnerFile) => routes.some((route) => connectionOf(route) === runnerConnection(runner.unit) && route.model === file.id && route.suggested.length > 0);
+  const files = runner.files.filter((file) => file.detector === undefined).map((file): File => {
+    const fits = runner.memory_gb >= file.memory_gb;
+    return {
+      id: file.id, name: file.name, line: fileLineOf(file, runner, recommended(file)), working: file.state === "fetching", state: file.state, fits,
+      words: file.state === "ready" ? WORDS.downloaded : null, acts: away ? [] : actsOf(file, fits),
+    };
+  });
+  const run = away || !(paused || files.some((file) => file.state === "ready")) ? null : { label: WORDS.run, on: !paused, line: paused ? WORDS.runOff : null };
   const on = savesBattery(inputs.settings.runners, runner.unit);
   return {
-    kind: "runner", id: runnerConnection(runner.unit), unit: runner.unit, place: placeOf(runner, here), name: runner.name,
-    line: storedRunnerLine(runner) ?? (pause === undefined ? null : pausedWords(pause.by, null, when(pause.at_ms, inputs.now_ms, inputs.day))),
-    files: runner.files.filter((file) => file.detector === undefined).map((file): File => {
-      const fits = runner.memory_gb >= file.memory_gb;
-      const suggested = suggestedOf(file);
-      return {
-        id: file.id, name: file.name, about: aboutFile(file, runner, suggested, where), size: gigabytes(file.bytes), state: file.state, line: fileLine(file),
-        suggested, fits, acts: actsOf(file, fits),
-      };
-    }),
-    found: [],
-    battery: runner.power === null || !runner.present ? null : { on, line: on && runner.power === "battery" ? WORDS.batteryHeld : WORDS.saveBattery },
-    paused: pause !== undefined,
+    kind: "runner", id: runnerConnection(runner.unit), unit: runner.unit, place: label, name: runner.name, line,
+    none: files.length === 0 && run === null ? line ?? WORDS.none : null,
+    run,
+    battery: away || runner.power === null ? null : { label: WORDS.saveBattery, on, line: WORDS.batteryLine },
+    files, found: [], paused,
   };
 }
 
@@ -163,44 +197,71 @@ function connectionsOf(read: ModelsRead, inputs: ModelsInputs, here: string): Co
   const { stored } = inputs;
   const rows = Object.values(read.models);
   const ready = (id: string) => rows.some((row) => row.connection === id && row.state !== "unavailable");
-  const runners = hereFirst(read.connections.filter((each) => each.kind === "runner"), here)
-    .map((connection) => runnerOf(stored.runners.find((each) => runnerConnection(each.unit) === connection.id)!, inputs, stored.routes, here));
+  const listedRunners = hereFirst(read.connections.filter((each) => each.kind === "runner"), here);
+  const runners = listedRunners.map((connection) => {
+    const runner = stored.runners.find((each) => runnerConnection(each.unit) === connection.id)!;
+    return runnerOf(runner, inputs, stored.routes, listedRunners.length > 1 ? WORDS.localOn(runner.name) : WORDS.local);
+  });
   const others = read.connections.flatMap((connection): Connection[] => {
     switch (connection.kind) {
       case "runner": return [];
-      case "plan": return [{ kind: "plan", id: connection.id, name: connection.name, line: connection.line, signed: ready(connection.id) }];
-      case "key": return [{ kind: "key", id: connection.id, name: connection.name, line: connection.line, held: ready(connection.id) }];
-      case "address": return [{ kind: "address", id: connection.id, url: inputs.settings.model.transports?.address?.url ?? null, line: connection.line }];
+      case "plan": {
+        const signed = ready(connection.id);
+        return [{ kind: "plan", id: connection.id, name: connection.name, line: connection.line, signed, words: signed ? WORDS.signed : WORDS.unsigned }];
+      }
+      case "key": {
+        const held = ready(connection.id);
+        return [{
+          kind: "key", id: connection.id, name: connection.name, line: held ? connection.line ?? WORDS.keyLine : WORDS.keyLine, held, words: held ? WORDS.connected : null,
+          key: { label: WORDS.keyField(connection.name), placeholder: WORDS.keyPlaceholder, add: WORDS.addKey, remove: WORDS.remove },
+        }];
+      }
+      case "address": return [{
+        kind: "address", id: connection.id, label: WORDS.server, url: inputs.settings.model.transports?.address?.url ?? null, line: connection.line,
+        words: { about: WORDS.serverAbout, add: WORDS.addServer, remove: WORDS.remove, field: WORDS.serverField, placeholder: WORDS.serverPlaceholder, save: WORDS.save },
+      }];
     }
   });
-  return [...runners, ...others.filter((each) => each.kind === "plan"), ...others.filter((each) => each.kind === "key"), ...others.filter((each) => each.kind === "address")];
+  return [...others.filter((each) => each.kind === "plan"), ...others.filter((each) => each.kind === "key"), ...runners, ...others.filter((each) => each.kind === "address")];
 }
 
-export function modelsPage(inputs: ModelsInputs): ModelsPage {
-  const { settings } = inputs;
-  const read = modelsRead(inputs.stored, modelsAt(settings));
-  const here = runnerUnit(settings.unit);
-  return {
-    uses: USE_IDS.map((use) => useOf(use, read, inputs, here)),
-    connections: connectionsOf(read, inputs, here),
-  };
+const readOf = (inputs: ModelsInputs): ModelsRead => modelsRead(inputs.stored, modelsAt(inputs.settings));
+
+export function modelDefaults(inputs: ModelsInputs): ModelDefaults {
+  const read = readOf(inputs);
+  const here = runnerUnit(inputs.settings.unit);
+  return { uses: [...USE_IDS].sort((a, b) => Number(b === "chat") - Number(a === "chat")).map((use) => useOf(use, read, inputs, here)) };
+}
+
+export function modelProviders(inputs: ModelsInputs): ModelProviders {
+  return { accounts: WORDS.accounts, connections: connectionsOf(readOf(inputs), inputs, runnerUnit(inputs.settings.unit)) };
 }
 
 export interface ModelsReads {
   read(ask: Pick<PageAsk, "now_ms">): { position: string; inputs: ModelsInputs };
 }
 
-export function modelsHandler(reads: ModelsReads): PageHandler<AnswerOf<"models">> {
+export function modelDefaultsHandler(reads: ModelsReads): PageHandler<AnswerOf<"modelDefaults">> {
   return {
     params: [],
     open(ask, use) {
       const { position, inputs } = reads.read(ask);
-      const body = modelsPage(inputs);
+      const body = modelDefaults(inputs);
       return use({ position, inputs: [digest(body as unknown as Json)], counting: false, build: () => body });
     },
   };
 }
 
+export function modelProvidersHandler(reads: ModelsReads): PageHandler<AnswerOf<"modelProviders">> {
+  return {
+    params: [],
+    open(ask, use) {
+      const { position, inputs } = reads.read(ask);
+      const body = modelProviders(inputs);
+      return use({ position, inputs: [digest(body as unknown as Json)], counting: false, build: () => body });
+    },
+  };
+}
 
 export interface FoundWork extends WorkNeeds {
   id: string;
@@ -212,12 +273,12 @@ export interface ModelsFindReads extends ModelsReads {
 
 export function modelsFound(inputs: ModelsInputs, use: UseId, work: FoundWork | undefined, typed: string): ModelsFound {
   const { stored } = inputs;
-  const read = modelsRead(stored, modelsAt(inputs.settings));
+  const read = readOf(inputs);
   const chosen = work === undefined ? read.uses[use].value : workValueOf(inputs.settings, work.id);
   const offered = stored.routes.filter((route) => usable(route, stored.runners) && (work === undefined || unfit(route, workNeed(work)) === null));
-  const found = modelList(foundOf(offered, use, typed), stored.runners, chosen);
-  const none = found.rows.length === 0 && found.local === null && typed.trim() !== "" ? MENU.none : null;
-  return { placeholder: MENU.search, ...found, none };
+  const groups = modelGroups(foundOf(offered, use, typed), stored.runners, chosen);
+  const none = groups.length === 0 && typed.trim() !== "" ? MENU.none : null;
+  return { placeholder: MENU.search, groups, none };
 }
 
 function workValueOf(settings: ModelsSettings, work: string): string | null {

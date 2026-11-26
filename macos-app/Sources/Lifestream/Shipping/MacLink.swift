@@ -16,10 +16,12 @@ enum MacLink {
     }
 
     static func link(_ process: MacProcess, files: DeviceFiles, root: URL = ShippingState.defaultRoot,
-                     transport: any HomeTransport = URLSessionTransport()) -> HomeLink {
+                     transport: any HomeTransport = URLSessionTransport(),
+                     network: any NetworkWatch = SystemNetwork.shared) -> HomeLink {
         let state = ShippingState(root: root, files: files)
         return HomeLink(device: device(), credentials: FileCredentials(url: state.credentialsFile, files: files),
-                        folder: state.root, transport: transport, files: files, becomeKeyed: { try process.becomeKeyed() })
+                        folder: state.root, transport: transport, network: network, files: files,
+                        becomeKeyed: { try process.becomeKeyed() })
     }
 
     private final class Made: @unchecked Sendable {

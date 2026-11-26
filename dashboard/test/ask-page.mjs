@@ -300,7 +300,7 @@ async function chatHome(home) {
       response.writeHead(200, { 'content-type': 'application/x-ndjson' });
       return void response.end(rejoinEvents.map(event => `${JSON.stringify(event)}\n`).join(''));
     }
-    if (url.pathname === '/v1/page/models') return send(MODELS_BARE);
+    if (url.pathname === '/v1/page/models/defaults' || url.pathname === '/v1/page/models/providers') return send(MODELS_BARE);
     if (url.pathname.startsWith('/v1/ask')) {
       response.writeHead(204);
       return void response.end();
@@ -998,7 +998,7 @@ describe('ask-page: Chat on the Mac', () => {
     }
   });
 
-  test('C10: Chat needing a sign-in says the Ask server’s line; in the Mac window its link names the plan and opens Settings at AI models over Chat', async () => {
+  test('C10: Chat needing a sign-in says the Ask server’s line; in the Mac window its link names the plan and opens Settings at Providers over Chat', async () => {
     front.signs('signed_out');
     try {
       const line = `document.querySelector('.ak-stage .ck-in-place .mac-body')?.textContent`;
@@ -1011,7 +1011,7 @@ describe('ask-page: Chat on the Mac', () => {
       assert.equal(await chrome.evaluate(line), CLAUDE_OUT);
       await page.shot('sign-in-needed', `document.querySelector('${LINK}') !== null`);
       await press(LINK);
-      await chrome.until(`location.hash.includes('view=ask') && decodeURIComponent(location.hash).includes('dialog=settings/models')
+      await chrome.until(`location.hash.includes('view=ask') && decodeURIComponent(location.hash).includes('dialog=settings/providers')
         && document.querySelector('.ck-dialog [data-flow="connect:claude"]') !== null`);
       assert.equal(await chrome.evaluate(`location.hash.includes('flow=')`), false, 'a flow of its own');
       await page.shot('sign-in-in-settings', `document.querySelector('.ck-dialog [data-flow="connect:chatgpt"]') !== null`);

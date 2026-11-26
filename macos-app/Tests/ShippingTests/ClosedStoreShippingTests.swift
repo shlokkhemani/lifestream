@@ -55,7 +55,7 @@ final class ClosedStoreShippingTests: XCTestCase {
         return Shipper(Shipper.Dependencies(
             state: state, link: try await ShippingFixture.link(home, folder: state.root),
             domains: { sources in sources.contains(domain.sourceId) ? [domain] : [] },
-            clock: clock.read, record: { rows.append($0) }, network: .free, scratch: DomainFixtures.sealScratch))
+            clock: clock.read, record: { rows.append($0) }, scratch: DomainFixtures.sealScratch))
     }
 
     private func dictations(in delivery: FakeHome.Delivery?) throws -> [[String?]] {

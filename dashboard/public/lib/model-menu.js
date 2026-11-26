@@ -5,7 +5,8 @@ import { wordsOr } from './reach.js';
 export const FIND_FAILED = 'Couldn’t look for models';
 
 /** @typedef {import('../pages.js').ModelRow} ModelRow */
-/** @typedef {{ rows: ModelRow[], local: import('../pages.js').ModelLocal | null, default?: ModelRow | null, more?: import('../pages.js').ModelMore | null, off?: ModelRow | null }} MenuParts */
+/** @typedef {Omit<import('../pages.js').ModelDefaults, 'position' | 'today'> & import('../pages.js').ModelProviders} Models */
+/** @typedef {{ rows: ModelRow[], local: import('../pages.js').ModelGroup | null, default?: ModelRow | null, more?: import('../pages.js').ModelMore | null, off?: ModelRow | null }} MenuParts */
 /** @typedef {{ row: ModelRow, head: string, parted: boolean } | { more: string, parted: boolean }} MenuLine */
 /** @typedef {{ use: import('../pages.js').ModelUseId } | { work: string }} FindFor */
 /** @typedef {{ key: string, answer: import('../pages.js').ModelsFind | null, failed: string }} Found */

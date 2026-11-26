@@ -35,36 +35,36 @@ export function jobPaused(read: { tables: Pick<ReadTables, "controls"> }, kind: 
 export type Crossing = "home" | Reach;
 
 export function homeNetwork(read: Pick<ReadTables, "devices"> | null, stated: Stated | null): HomeNetwork {
-  if (stated === null) return { unit: null, metered: true, since_ms: null };
+  if (stated === null) return { unit: null, pastWaits: true, since_ms: null };
   let newest: { unit: string; network: Since<Network> } | null = null;
   for (const [unit, each] of Object.entries(stated)) {
     if (each.network === null || (read?.devices.get(unit)?.retired_ms ?? null) !== null) continue;
     if (newest === null || each.network.since_ms > newest.network.since_ms) newest = { unit, network: each.network };
   }
-  return { unit: newest?.unit ?? null, metered: newest !== null && newest.network.value !== "all", since_ms: newest?.network.since_ms ?? null };
+  return { unit: newest?.unit ?? null, pastWaits: newest !== null && newest.network.value !== "all", since_ms: newest?.network.since_ms ?? null };
 }
 
 export interface HomeNetwork {
   readonly unit: string | null;
-  readonly metered: boolean;
+  readonly pastWaits: boolean;
   readonly since_ms: number | null;
 }
 
 export function historyGate(read: Pick<ReadTables, "controls" | "devices"> | null, stated: Stated | null, room: Room): HistoryGate {
   const paused = new Set(read?.controls.list().map((control) => control.target) ?? []);
   const disk = room !== "ok";
-  const { metered } = homeNetwork(read, stated);
+  const { pastWaits } = homeNetwork(read, stated);
   return {
     disk,
-    metered,
-    may: (connector, crossing) => !disk && !(metered && crossing !== "loopback") && !paused.has("home")
+    pastWaits,
+    may: (connector, crossing) => !disk && !(pastWaits && crossing !== "loopback") && !paused.has("home")
       && (connector === null || !historyPaused(paused, connector)),
   };
 }
 
 export interface HistoryGate {
   readonly disk: boolean;
-  readonly metered: boolean;
+  readonly pastWaits: boolean;
   may(connector: string | null, crossing: Crossing): boolean;
 }
 

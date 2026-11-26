@@ -11,13 +11,13 @@ import { basicInstant, openSealing, readDelivery } from "./inbox.js";
 import { ask, askHome } from "./socket.js";
 import type { Pause } from "./jobs.js";
 import { KINDS } from "./kinds.js";
-import type { ModelsPage } from "./page-models.js";
+import type { ModelProviders } from "./page-models.js";
 import { MODELS_META, type StoredModels } from "./models.js";
 import { editSettings, testSocket } from "./test/folder.js";
 import { artifact, FAKE_OFFER, FAKES, makeRoot, makeVault, readHome, readLedger, removeRoot, TICK_MS, until } from "./test/harness-root.js";
 import { ship } from "./test/harness-deliveries.js";
 import { doorHere } from "./test/harness-door.js";
-import { modelsPageOf, runnerOf, statusOf, streamsOf } from "./test/harness-status.js";
+import { providersOf, runnerOf, statusOf, streamsOf } from "./test/harness-status.js";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -477,7 +477,7 @@ describe("pausing a runner's calls", () => {
     const pressed = await cli(root, ["models", "runner", UNIT, "pause", "--reason", "the laptop is busy", "--json"]);
     expect(pressed.code).toBe(0);
     expect(controls(root)).toEqual([{ target: `runner:${UNIT}`, by: "terminal", reason: "the laptop is busy" }]);
-    const runner = runnerOf(modelsPageOf(root), UNIT);
+    const runner = runnerOf(providersOf(root), UNIT);
     expect([runner.line, runner.paused]).toEqual(["MacBook Pro's runner is not running", true]);
     for (let press = 0; press < 2; press++) expect((await cli(root, ["models", "runner", UNIT, "resume"])).code).toBe(0);
     expect(controls(root)).toEqual([]);
@@ -489,7 +489,7 @@ describe("pausing a runner's calls", () => {
     const sock = testSocket(root);
     const press = async (to: "pause" | "resume") => {
       await ask(sock, { verb: "models", args: ["--", "runner", UNIT, to], by: "you" });
-      return runnerOf(modelsPageOf(root), UNIT);
+      return runnerOf(providersOf(root), UNIT);
     };
     const token = "synthetic-reader-token".padEnd(43, "x");
     mintPrincipal(openHomeFolder(root), { unit: "reader", scopes: ["read"], token, now_ms: 0 });
@@ -498,7 +498,7 @@ describe("pausing a runner's calls", () => {
       const answered = await press("pause");
       expect(controls(root)).toEqual([{ target: `runner:${UNIT}`, by: "you", reason: "" }]);
       expect(answered.paused).toBe(true);
-      const served = await (await fetch(`http://127.0.0.1:${door.port}/v1/page/models`, { headers: { authorization: `Bearer ${token}` } })).json() as ModelsPage;
+      const served = await (await fetch(`http://127.0.0.1:${door.port}/v1/page/models/providers`, { headers: { authorization: `Bearer ${token}` } })).json() as ModelProviders;
       const runners = served.connections.flatMap((each) => each.kind === "runner" ? [[each.id, each.paused, each.line]] : []);
       expect(runners).toEqual([[`runner:${UNIT}`, true, answered.line]]);
       const status = statusOf(root) as { paused: Pause[] };

@@ -1673,19 +1673,17 @@ extension HomeLink {
             }
         }
 
-        public struct Models: Decodable, Sendable, Equatable {
-            public static let route = "/v1/page/models"
+        public struct ModelDefaults: Decodable, Sendable, Equatable {
+            public static let route = "/v1/page/models/defaults"
 
             public let position: String
             public let today: String
             public let uses: [ModelUse]
-            public let connections: [ModelConnection]
 
             private enum Keys: String, CodingKey {
                 case position
                 case today
                 case uses
-                case connections
             }
 
             public init(from decoder: Decoder) throws {
@@ -1693,6 +1691,29 @@ extension HomeLink {
                 self.position = try container.decode(String.self, forKey: .position)
                 self.today = try container.decode(String.self, forKey: .today)
                 self.uses = try container.decode([ModelUse].self, forKey: .uses)
+            }
+        }
+
+        public struct ModelProviders: Decodable, Sendable, Equatable {
+            public static let route = "/v1/page/models/providers"
+
+            public let position: String
+            public let today: String
+            public let accounts: String
+            public let connections: [ModelConnection]
+
+            private enum Keys: String, CodingKey {
+                case position
+                case today
+                case accounts
+                case connections
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.position = try container.decode(String.self, forKey: .position)
+                self.today = try container.decode(String.self, forKey: .today)
+                self.accounts = try container.decode(String.self, forKey: .accounts)
                 self.connections = try container.decode([ModelConnection].self, forKey: .connections)
             }
         }
@@ -1703,16 +1724,14 @@ extension HomeLink {
             public let position: String
             public let today: String
             public let placeholder: String
-            public let rows: [ModelRow]
-            public let local: ModelLocal?
+            public let groups: [ModelGroup]
             public let none: String?
 
             private enum Keys: String, CodingKey {
                 case position
                 case today
                 case placeholder
-                case rows
-                case local
+                case groups
                 case none
             }
 
@@ -1721,8 +1740,7 @@ extension HomeLink {
                 self.position = try container.decode(String.self, forKey: .position)
                 self.today = try container.decode(String.self, forKey: .today)
                 self.placeholder = try container.decode(String.self, forKey: .placeholder)
-                self.rows = try container.decode([ModelRow].self, forKey: .rows)
-                self.local = try container.decodeNil(forKey: .local) ? nil : container.decode(ModelLocal.self, forKey: .local)
+                self.groups = try container.decode([ModelGroup].self, forKey: .groups)
                 self.none = try container.decodeNil(forKey: .none) ? nil : container.decode(String.self, forKey: .none)
             }
         }
@@ -3570,27 +3588,11 @@ extension HomeLink {
             }
         }
 
-        public struct ModelBattery: Decodable, Sendable, Equatable {
-            public let on: Bool
-            public let line: String
-
-            private enum Keys: String, CodingKey {
-                case on
-                case line
-            }
-
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: Keys.self)
-                self.on = try container.decode(Bool.self, forKey: .on)
-                self.line = try container.decode(String.self, forKey: .line)
-            }
-        }
-
         public enum ModelConnection: Decodable, Sendable, Equatable {
-            case plan(id: String, name: String, line: String?, signed: Bool)
-            case key(id: String, name: String, line: String?, held: Bool)
-            case runner(id: String, unit: String, place: String, name: String, line: String?, files: [ModelFile], found: [ModelFound], battery: ModelBattery?, paused: Bool)
-            case address(id: String, url: String?, line: String?)
+            case plan(id: String, name: String, line: String?, signed: Bool, words: String)
+            case key(id: String, name: String, line: String?, held: Bool, words: String?, key: ModelKeyField)
+            case runner(id: String, unit: String, place: String, name: String, line: String?, none: String?, run: ModelSwitch?, battery: ModelSwitch?, files: [ModelFile], found: [ModelFound], paused: Bool)
+            case address(id: String, label: String, url: String?, line: String?, words: ModelServerWords)
             case unknown
 
             private enum Keys: String, CodingKey {
@@ -3599,13 +3601,18 @@ extension HomeLink {
                 case name
                 case line
                 case signed
+                case words
                 case held
+                case key
                 case unit
                 case place
+                case none
+                case run
+                case battery
                 case files
                 case found
-                case battery
                 case paused
+                case label
                 case url
             }
 
@@ -3617,14 +3624,17 @@ extension HomeLink {
                         id: try container.decode(String.self, forKey: .id),
                         name: try container.decode(String.self, forKey: .name),
                         line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
-                        signed: try container.decode(Bool.self, forKey: .signed)
+                        signed: try container.decode(Bool.self, forKey: .signed),
+                        words: try container.decode(String.self, forKey: .words)
                     )
                 case "key":
                     self = .key(
                         id: try container.decode(String.self, forKey: .id),
                         name: try container.decode(String.self, forKey: .name),
                         line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
-                        held: try container.decode(Bool.self, forKey: .held)
+                        held: try container.decode(Bool.self, forKey: .held),
+                        words: try container.decodeNil(forKey: .words) ? nil : container.decode(String.self, forKey: .words),
+                        key: try container.decode(ModelKeyField.self, forKey: .key)
                     )
                 case "runner":
                     self = .runner(
@@ -3633,16 +3643,20 @@ extension HomeLink {
                         place: try container.decode(String.self, forKey: .place),
                         name: try container.decode(String.self, forKey: .name),
                         line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
+                        none: try container.decodeNil(forKey: .none) ? nil : container.decode(String.self, forKey: .none),
+                        run: try container.decodeNil(forKey: .run) ? nil : container.decode(ModelSwitch.self, forKey: .run),
+                        battery: try container.decodeNil(forKey: .battery) ? nil : container.decode(ModelSwitch.self, forKey: .battery),
                         files: try container.decode([ModelFile].self, forKey: .files),
                         found: try container.decode([ModelFound].self, forKey: .found),
-                        battery: try container.decodeNil(forKey: .battery) ? nil : container.decode(ModelBattery.self, forKey: .battery),
                         paused: try container.decode(Bool.self, forKey: .paused)
                     )
                 case "address":
                     self = .address(
                         id: try container.decode(String.self, forKey: .id),
+                        label: try container.decode(String.self, forKey: .label),
                         url: try container.decodeNil(forKey: .url) ? nil : container.decode(String.self, forKey: .url),
-                        line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                        line: try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line),
+                        words: try container.decode(ModelServerWords.self, forKey: .words)
                     )
                 default:
                     self = .unknown
@@ -3653,23 +3667,21 @@ extension HomeLink {
         public struct ModelFile: Decodable, Sendable, Equatable {
             public let id: String
             public let name: String
-            public let about: String
-            public let size: String
+            public let line: String
+            public let working: Bool
             public let state: ModelFileState
-            public let line: String?
-            public let suggested: Bool
             public let fits: Bool
+            public let words: String?
             public let acts: [ModelFileAct]
 
             private enum Keys: String, CodingKey {
                 case id
                 case name
-                case about
-                case size
-                case state
                 case line
-                case suggested
+                case working
+                case state
                 case fits
+                case words
                 case acts
             }
 
@@ -3677,17 +3689,32 @@ extension HomeLink {
                 let container = try decoder.container(keyedBy: Keys.self)
                 self.id = try container.decode(String.self, forKey: .id)
                 self.name = try container.decode(String.self, forKey: .name)
-                self.about = try container.decode(String.self, forKey: .about)
-                self.size = try container.decode(String.self, forKey: .size)
+                self.line = try container.decode(String.self, forKey: .line)
+                self.working = try container.decode(Bool.self, forKey: .working)
                 self.state = try container.decode(ModelFileState.self, forKey: .state)
-                self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
-                self.suggested = try container.decode(Bool.self, forKey: .suggested)
                 self.fits = try container.decode(Bool.self, forKey: .fits)
+                self.words = try container.decodeNil(forKey: .words) ? nil : container.decode(String.self, forKey: .words)
                 self.acts = try container.decode([ModelFileAct].self, forKey: .acts)
             }
         }
 
-        public enum ModelFileAct: String, Decodable, Sendable, Equatable {
+        public struct ModelFileAct: Decodable, Sendable, Equatable {
+            public let act: ModelFileDo
+            public let words: String
+
+            private enum Keys: String, CodingKey {
+                case act
+                case words
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.act = try container.decode(ModelFileDo.self, forKey: .act)
+                self.words = try container.decode(String.self, forKey: .words)
+            }
+        }
+
+        public enum ModelFileDo: String, Decodable, Sendable, Equatable {
             case fetch
             case remove
             case cancel
@@ -3729,6 +3756,44 @@ extension HomeLink {
             }
         }
 
+        public struct ModelGroup: Decodable, Sendable, Equatable {
+            public let label: String
+            public let rows: [ModelRow]
+
+            private enum Keys: String, CodingKey {
+                case label
+                case rows
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.label = try container.decode(String.self, forKey: .label)
+                self.rows = try container.decode([ModelRow].self, forKey: .rows)
+            }
+        }
+
+        public struct ModelKeyField: Decodable, Sendable, Equatable {
+            public let label: String
+            public let placeholder: String
+            public let add: String
+            public let remove: String
+
+            private enum Keys: String, CodingKey {
+                case label
+                case placeholder
+                case add
+                case remove
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.label = try container.decode(String.self, forKey: .label)
+                self.placeholder = try container.decode(String.self, forKey: .placeholder)
+                self.add = try container.decode(String.self, forKey: .add)
+                self.remove = try container.decode(String.self, forKey: .remove)
+            }
+        }
+
         public struct ModelLevel: Decodable, Sendable, Equatable {
             public let value: String
             public let name: String
@@ -3751,26 +3816,10 @@ extension HomeLink {
             }
         }
 
-        public struct ModelLocal: Decodable, Sendable, Equatable {
-            public let label: String
-            public let rows: [ModelRow]
-
-            private enum Keys: String, CodingKey {
-                case label
-                case rows
-            }
-
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: Keys.self)
-                self.label = try container.decode(String.self, forKey: .label)
-                self.rows = try container.decode([ModelRow].self, forKey: .rows)
-            }
-        }
-
         public struct ModelMenu: Decodable, Sendable, Equatable {
             public let `default`: ModelRow?
             public let rows: [ModelRow]
-            public let local: ModelLocal?
+            public let local: ModelGroup?
             public let more: ModelMore
             public let off: ModelRow?
 
@@ -3786,7 +3835,7 @@ extension HomeLink {
                 let container = try decoder.container(keyedBy: Keys.self)
                 self.`default` = try container.decodeNil(forKey: .`default`) ? nil : container.decode(ModelRow.self, forKey: .`default`)
                 self.rows = try container.decode([ModelRow].self, forKey: .rows)
-                self.local = try container.decodeNil(forKey: .local) ? nil : container.decode(ModelLocal.self, forKey: .local)
+                self.local = try container.decodeNil(forKey: .local) ? nil : container.decode(ModelGroup.self, forKey: .local)
                 self.more = try container.decode(ModelMore.self, forKey: .more)
                 self.off = try container.decodeNil(forKey: .off) ? nil : container.decode(ModelRow.self, forKey: .off)
             }
@@ -3815,6 +3864,7 @@ extension HomeLink {
             public let place: String
             public let value: String?
             public let line: String?
+            public let working: Bool
             public let ready: Bool
             public let leaves: Bool
 
@@ -3822,6 +3872,7 @@ extension HomeLink {
                 case place
                 case value
                 case line
+                case working
                 case ready
                 case leaves
             }
@@ -3831,6 +3882,7 @@ extension HomeLink {
                 self.place = try container.decode(String.self, forKey: .place)
                 self.value = try container.decodeNil(forKey: .value) ? nil : container.decode(String.self, forKey: .value)
                 self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+                self.working = try container.decode(Bool.self, forKey: .working)
                 self.ready = try container.decode(Bool.self, forKey: .ready)
                 self.leaves = try container.decode(Bool.self, forKey: .leaves)
             }
@@ -3858,12 +3910,61 @@ extension HomeLink {
             }
         }
 
+        public struct ModelServerWords: Decodable, Sendable, Equatable {
+            public let about: String
+            public let add: String
+            public let remove: String
+            public let field: String
+            public let placeholder: String
+            public let save: String
+
+            private enum Keys: String, CodingKey {
+                case about
+                case add
+                case remove
+                case field
+                case placeholder
+                case save
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.about = try container.decode(String.self, forKey: .about)
+                self.add = try container.decode(String.self, forKey: .add)
+                self.remove = try container.decode(String.self, forKey: .remove)
+                self.field = try container.decode(String.self, forKey: .field)
+                self.placeholder = try container.decode(String.self, forKey: .placeholder)
+                self.save = try container.decode(String.self, forKey: .save)
+            }
+        }
+
+        public struct ModelSwitch: Decodable, Sendable, Equatable {
+            public let label: String
+            public let on: Bool
+            public let line: String?
+
+            private enum Keys: String, CodingKey {
+                case label
+                case on
+                case line
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.label = try container.decode(String.self, forKey: .label)
+                self.on = try container.decode(Bool.self, forKey: .on)
+                self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
+            }
+        }
+
         public struct ModelThinking: Decodable, Sendable, Equatable {
+            public let label: String
             public let value: String
             public let words: String
             public let levels: [ModelLevel]
 
             private enum Keys: String, CodingKey {
+                case label
                 case value
                 case words
                 case levels
@@ -3871,6 +3972,7 @@ extension HomeLink {
 
             public init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: Keys.self)
+                self.label = try container.decode(String.self, forKey: .label)
                 self.value = try container.decode(String.self, forKey: .value)
                 self.words = try container.decode(String.self, forKey: .words)
                 self.levels = try container.decode([ModelLevel].self, forKey: .levels)

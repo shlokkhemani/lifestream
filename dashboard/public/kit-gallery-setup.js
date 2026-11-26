@@ -3,7 +3,8 @@
 /** @import { StartCost, StreamsReport } from './types.js' */
 /** @import { Screen, Seen } from './ui/onboarding/model.js' */
 /** @import { Session } from './ui/onboarding/view.js' */
-/** @import { ModelPlace, Models, ModelUse } from './pages.js' */
+/** @import { ModelPlace, ModelUse } from './pages.js' */
+/** @import { Models } from './lib/model-menu.js' */
 import { subscriptionOf } from './lib/host.js';
 import { esc } from './lib/html.js';
 import { sectionLabel, setupBand, setupFoot, setupFrame } from './ui/kit/index.js';
@@ -101,7 +102,7 @@ const SIGNED = subscriptionOf({ state: 'signed_in', account: 'person-a@example.c
  * @param {Partial<ModelPlace>} [said]
  * @returns {ModelPlace}
  */
-const placeOf = (place, value, said = {}) => ({ place, value, line: null, ready: true, leaves: place !== THIS_MAC, ...said });
+const placeOf = (place, value, said = {}) => ({ place, value, line: null, working: false, ready: true, leaves: place !== THIS_MAC, ...said });
 
 /**
  * @param {ModelUse['use']} use

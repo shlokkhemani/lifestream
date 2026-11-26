@@ -14,11 +14,11 @@ import { openDoor } from "./test/harness-door.js";
 const TOKEN = "synthetic-models-reader".padEnd(43, "r");
 const NOW = Date.parse("2026-11-25T12:00:00Z");
 
-describe("Settings › AI models through the door", () => {
+describe("Settings › Default models and Providers through the door", () => {
   const roots: string[] = [];
   afterAll(() => roots.forEach(removeRoot));
 
-  it("answers the page from what the home holds, Photos on the person's pick, the plans and this Mac as places; never to a model's pass", async () => {
+  it("answers both pages from what the home holds, Photos on the person's pick, the plans and this Mac as places; never to a model's pass", async () => {
     const root = makeRoot("lifestream-page-models-", { sources: {}, defaults: false });
     roots.push(root);
     mintPrincipal(openHomeFolder(root), { unit: "reader", scopes: ["read"], sources: [], token: TOKEN, now_ms: 0 });
@@ -52,22 +52,28 @@ describe("Settings › AI models through the door", () => {
     editSettings(root, { "model.defaults.pictures": luna.id });
 
     const { url } = await openDoor(root, { clock: () => NOW });
-    const get = (headers: Record<string, string> = {}) => fetch(`${url}${PAGES.models.route}`, { headers: { authorization: `Bearer ${TOKEN}`, ...headers } });
-    const response = await get();
+    const get = (route: string, headers: Record<string, string> = {}) => fetch(`${url}${route}`, { headers: { authorization: `Bearer ${TOKEN}`, ...headers } });
+    const response = await get(PAGES.modelDefaults.route);
     const text = await response.text();
     expect(response.status, text).toBe(200);
-    const page = PAGES.models.shape.parse(JSON.parse(text));
+    const page = PAGES.modelDefaults.shape.parse(JSON.parse(text));
     const pictures = page.uses.find((each) => each.use === "pictures")!;
     expect([pictures.value, pictures.words]).toEqual([luna.id, "GPT-6 Luna"]);
     expect([...pictures.menu.rows, ...pictures.menu.local?.rows ?? [], pictures.menu.off].map((each) => [each?.value, each?.chosen])).toEqual([[luna.id, true], [qwen.id, false], ["none", false]]);
     expect(pictures.places).toEqual([
-      { place: WORDS.thisMac, value: qwen.id, line: WORDS.download("Qwen 3.5 4B", "4 GB"), ready: true, leaves: false },
-      { place: "ChatGPT", value: luna.id, line: null, ready: true, leaves: true },
+      { place: WORDS.thisMac, value: qwen.id, line: WORDS.download("Qwen 3.5 4B", "4 GB"), working: false, ready: true, leaves: false },
+      { place: "ChatGPT", value: luna.id, line: null, working: false, ready: true, leaves: true },
     ]);
-    expect(page.connections.map((each) => [each.kind, each.id])).toEqual([["runner", `runner:${unit}`], ["plan", "codex"], ["address", "address"]]);
+    const served = await get(PAGES.modelProviders.route);
+    const said = await served.text();
+    expect(served.status, said).toBe(200);
+    const providers = PAGES.modelProviders.shape.parse(JSON.parse(said));
+    expect(providers.connections.map((each) => [each.kind, each.id])).toEqual([["plan", "codex"], ["runner", `runner:${unit}`], ["address", "address"]]);
 
-    const refused = await get({ "lifestream-reader": "model" });
-    expect([refused.status, ((await refused.json()) as { code: string }).code]).toEqual([403, "PRINCIPAL_SCOPE"]);
-    artifact(root, "page-models", { page });
+    for (const route of [PAGES.modelDefaults.route, PAGES.modelProviders.route]) {
+      const refused = await get(route, { "lifestream-reader": "model" });
+      expect([refused.status, ((await refused.json()) as { code: string }).code], route).toEqual([403, "PRINCIPAL_SCOPE"]);
+    }
+    artifact(root, "page-models", { page, providers });
   });
 });

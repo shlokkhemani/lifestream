@@ -151,7 +151,7 @@ describe("the home's network", () => {
     expect(limits(await home.needs())).toEqual([]);
 
     expect((await mac.exchange({ network: "now" })).status).toBe(200);
-    await until("the home reads its network metered", () => home.logs.some((line) => line.includes('"network":"metered"')));
+    await until("the home reads that the past waits", () => home.logs.some((line) => line.includes('"past":"waits"')));
     clock.now = T0 + 10 * MINUTE;
     expect((await settled(3, "the fetch at its refresh")).slice(2)).toEqual(["fetch"]);
     const held = await row();
@@ -174,9 +174,9 @@ describe("the home's network", () => {
       seen.restarted = ran().slice(before);
       expect(ran().slice(before)).toEqual([]);
     });
-    const told = home.logs.filter((line) => line.includes('"network":"metered"')).length;
+    const told = home.logs.filter((line) => line.includes('"past":"waits"')).length;
     clock.now = T0 + 11 * MINUTE;
-    await until("the home started again reads its network metered", () => home.logs.filter((line) => line.includes('"network":"metered"')).length > told);
+    await until("the home started again reads that the past waits", () => home.logs.filter((line) => line.includes('"past":"waits"')).length > told);
     expect(limits(await home.needs()).map((need) => need[0])).toEqual(["metered"]);
 
     clock.now = T0 + DAY;
@@ -189,7 +189,7 @@ describe("the home's network", () => {
     expect(history(await phone.away()).every((each) => !each)).toBe(true);
     expect((await mac.exchange({ network: "all" })).status).toBe(200);
     expect(history(await phone.away()).every((each) => each)).toBe(true);
-    await until("the home reads its network free", () => home.logs.some((line) => line.includes('"network":"free"')) && home.logs.findLastIndex((line) => line.includes('"network":"free"')) > home.logs.findIndex((line) => line.includes('"network":"metered"')));
+    await until("the home reads that the past moves", () => home.logs.some((line) => line.includes('"past":"moves"')) && home.logs.findLastIndex((line) => line.includes('"past":"moves"')) > home.logs.findIndex((line) => line.includes('"past":"waits"')));
     clock.now = T0 + DAY + 10 * MINUTE;
     await until("the page runs once the network is free", () => ran().slice(4).includes("page"));
     seen.free = (await row()).health;
@@ -198,13 +198,13 @@ describe("the home's network", () => {
     seen.ran = ran();
   });
 
-  it("holds the home's pages, the door's answers or the need once the Mac whose word made the network metered is retired, or its pass revoked", async () => {
+  it("holds the home's pages, the door's answers or the need once the Mac whose word held the past is retired, or its pass revoked", async () => {
     const clock = { now: T0 };
     const home = await running("lifestream-limits-gone-", { registry: CLOCKED, clocks: true, clock: () => clock.now });
     const ran = () => ranOf(home.root).filter((each) => each.name === "fake-clock").map((each) => each.call);
     const history = (answer: Answer) => Object.values(answer.body.sources as Record<string, { history: boolean }>).map((source) => source.history);
-    const metered = () => home.logs.filter((line) => line.includes('"network":"metered"')).length;
-    const free = () => home.logs.filter((line) => line.includes('"network":"free"')).length;
+    const waits = () => home.logs.filter((line) => line.includes('"past":"waits"')).length;
+    const moves = () => home.logs.filter((line) => line.includes('"past":"moves"')).length;
     const seen: Record<string, unknown> = {};
     report.gone = seen;
     await until("the first fetch and page", () => ran().join() === "fetch,page");
@@ -212,27 +212,27 @@ describe("the home's network", () => {
 
     const mac = await home.mac();
     await mac.exchange({ network: "now" });
-    await until("the home reads its network metered", () => metered() === 1);
-    let freed = free();
+    await until("the home reads that the past waits", () => waits() === 1);
+    let freed = moves();
     await askHome(home.sock, "device", ["retire", mac.unit]);
     seen.retired = { needs: limits(await home.needs()), away: history(await phone.away()) };
     expect(limits(await home.needs())).toEqual([]);
     expect(history(await phone.away()).every((each) => each)).toBe(true);
     clock.now = T0 + 3 * MINUTE;
-    await until("the home reads its network free once its Mac is retired", () => free() > freed);
+    await until("the home reads that the past moves once its Mac is retired", () => moves() > freed);
     await until("the page runs once its Mac is retired", () => ran().slice(2).includes("page"));
 
     const other = await home.mac("aa43");
     await other.exchange({ network: "now" });
-    await until("the home reads the other Mac's network metered", () => metered() === 2);
+    await until("the home reads that the other Mac's word holds the past", () => waits() === 2);
     const paged = ran().length;
-    freed = free();
+    freed = moves();
     await askHome(home.sock, "principals", ["revoke", other.pass()]);
     seen.revoked = { needs: limits(await home.needs()), away: history(await phone.away()) };
     expect(limits(await home.needs())).toEqual([]);
     expect(history(await phone.away()).every((each) => each)).toBe(true);
     clock.now = T0 + 20 * MINUTE;
-    await until("the home reads its network free once the pass is revoked", () => free() > freed);
+    await until("the home reads that the past moves once the pass is revoked", () => moves() > freed);
     await until("a page runs once the pass is revoked", () => ran().slice(paged).includes("page"));
     seen.ran = ran();
   });

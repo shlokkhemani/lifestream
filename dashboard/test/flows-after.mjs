@@ -138,7 +138,7 @@ describe('flows: the flows after the first run, at the Mac window’s size', () 
     assert.equal(await chrome.evaluate(says('Pair a device')), false);
     assert.equal(await chrome.evaluate(`[...${DIALOG}.querySelectorAll('.ck-srow__label')].some(each => each.textContent.trim() === 'Model')`),
       false, 'a Model row on Home');
-    const MODELS = '#view=connectors&dialog=settings/models';
+    const MODELS = '#view=connectors&dialog=settings/providers';
     await chrome.evaluate(`location.hash = '${MODELS}'`);
     await chrome.until(`document.querySelector('.ck-dialog [data-flow="connect:chatgpt"]')`);
     await chrome.evaluate(`window.hostHolds['ask-login'] = true`);

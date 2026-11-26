@@ -232,7 +232,7 @@ final class TurnTests: XCTestCase {
         XCTAssertFalse(owing.owesExchange)
     }
 
-    func testTheTransportHandsOnEachRequestsMetricsAndKeepsALaterBundleOffEveryMeteredPath() async throws {
+    func testTheTransportHandsOnEachRequestsMetricsAndKeepsALaterBundleOffEveryCostlyPath() async throws {
         Stub.seen = []
         let measured = expectation(description: "each request's metrics reach the app")
         measured.expectedFulfillmentCount = 2

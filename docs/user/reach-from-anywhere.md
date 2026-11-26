@@ -31,10 +31,14 @@ Lifestream answers only while your Mac is awake, wherever your iPhone is.
 
 ## What your iPhone sends on cellular
 
-On cellular, on a phone's hotspot, or on a Wi-Fi with Low Data Mode on, your iPhone sends only what
-it records now, in sends under 50 MB. Larger sends, such as a batch of photos, and your past wait
-for Wi-Fi. **Connectors** › **Lifestream** then says **Large files wait for Wi-Fi.** or **Large files
-wait: Low Data Mode is on.** [Photos](./connectors/photos.md) says what waits for photos.
+On cellular or a phone's hotspot, your iPhone sends what it records now at any size, a batch of
+photos too. Your past, such as older photos and your first Health read, waits for Wi-Fi.
+**Settings** › **Mobile data** changes this: **Everything, including my past** sends your past too,
+and **Only small sends** keeps every send of 50 MB or more for Wi-Fi. With Low Data Mode on, only
+sends under 50 MB go, whatever you chose. **Connectors** › **Lifestream** then says **Large sends
+wait for Wi-Fi · Settings › Mobile data** or **Large sends wait: Low Data Mode is on**, and its **Send
+now** sends them on any network. [Photos](./connectors/photos.md) says what waits for
+photos.
 
 ## If your iPhone cannot reach Lifestream
 

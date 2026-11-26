@@ -3,7 +3,7 @@
 /** @import { HostAct } from '../../lib/host.js' */
 /** @import { Flow, FlowItem, FlowSession } from '../flows/model.js' */
 /** @import { ModelKind, StartCost } from '../../types.js' */
-/** @import { Models } from '../../pages.js' */
+/** @import { Models } from '../../lib/model-menu.js' */
 import { attributes, esc } from '../../lib/html.js';
 import { sizeWords } from '../../lib/words.js';
 import {
@@ -432,7 +432,7 @@ const facesPicture = who => '<span class="ob-pair" aria-hidden="true">'
   + `<span class="ob-shot__cap">${esc(who ? `Sent to ${who}` : 'Sent to a model')}</span></span></span>`
   + '<span class="ob-pair__words">Faces and personal details are covered before a photo leaves this Mac.</span>';
 
-/** @typedef {{ value: string, words: string, note: string, disabled: boolean, leaves: boolean }} MediaChoice */
+/** @typedef {{ value: string, words: string, note: string, working: boolean, disabled: boolean, leaves: boolean }} MediaChoice */
 /** @typedef {{ choices: MediaChoice[], chosen: MediaChoice | null, words: string, off: boolean, line: string }} MediaPick */
 
 /**
@@ -445,7 +445,7 @@ export function mediaPlaces(models, kind) {
   if (!use) return { choices: [], chosen: null, words: 'Off', off: true, line: '' };
   const names = new Map([...use.menu.rows, ...use.menu.local?.rows ?? []].map(each => [each.value, each.name]));
   const choices = use.places.flatMap(place => place.value === null ? [] : [{ value: place.value, words: place.place,
-    note: place.line ?? names.get(place.value) ?? '', disabled: !place.ready, leaves: place.leaves }]);
+    note: place.line ?? names.get(place.value) ?? '', working: place.working, disabled: !place.ready, leaves: place.leaves }]);
   const chosen = choices.find(each => each.value === use.value) ?? null;
   return { choices, chosen, words: chosen?.words ?? use.words, off: use.value === null, line: use.line ?? '' };
 }
@@ -461,7 +461,7 @@ function mediaMenu(kind, label, pick, session) {
   return menuButton({ id: `ob-${kind}`, label, words: pick.words, busy,
     attrs: { class: 'ob-menu', 'data-ob-menu': kind },
     choices: [{ value: 'none', words: 'Off', chosen: pick.off, default: false },
-      ...pick.choices.map(each => ({ value: each.value, words: each.words, note: each.note, chosen: each === pick.chosen,
+      ...pick.choices.map(each => ({ value: each.value, words: each.words, note: each.note, working: each.working, chosen: each === pick.chosen,
         default: false, disabled: each.disabled }))] });
 }
 

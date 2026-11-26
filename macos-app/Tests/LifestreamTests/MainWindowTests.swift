@@ -271,16 +271,20 @@ import XCTest
             XCTAssertEqual(line(outcome, reach: .answering), words, outcome)
             XCTAssertEqual(ReachWords.sending(outcome, device: .mac), words, outcome)
         }
-        let waiting = { (outcome: String, cost: Metered?) in
-            ShippingPresentation(read: true, paired: true, lastOutcome: outcome, lastRunAt: now, waitsForNetwork: true,
-                                 metered: cost, zone: zone).label
+        let away = { (path: MobileData.Path) in MobileData.Moment(path: path, choice: .now, loopback: false, pressed: false) }
+        let waiting = { (outcome: String, wait: MobileData.Wait, path: MobileData.Path?) in
+            ShippingPresentation(read: true, paired: true, lastOutcome: outcome, lastRunAt: now, waitsFor: wait,
+                                 mobile: path.map(away), zone: zone).label
         }
-        XCTAssertEqual(waiting("shipped", .expensive), "Waiting for Wi-Fi")
-        XCTAssertEqual(waiting("nothing_new", .lowDataMode), "Waiting: Low Data Mode is on")
-        XCTAssertEqual(waiting("shipped", nil), "Lifestream: synced 16:00")
-        XCTAssertEqual(waiting("held DISK_LOW", .expensive), "Waiting for space on Lifestream's disk", "the home's disk is said over the network")
-        XCTAssertEqual(waiting("refused LOCAL_ACCESS", .expensive), said["refused LOCAL_ACCESS"], "sending words to act on are never hidden")
-        XCTAssertEqual(ShippingPresentation(read: true, paired: true, lastOutcome: "shipped", lastRunAt: now, metered: .expensive,
+        for wait in MobileData.Wait.allCases {
+            XCTAssertEqual(waiting("shipped", wait, .costly), wait.words, "the menu says the module's words")
+        }
+        XCTAssertEqual(waiting("nothing_new", .lowData, .lowData), "Large sends wait: Low Data Mode is on")
+        XCTAssertEqual(waiting("shipped", .past, .free), "Lifestream: synced 16:00", "Wi-Fi again ends the wait before the next run")
+        XCTAssertEqual(waiting("shipped", .past, nil), "Lifestream: synced 16:00")
+        XCTAssertEqual(waiting("held DISK_LOW", .past, .costly), "Waiting for space on Lifestream's disk", "the home's disk is said over the network")
+        XCTAssertEqual(waiting("refused LOCAL_ACCESS", .past, .costly), said["refused LOCAL_ACCESS"], "sending words to act on are never hidden")
+        XCTAssertEqual(ShippingPresentation(read: true, paired: true, lastOutcome: "shipped", lastRunAt: now, mobile: away(.costly),
                                             zone: zone).label, "Lifestream: synced 16:00", "a hotspot with nothing waiting is no wait")
         func battery(importing: Bool, onBattery: Bool) -> String {
             let status = ShipperStatus(home: URL(string: "http://127.0.0.1:4680"), lastRunAt: now, lastOutcome: "shipped", lastContactAt: now,

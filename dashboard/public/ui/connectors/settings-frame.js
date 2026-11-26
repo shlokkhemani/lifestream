@@ -128,13 +128,13 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
   let at = { id: '', state: null, opened: OPENED, visible: false };
   let query = '';
   let more = false;
-  const onModels = () => shownPage(at.id) === 'models' && at.opened.pages.length === 0;
+  const onModels = () => shownPage(at.id) === 'providers' && at.opened.pages.length === 0;
   const session = sessionOf(host !== null, 'dialog');
   const plans = flowFrame({ session, reports, draw, root, say, shown: onModels,
     runner: actRunner(host, session, { draw, reports, name: 'subscriptions' }) });
   const watching = changes.watch(draw);
   const onPrivacy = () => shownPage(at.id) === 'privacy';
-  const readsModels = () => onModels() || onPrivacy() || shownPage(at.id) === 'meaning';
+  const readsModels = () => ['defaults', 'providers', 'privacy', 'meaning'].includes(shownPage(at.id));
   /** @type {Map<string, { list?: import('../../types.js').OutboundList, row?: import('../../types.js').OutboundOne, drawn?: import('../../lib/reach.js').Drawn } | null>} */
   const outbound = new Map();
   const reach = pageReach(host);

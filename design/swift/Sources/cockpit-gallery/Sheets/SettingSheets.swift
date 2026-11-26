@@ -265,13 +265,13 @@ private let keepFor: [MenuRow<String>.Option] = [.init("30d", "30 days"), .init(
             }
         }
     }
-    Specimen("Leads: a tile, a state's shape; a tag; a progress line") {
+    Specimen("Leads: a tile, a state's shape; a tag; a working line, shimmering") {
         SectionGround {
-            SheetPart("On MacBook Pro") {
+            SheetPart("Local models") {
                 SettingRow("Speech", line: "Turns calls and voice notes into words · 1.6 GB", lead: .icon(.audio)) {
                     Button("Download") {}.buttonStyle(.cockpit(.secondary))
                 }
-                SettingRow("Hiding model", line: "Downloading, 0.3 of 0.7 GB", lead: .icon(.screen), tag: "English first", progress: 0.41) {
+                SettingRow("Hiding model", line: "Downloading · 3 min left", lead: .icon(.screen), tag: "English first", working: true) {
                     Button("Cancel") {}.buttonStyle(.cockpit(.plain))
                 }
                 SettingRow("Runner", line: "Couldn't start · Try again in 4 min", separator: false, lead: .signal(.warning)) {
@@ -334,13 +334,13 @@ private let keepFor: [MenuRow<String>.Option] = [.init("30d", "30 days"), .init(
     Specimen("Fields: a key at the end; a name typed under the line; a section that holds nothing draws nothing") {
         SectionGround {
             SheetPart("Keys") {
-                SettingRow("OpenRouter key", line: "Pay as you go, with a key from openrouter.ai/keys.", fieldEnd: true) {
+                SettingRow("OpenRouter key", line: "Hundreds of models with one key.", fieldEnd: true) {
                     Field("OpenRouter key", text: .constant(""), placeholder: "sk-or-…")
                 }
-                SettingRow("Custom address", line: "A model your own machine serves", separator: false) {
+                SettingRow("Other server", line: "Any OpenAI-compatible server, like vLLM or another Mac.", separator: false) {
                     Button("Save") {}.buttonStyle(.cockpit(.secondary))
                 } held: {
-                    Field("Address", text: .constant("http://127.0.0.1:11434/v1"))
+                    Field("Server URL", text: .constant(""), placeholder: "http://localhost:11434/v1")
                 }
             }
             SheetPart("Nothing found") { EmptyView() }

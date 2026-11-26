@@ -39,16 +39,13 @@ struct ModelFindList: View {
             .accessibilityIdentifier("models.find.field")
             .onAppear { focused = true }
             .task(id: Asking(more: more, typed: typed)) { await find() }
-        if let found {
-            part(nil, found.rows)
-            if let local = found.local { part(local.label, local.rows) }
-        }
+        ForEach(found?.groups ?? [], id: \.label) { group in part(group.label, group.rows) }
         if let none = failed ?? found?.none {
             NoneLine(none)
         }
     }
 
-    @ViewBuilder private func part(_ label: String?, _ rows: [HomeLink.Pages.ModelRow]) -> some View {
+    @ViewBuilder private func part(_ label: String, _ rows: [HomeLink.Pages.ModelRow]) -> some View {
         if !rows.isEmpty {
             SheetPart(label) {
                 LazyVStack(spacing: 0) {

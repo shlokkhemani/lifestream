@@ -381,7 +381,7 @@ function foldStreams(db: Database.Database, input: FoldInput, everyPass: readonl
         road, on: !off.source(row), outcomes, contact_ms, device: sent ? { trouble: unit === null ? null : troubleOf.get(unit) ?? null } : null, newest_ms: span.newest_ms,
         refresh_ms: connector.refresh === undefined ? null : running.refresh_ms, expect_ms, owed: history?.owed === true,
         disk: gate.disk && road !== "label" && history?.owed === true,
-        metered: gate.metered && (road === "poll" || road === "chrome") && history?.paged?.owed === true,
+        metered: gate.pastWaits && (road === "poll" || road === "chrome") && history?.paged?.owed === true,
       };
       return {
         row, road, unit, retired: device?.retired === true, facts, folded: foldCopy(facts, now_ms), span, history, contact_ms,

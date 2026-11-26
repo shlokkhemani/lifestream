@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { tryLock } from "@lifestreamprotocol/core";
-import { ArtifactError, ensureArtifact, removeArtifact, type Artifact } from "./artifacts.js";
+import { ArtifactError, ensureArtifact, fetchDocument, removeArtifact, type Artifact } from "./artifacts.js";
 
 const ARTIFACTS = join(tmpdir(), "lifestream-model-e2e");
 const BYTES = randomBytes(256 * 1024);
@@ -255,6 +255,18 @@ describe("artifacts", () => {
     }
     expect(refused).toEqual({ blocked: { reason: "disk" }, ...(existsSync("/dev/full") ? { full: { reason: "full" } } : {}) });
     report.disk = refused;
+  });
+
+  it("a document is read whole under its cap; over the cap or missing it is refused, cut short or silent past its deadline it is offline", async () => {
+    const server = await serve("ignore");
+    const read = (most_bytes: number, deadline_ms = 30_000) => fetchDocument(server.url, { accept: "application/synthetic+json", most_bytes, deadline_ms });
+    expect(await read(BYTES.length)).toEqual(BYTES);
+    const outcomes: Record<string, unknown> = { over: await refusal(read(BYTES.length - 1).then(() => undefined)) };
+    for (const mode of ["missing", "half", "stall", "redirect-http"] as const) {
+      server.mode = mode;
+      outcomes[mode] = await refusal(read(BYTES.length, mode === "stall" ? 100 : 30_000).then(() => undefined));
+    }
+    expect(outcomes).toEqual({ over: { reason: "refused" }, missing: { reason: "refused", status: 404 }, half: { reason: "offline" }, stall: { reason: "offline" }, "redirect-http": { reason: "refused" } });
   });
 
   it("every request asks for the bytes as they are, never compressed", async () => {

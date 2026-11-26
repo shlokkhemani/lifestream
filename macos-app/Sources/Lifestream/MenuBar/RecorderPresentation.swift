@@ -146,17 +146,17 @@ struct ShippingPresentation: Equatable {
     let canShipNow: Bool
 
     init(status: ShipperStatus?, running: Bool = false, reach: HomeLink.ReachSnapshot? = nil, onBattery: Bool = false,
-         metered: Metered? = nil, clock: HomeClock? = nil, zone: TimeZone = .current, now: Date = Date()) {
+         mobile: MobileData.Moment? = nil, clock: HomeClock? = nil, zone: TimeZone = .current, now: Date = Date()) {
         self.init(read: status != nil, paired: status?.paired ?? false,
                   lastOutcome: status?.lastOutcome, lastRunAt: status?.lastRunAt, lastContactAt: status?.lastContactAt,
                   running: running || (status?.running ?? false), reach: reach,
                   historyOnBattery: onBattery && (status?.importingHistory ?? false),
-                  waitsForNetwork: status?.waitsForNetwork ?? false, metered: metered, clock: clock, zone: zone, now: now)
+                  waitsFor: status?.waitsFor, mobile: mobile, clock: clock, zone: zone, now: now)
     }
 
     init(read: Bool, paired: Bool, lastOutcome: String?, lastRunAt: Date?, lastContactAt: Date? = nil,
-         running: Bool = false, reach: HomeLink.ReachSnapshot? = nil, historyOnBattery: Bool = false, waitsForNetwork: Bool = false,
-         metered: Metered? = nil, clock: HomeClock? = nil, zone: TimeZone = .current, now: Date = Date()) {
+         running: Bool = false, reach: HomeLink.ReachSnapshot? = nil, historyOnBattery: Bool = false, waitsFor: MobileData.Wait? = nil,
+         mobile: MobileData.Moment? = nil, clock: HomeClock? = nil, zone: TimeZone = .current, now: Date = Date()) {
         canShipNow = !running && paired
         let unpaired = read && !paired ? HomeLink.ReachSnapshot(reach: .unpaired, lastReached: nil, revision: 0) : nil
         if let reach = reach ?? unpaired, let said = ReachWords.menuLine(reach, clock: clock ?? .placeholder(at: now, zone: zone), now: now) {
@@ -180,8 +180,8 @@ struct ShippingPresentation: Equatable {
             label = said
             return
         }
-        if waitsForNetwork, let metered {
-            label = Self.waiting(metered)
+        if let waitsFor, mobile?.decide(.later, bytes: 0).moves == false {
+            label = waitsFor.words
             return
         }
         label = "Lifestream: synced \(Self.clock(at, in: zone))" + (historyOnBattery ? ". \(Self.historyOnBattery)" : "")
@@ -192,13 +192,6 @@ struct ShippingPresentation: Equatable {
     }
 
     static let historyOnBattery = "Importing history on battery."
-
-    static func waiting(_ metered: Metered) -> String {
-        switch metered {
-        case .expensive: "Waiting for Wi-Fi"
-        case .lowDataMode: "Waiting: Low Data Mode is on"
-        }
-    }
 
     static func clock(_ instant: Date, in zone: TimeZone) -> String {
         var calendar = Calendar(identifier: .gregorian)

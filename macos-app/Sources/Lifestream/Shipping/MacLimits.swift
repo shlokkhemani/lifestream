@@ -6,13 +6,11 @@ final class MacLimits: @unchecked Sendable {
     static let every: TimeInterval = 60
 
     let disk: Volume
-    private let network: MacNetwork
     private let link: HomeLink
     private var watching: [Task<Void, Never>] = []
 
-    init(disk: Volume, network: MacNetwork = .system, link: HomeLink) {
+    init(disk: Volume, link: HomeLink) {
         self.disk = disk
-        self.network = network
         self.link = link
     }
 
@@ -24,9 +22,9 @@ final class MacLimits: @unchecked Sendable {
         let link = link
         disk.observe { link.tell(room: $0) }
         link.tell(room: disk.room)
-        let disk = disk, network = network
+        let disk = disk
         watching = [
-            Task { await network.tell(link) },
+            Task { await MacNetwork.tell(link) },
             Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(Self.every))

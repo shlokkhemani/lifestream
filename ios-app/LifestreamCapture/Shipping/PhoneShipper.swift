@@ -23,7 +23,6 @@ final class PhoneShipper: ObservableObject {
     }
 
     struct Conditions: Sendable {
-        var metered: Metered?
         var long: Bool
     }
 
@@ -31,12 +30,12 @@ final class PhoneShipper: ObservableObject {
         var fix: Date?
         var other: Date?
         var heldUntil: Date?
-        var waitsForWiFi = false
+        var waitsForNetwork = false
     }
 
     enum Wait: Hashable, Sendable {
         case longWake
-        case network(Metered)
+        case network(MobileData.Wait)
     }
 
     nonisolated static let aloneBytes = CaptureExporter.sharedBytes
@@ -134,6 +133,12 @@ final class PhoneShipper: ObservableObject {
         link.tell(sending: state.sending)
         link.onAnswer { [weak self] in Task { @MainActor in await self?.landed() } }
         warnings.follow(link)
+        Task { [weak self, link] in
+            for await _ in link.mobileChanges() {
+                guard let self else { return }
+                tell(.network)
+            }
+        }
     }
 
     var paired: Bool { homeName != nil }
@@ -237,7 +242,7 @@ final class PhoneShipper: ObservableObject {
     func prime() async {
         let unsent = await unsent()
         clock.remaining(oldestFix: unsent.fix, oldestOther: unsent.other, heldUntil: unsent.heldUntil,
-                        waitsForWiFi: unsent.waitsForWiFi)
+                        waitsForNetwork: unsent.waitsForNetwork)
         schedule()
     }
 
@@ -859,8 +864,8 @@ final class PhoneShipper: ObservableObject {
         let bytes = (try? FileDurability.regularFileSize(at: custody.file(bundle))) ?? 0
         var waits = Set<Wait>()
         if bytes >= Self.aloneBytes, !conditions.long { waits.insert(.longWake) }
-        if let metered = conditions.metered, !Transfer.mayMove(.new, bytes: Int64(clamping: bytes), pressed: false, metered: true) {
-            waits.insert(.network(metered))
+        if case .waits(let wait) = link.mobile(pressed: false).decide(.new, bytes: Int64(clamping: bytes)) {
+            waits.insert(.network(wait))
         }
         return waits.isEmpty ? .now : .waits(waits)
     }
@@ -1049,7 +1054,7 @@ final class PhoneShipper: ObservableObject {
             case .waits(let holding):
                 skipping.formUnion(bundle.sources)
                 waits.formUnion(holding)
-                if holding.contains(where: { if case .network = $0 { true } else { false } }) { unsent.waitsForWiFi = true }
+                if holding.contains(where: { if case .network = $0 { true } else { false } }) { unsent.waitsForNetwork = true }
             }
         }
         if let oldest = try? await custody.unsent(saved, skipping: skipping) {

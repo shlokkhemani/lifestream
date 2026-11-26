@@ -5,7 +5,7 @@ import { leadOf } from './name-row.js';
 
 /** @typedef {import('../../lib/html.js').Attributes} Attributes */
 
-/** @typedef {{ name: string, icon?: string, lead?: string, count?: number, least?: boolean, note?: string, tag?: string, key?: string, chosen?: boolean, disabled?: boolean, parted?: boolean, attrs?: Attributes } | { name: string, line: string, lead: import('./name-row.js').Lead, attrs?: Attributes } | { head: string, attrs?: Attributes }} FloatItem */
+/** @typedef {{ name: string, icon?: string, lead?: string, count?: number, least?: boolean, note?: string, working?: boolean, tag?: string, key?: string, chosen?: boolean, disabled?: boolean, parted?: boolean, attrs?: Attributes } | { name: string, line: string, lead: import('./name-row.js').Lead, attrs?: Attributes } | { head: string, attrs?: Attributes }} FloatItem */
 
 /**
  * @param {object} list
@@ -56,7 +56,7 @@ export function floatRows({ items, lit, role = 'listbox', inline = false }) {
       'aria-disabled': item.disabled ? 'true' : null, ...attrs,
     })}>${item.lead ?? (item.icon ? icon(item.icon) : '')}`
       + (item.note ? `<span class="ck-flist__words"><span class="ck-flist__label">${esc(item.name)}</span>`
-        + `<span class="ck-flist__note mac-subhead">${esc(item.note.replaceAll(' · ', '\u00a0· '))}</span></span>`
+        + `<span class="ck-flist__note mac-subhead${item.working ? ' ck-shimmer' : ''}">${esc(item.note.replaceAll(' · ', '\u00a0· '))}</span></span>`
         : `<span class="ck-flist__label">${esc(item.name)}</span>`)
       + (item.tag ? `<span class="ck-flist__tag mac-subhead">${esc(item.tag)}</span>` : '')
       + (item.key ? `<kbd class="ck-flist__tag ck-flist__key mac-body">${esc(item.key)}</kbd>` : '')

@@ -18,7 +18,7 @@ public struct AskSteps: View {
             held(waiting)
         } else {
             TimelineView(AskFrames(until: trace.settles)) { context in
-                drawn(trace.frame(at: context.date.timeIntervalSinceReferenceDate), at: context.date)
+                drawn(trace.frame(at: context.date.timeIntervalSinceReferenceDate))
             }
         }
     }
@@ -35,18 +35,18 @@ public struct AskSteps: View {
         .foregroundStyle(Cockpit.Color.textTertiary)
     }
 
-    @ViewBuilder private func drawn(_ frame: AskTrace.Frame, at date: Date) -> some View {
+    @ViewBuilder private func drawn(_ frame: AskTrace.Frame) -> some View {
         if let line = frame.line {
             let opens = frame.settled && !trace.steps.isEmpty
             VStack(alignment: .leading, spacing: 0) {
                 if opens {
-                    Button { open.toggle() } label: { self.line(line, at: date, opens: true) }
+                    Button { open.toggle() } label: { self.line(line, opens: true) }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Self.words(line))
                         .accessibilityValue(open ? "Shown" : "Hidden")
                         .accessibilityHint("Shows the steps")
                 } else {
-                    self.line(line, at: date, opens: false)
+                    self.line(line, opens: false)
                 }
                 if opens && open {
                     VStack(alignment: .leading, spacing: Cockpit.Space.s1) {
@@ -61,10 +61,10 @@ public struct AskSteps: View {
         }
     }
 
-    private func line(_ line: AskTrace.Line, at date: Date, opens: Bool) -> some View {
+    private func line(_ line: AskTrace.Line, opens: Bool) -> some View {
         ZStack(alignment: .leading) {
             Text(AskTrace.thinking).cockpit(role).hidden()
-            phrase(line, at: date, opens: opens)
+            phrase(line, opens: opens)
                 .id(Self.words(line))
                 .transition(reduceMotion ? .opacity : .asymmetric(insertion: .offset(y: Cockpit.Space.s2).combined(with: .opacity),
                                                                   removal: .offset(y: -Cockpit.Space.s2).combined(with: .opacity)))
@@ -74,13 +74,14 @@ public struct AskSteps: View {
         .contentShape(Rectangle())
     }
 
-    @ViewBuilder private func phrase(_ line: AskTrace.Line, at date: Date, opens: Bool) -> some View {
+    @ViewBuilder private func phrase(_ line: AskTrace.Line, opens: Bool) -> some View {
         switch line {
         case let .working(words):
             Text(words)
                 .cockpit(role)
                 .lineLimit(1)
-                .foregroundStyle(reduceMotion ? AnyShapeStyle(Cockpit.Color.textTertiary) : AnyShapeStyle(Self.shimmer(at: date)))
+                .shimmer()
+                .foregroundStyle(Cockpit.Color.textTertiary)
         case .thought:
             HStack(spacing: 2) {
                 Text(Self.words(line))
@@ -94,13 +95,6 @@ public struct AskSteps: View {
             }
             .foregroundStyle(Cockpit.Color.textTertiary)
         }
-    }
-
-    private static func shimmer(at date: Date) -> LinearGradient {
-        let pass = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Cockpit.Duration.sweep) / Cockpit.Duration.sweep
-        let middle = 2 * pass - 0.5
-        return LinearGradient(colors: [Cockpit.Color.textTertiary, Cockpit.Color.text, Cockpit.Color.textTertiary],
-                              startPoint: UnitPoint(x: middle - 0.45, y: 0.5), endPoint: UnitPoint(x: middle + 0.45, y: 0.5))
     }
 
     private func row(_ step: AskTrace.Step) -> some View {

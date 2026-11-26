@@ -65,12 +65,12 @@ const chatRow = row => ({
 const LUNA = chatRow({ id: 'openrouter:openai/gpt-6-luna', name: 'GPT-6 Luna', connection: 'openrouter' });
 const OPUS = chatRow({ id: 'claude:claude-opus-5-5', name: 'Claude Opus 5.5', connection: 'claude', chat: 'program', group: 'Claude',
   leaves: 'Anthropic', state: 'unavailable', line: 'Claude isn\'t set up on this Mac yet' });
-const LOCAL = chatRow({ id: 'address:llama3.2', name: 'llama3.2', connection: 'address', input: ['text'], thinking: [], context_tokens: null, group: 'Custom address',
+const LOCAL = chatRow({ id: 'address:llama3.2', name: 'llama3.2', connection: 'address', input: ['text'], thinking: [], context_tokens: null, group: 'Other server',
   leaves: null });
 /** @param {import('../lib/ask/reach.mjs').Row[]} rows @param {string | null} value @param {string[]} [menu] */
 const modelsRead = (rows, value, menu = rows.filter(row => row.state === 'ready').map(row => row.id)) => /** @type {import('../lib/ask/ask.mjs').ModelsRead} */ ({
   connections: [{ id: 'claude', kind: 'plan', name: 'Claude', line: null }, { id: 'openrouter', kind: 'key', name: 'OpenRouter', line: null },
-    { id: 'address', kind: 'address', name: 'Custom address', line: null }],
+    { id: 'address', kind: 'address', name: 'Other server', line: null }],
   uses: { chat: { value, thinking: 'medium', fits: rows.map(row => row.id), menu: {
     default: null, rows: menu.map(id => ({ value: id, name: rows.find(row => row.id === id)?.name ?? id, account: null, chosen: id === value })), local: null,
     more: { words: 'More', use: 'chat', work: null }, off: null,

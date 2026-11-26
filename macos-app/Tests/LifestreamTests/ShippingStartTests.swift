@@ -75,7 +75,7 @@ import XCTest
         let link = HomeLink(device: .init(kind: .mac, version: "500", model: "Mac15,3", serial4: nil, stamp: 500),
                             credentials: Stored(stored), folder: folder.appendingPathComponent("link"), transport: door, files: DeviceFiles(.plain))
         let shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
-                                                   domains: { _ in [] }, record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                                   domains: { _ in [] }, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         let coordinator = ShippingCoordinator(shipper: shipper, link: link, notices: NoticeLog().notices, explain: { nil })
         var changes = 0
         coordinator.changed = { changes += 1 }
@@ -107,7 +107,7 @@ import XCTest
         let link = HomeLink(device: .init(kind: .mac, version: "500", model: "Mac15,3", serial4: nil, stamp: 500),
                             credentials: Stored(stored), folder: folder.appendingPathComponent("link"), transport: door, files: DeviceFiles(.plain))
         let shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
-                                                   domains: { _ in [] }, record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                                   domains: { _ in [] }, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         let coordinator = ShippingCoordinator(shipper: shipper, link: link, notices: NoticeLog().notices, explain: { nil })
         defer { Task { await coordinator.stop() } }
         var changes = 0
@@ -206,7 +206,7 @@ import XCTest
                             credentials: StoredPass(stored), folder: folder.appendingPathComponent("link"), transport: door,
                             clock: time.clock, pacer: time.pacer, files: DeviceFiles(.plain))
         let shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
-                                                   domains: { _ in [] }, record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                                   domains: { _ in [] }, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         return (link, ShippingCoordinator(shipper: shipper, link: link, notices: NoticeLog().notices, explain: { nil }))
     }
 
@@ -243,7 +243,7 @@ import XCTest
         let offer = "firefox:profile-00000001:macbook-pro-0001"
         let shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
                                                    domains: { _ in [] }, offers: { _ in allowed.withLock { $0 } ? [offer] : [] },
-                                                   record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                                   record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         let coordinator = ShippingCoordinator(shipper: shipper, link: link, notices: NoticeLog().notices, explain: { nil })
         defer { Task { await coordinator.stop() } }
 

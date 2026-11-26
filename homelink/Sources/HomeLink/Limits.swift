@@ -90,22 +90,6 @@ public final class Volume: @unchecked Sendable {
     }
 }
 
-public enum NetworkCost: String, Sendable, Codable, Equatable {
-    case free, metered
-
-    public init(_ facts: NetworkFacts) {
-        self = facts.metered == nil ? .free : .metered
-    }
-}
-
-public enum Transfer {
-    public static let largeBytes = MobileData.largeBytes
-
-    public static func mayMove(_ kind: WriteKind, bytes: Int64, pressed: Bool, metered: Bool) -> Bool {
-        !metered || pressed || (kind == .new && bytes < largeBytes)
-    }
-}
-
 public struct Relay: Sendable, Equatable {
     public static let wait: TimeInterval = 30
 

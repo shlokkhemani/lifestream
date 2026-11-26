@@ -70,7 +70,7 @@ final class KnockPaceTests: XCTestCase {
                             credentials: StoredPass(stored), folder: folder.appendingPathComponent("link"), transport: door,
                             clock: time.clock, pacer: time.pacer, files: DeviceFiles(.plain))
         let shipper = Shipper(Shipper.Dependencies(state: ShippingState(root: folder.appendingPathComponent("ship"), files: DeviceFiles(.plain)), link: link,
-                                                   domains: { _ in [] }, record: { _ in }, network: MacNetwork(ReportedNetwork(reporting: nil)), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+                                                   domains: { _ in [] }, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
         let coordinator = ShippingCoordinator(shipper: shipper, link: link, notices: NoticeLog().notices, explain: { nil })
 
         let first = Task { await coordinator.knock() }

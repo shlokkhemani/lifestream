@@ -5,7 +5,7 @@ import { subscriptionOf } from '../../lib/host.js';
 import { clock } from '../../lib/words.js';
 import { chromeBrings, extensionOn, formDo, formOf, routeAct, routesOf, signInOf } from '../connectors/page.js';
 
-/** @typedef {{ state: HostState | null, report: StreamsReport | null, models?: import('../../pages.js').Models | null, privacy?: import('../../types.js').PrivacyRead | null, screen?: import('../connectors/settings-search.js').ScreenState | null }} Seen */
+/** @typedef {{ state: HostState | null, report: StreamsReport | null, models?: import('../../lib/model-menu.js').Models | null, privacy?: import('../../types.js').PrivacyRead | null, screen?: import('../connectors/settings-search.js').ScreenState | null }} Seen */
 
 /** @typedef {'vault' | 'model' | 'phone' | 'browser'} FlowId */
 

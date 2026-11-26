@@ -70,7 +70,7 @@ public struct SendClock: Sendable, Equatable {
     private var oldestFix: Date?
     private var oldestOther: Date?
     private var heldUntil: Date?
-    private var waitsForWiFi = false
+    private var waitsForNetwork = false
     private var firstEvent: Told?
     private struct Told: Sendable, Equatable {
         let at: Date
@@ -96,7 +96,7 @@ public struct SendClock: Sendable, Equatable {
         case .network:
             failures = 0
             eventTried = false
-            if oldestFix != nil || oldestOther != nil || waitsForWiFi { due(event, at: time) }
+            if oldestFix != nil || oldestOther != nil || waitsForNetwork { due(event, at: time) }
         case .background:
             onScreen = false
             due(event, at: time)
@@ -119,11 +119,11 @@ public struct SendClock: Sendable, Equatable {
     }
 
     public mutating func remaining(oldestFix fix: Date?, oldestOther other: Date?, heldUntil held: Date? = nil,
-                                   waitsForWiFi wifi: Bool = false) {
+                                   waitsForNetwork network: Bool = false) {
         oldestFix = Self.earliest(oldestFix, fix)
         oldestOther = Self.earliest(oldestOther, other)
         heldUntil = Self.earliest(heldUntil, held)
-        waitsForWiFi = waitsForWiFi || wifi
+        waitsForNetwork = waitsForNetwork || network
     }
 
     public mutating func started(at start: Date) {
@@ -135,7 +135,7 @@ public struct SendClock: Sendable, Equatable {
         oldestFix = nil
         oldestOther = nil
         heldUntil = nil
-        waitsForWiFi = false
+        waitsForNetwork = false
     }
 
     public mutating func answered(_ answered: Bool, at end: Date, notBefore deadline: Date? = nil) {

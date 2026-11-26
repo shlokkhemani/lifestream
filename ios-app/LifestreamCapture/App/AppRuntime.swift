@@ -156,7 +156,8 @@ final class AppRuntime: ObservableObject {
     }
     lazy var shipping = ShippingService(runtime: self)
     lazy var captureStateMonitor = CaptureStateMonitor(locationRecorder: locationRecorder)
-    lazy var healthRecorder = HealthRecorder(store: captureStore, start: start(of: .health))
+    lazy var healthRecorder = HealthRecorder(store: captureStore, start: start(of: .health),
+                                             mobile: { [link = shipping.link] in link.mobile(pressed: false) })
     lazy var motionRecorder = MotionRecorder(
         store: captureStore, locationRecorder: locationRecorder, start: start(of: .motion))
     lazy var cameraRecorder = CameraRecorder(

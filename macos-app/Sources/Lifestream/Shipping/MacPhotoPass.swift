@@ -9,17 +9,15 @@ actor MacPhotoPass {
     private let paths: ShippingDomains.Paths
     private let link: HomeLink
     private let settings: MacSettings
-    private let network: MacNetwork
     private let disk: Volume
     private let exports: URL
     private var current: (source: String, pass: PhotoPass)?
 
-    init(paths: ShippingDomains.Paths, link: HomeLink, settings: MacSettings, network: MacNetwork = .system, disk: Volume,
+    init(paths: ShippingDomains.Paths, link: HomeLink, settings: MacSettings, disk: Volume,
          exports: URL = MacPhotoPass.exports) {
         self.paths = paths
         self.link = link
         self.settings = settings
-        self.network = network
         self.disk = disk
         self.exports = exports
     }
@@ -43,8 +41,7 @@ actor MacPhotoPass {
     }
 
     var device: Device {
-        Self.device(homeMetered: network.metered(to: link) != nil, internetMetered: network.metered != nil,
-                    onBattery: PowerSource.onBattery(), spare: disk.spare)
+        Self.device(link.mobile(pressed: false), onBattery: PowerSource.onBattery(), spare: disk.spare)
     }
 
     static var build: String {
@@ -53,8 +50,8 @@ actor MacPhotoPass {
         return "\(version) \(commit)"
     }
 
-    static func device(homeMetered: Bool, internetMetered: Bool, onBattery: Bool, spare: Int64) -> Device {
-        Device(homeMetered: homeMetered, internetMetered: internetMetered, charging: !onBattery, spare: spare,
-               changeRoom: nil, page: 5_000)
+    static func device(_ mobile: MobileData.Moment, onBattery: Bool, spare: Int64) -> Device {
+        Device(pastMoves: mobile.decide(.later, bytes: 0).moves, iCloud: mobile.internet.decide(.later, bytes: .max).moves,
+               charging: !onBattery, spare: spare, changeRoom: nil, page: 5_000)
     }
 }

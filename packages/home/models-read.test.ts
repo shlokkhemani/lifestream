@@ -34,12 +34,12 @@ describe("the models read", () => {
       { id: "runner:runner-mac-mini-0002", kind: "runner", name: "Mac mini", line: UPDATE_RUNNER },
       { id: "claude", kind: "plan", name: "Claude", line: "Sign in to Claude again" },
       { id: "fake", kind: "key", name: "fake", line: null },
-      { id: "address", kind: "address", name: "Custom address", line: ADDRESS_WINDOW },
+      { id: "address", kind: "address", name: "Other server", line: ADDRESS_WINDOW },
     ]);
     expect(ADDRESS_WINDOW).toBe("Chat needs the server to run a context window of 32,000 tokens or more");
     expect(modelsRead({ routes: [ROUTE], runners: [], connections: {} }, AT).connections).toEqual([
       { id: "fake", kind: "key", name: "fake", line: null },
-      { id: "address", kind: "address", name: "Custom address", line: null },
+      { id: "address", kind: "address", name: "Other server", line: null },
     ]);
   });
 

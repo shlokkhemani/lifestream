@@ -1,6 +1,7 @@
 // @ts-check
 /** @import { DeviceRow, OutboundList, OutboundOne, PrivacyRead, StreamsReport } from '../../types.js' */
-/** @import { Models, ModelUse, Pages } from '../../pages.js' */
+/** @import { ModelUse, Pages } from '../../pages.js' */
+/** @import { Models } from '../../lib/model-menu.js' */
 /** @import { Picked } from './settings-search.js' */
 /** @import { SettingsEntry } from '../../settings-index.js' */
 /** @import { Storage } from './settings-storage.js' */
@@ -14,7 +15,7 @@ import { rowOf } from './dialog.js';
 import { lacks } from '../../lib/reach.js';
 import { LACKS, NOT_HERE } from './changes.js';
 import { today } from '../../lib/home-clock.js';
-import { addressAct, addressPage, keyAct, MODEL_FIELDS, modelsParts, morePage, useOf } from './settings-models.js';
+import { addressAct, addressPage, defaultsParts, keyAct, MODEL_FIELDS, morePage, providersParts, useOf } from './settings-models.js';
 import { listPage, outboundPage, privacyParts, sentPage } from './settings-privacy.js';
 import { meaningParts } from './settings-search.js';
 import { storageTerms, WORDS as STORAGE_WORDS } from './settings-storage.js';
@@ -27,7 +28,9 @@ import {
 
 export const SETTINGS = 'settings';
 
-export const SETTINGS_MODELS = `${SETTINGS}/models`;
+export const SETTINGS_DEFAULTS = `${SETTINGS}/defaults`;
+
+export const SETTINGS_PROVIDERS = `${SETTINGS}/providers`;
 
 export const SETTINGS_HOME = `${SETTINGS}/home`;
 export const SETTINGS_MAC = `${SETTINGS}/mac`;
@@ -241,7 +244,7 @@ const pickedOf = (models, use) => {
 };
 
 /** @type {Do} */
-const CHOOSE = { open: SETTINGS_MODELS };
+const CHOOSE = { open: SETTINGS_DEFAULTS };
 
 /**
  * @param {string} page
@@ -255,9 +258,10 @@ function partsOf(page, reach, { models, failed, subscriptions, privacy, screen, 
   const awaiting = { parts: [], reading: true };
   const answer = entryOf(page)?.answer;
   if (answer === 'settingsPage') return answeredPage(answers.pages[page], home);
-  if (answer === 'models') {
-    return { ...modelsParts({ models, failed: ownFailure(failed), subscriptions, acts: home, opened: reach.opened }),
-      failed: failedRead(failed, 'models', { notHere: NOT_HERE.models, unread: LACKS.models }) };
+  const modelsFailed = failedRead(failed, 'models', { notHere: NOT_HERE.models, unread: LACKS.models });
+  if (answer === 'modelDefaults') return { ...defaultsParts({ models, failed: ownFailure(failed), acts: home }), failed: modelsFailed };
+  if (answer === 'modelProviders') {
+    return { ...providersParts({ models, failed: ownFailure(failed), subscriptions, acts: home, opened: reach.opened }), failed: modelsFailed };
   }
   switch (page) {
     case 'home': return report || !answering ? { parts: homeParts(reach), reading: false } : awaiting;
@@ -278,7 +282,7 @@ function partsOf(page, reach, { models, failed, subscriptions, privacy, screen, 
   }
 }
 
-const ON_HOME = new Set(['home', 'iphone', 'chrome', 'models', 'privacy', 'meaning', 'advanced']);
+const ON_HOME = new Set(['home', 'iphone', 'chrome', 'defaults', 'providers', 'privacy', 'meaning', 'advanced']);
 
 /**
  * @param {string} name
@@ -316,8 +320,9 @@ export function settingsDetail({ report, models, failed = null, state, id, opene
   const base = { id, icon: page.icon, name, line: '', state: null, callout: null, figure: null, parts: [], panels: [], back: null,
     foot: null, confirm: null, reading: false, ticking: false, nav, note, at: at.row };
   const inside = opened.pages.at(-1);
-  if (page.id === 'models' && inside === 'address' && reach.home) return { ...base, back: { label: name }, parts: [addressPage(opened)] };
-  const more = page.id === 'models' ? morePage(models, opened, reach.home) : null;
+  const server = page.id === 'providers' && inside === 'address' && reach.home ? addressPage(models, opened) : null;
+  if (server) return { ...base, back: { label: name }, parts: [server] };
+  const more = page.id === 'defaults' ? morePage(models, opened, reach.home) : null;
   if (more) return { ...base, back: { label: name }, name: more.title, parts: more.parts };
   const mac = page.id === 'mac' && reach.home ? renamed(opened, report) : null;
   if (mac) return { ...base, back: { label: name }, parts: [renamePage(opened, mac, report, mac.unit === state?.unit)] };
@@ -346,7 +351,8 @@ function failedOf(failed, reading, state, page = '') {
 
 /** @type {Record<string, Omit<ReadFailed, 'drawn'>>} */
 const READS = {
-  models: { reread: 'models', notHere: NOT_HERE.models, unread: LACKS.models },
+  defaults: { reread: 'models', notHere: NOT_HERE.models, unread: LACKS.models },
+  providers: { reread: 'models', notHere: NOT_HERE.models, unread: LACKS.models },
   privacy: { reread: 'privacy', notHere: NOT_HERE.privacy, unread: LACKS.privacy },
   meaning: { reread: 'screen', notHere: NOT_HERE.screen, unread: LACKS.screen },
   storage: { reread: 'storage', notHere: STORAGE_WORDS.notHere, unread: STORAGE_WORDS.failed },

@@ -21,7 +21,7 @@ import { answeringIn, began, followChats, moreWhenNear, readChats, titled } from
 import {
   asking, chatGroups, citedSources, failedSentence, keptVoice, momentOf, replayOf, seenOf, shownRefs, turnDay, turnStamp, turnsOf, voiceShown, withEvent,
 } from '../ui/ask/turns.js';
-import { SETTINGS_MODELS, SETTINGS_PRIVACY } from '../ui/connectors/settings.js';
+import { SETTINGS_PROVIDERS, SETTINGS_PRIVACY } from '../ui/connectors/settings.js';
 import { FEEDBACK } from '../ui/feedback.js';
 import { reducedMotion } from '../ui/dom.js';
 import {
@@ -293,7 +293,7 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
     if (status === 'unready' && host && act) return inPlaceLine(said, { retry: { 'data-ask-action': 'sign-in' }, label: act, shape: 'caution' });
     if (status === 'unready' && said) return inPlaceLine(said, { shape: 'caution' });
     if (micSaid) {
-      return inPlaceLine(micSaid, host && voice && !voice.ready ? { retry: { 'data-ask-action': 'sign-in' }, label: 'Open AI models', shape: 'caution' }
+      return inPlaceLine(micSaid, host && voice && !voice.ready ? { retry: { 'data-ask-action': 'sign-in' }, label: 'Open Providers', shape: 'caution' }
         : { shape: 'caution' });
     }
     if (unsaved) return inPlaceLine('Recent chats are not saved to Lifestream yet.', { shape: 'caution' });
@@ -1375,7 +1375,7 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
     if (!menu) return null;
     const found = finder.find(findFor(menu.more), otherTyped);
     const answer = found?.answer ?? null;
-    return { placeholder: answer?.placeholder ?? '', found: answer ?? { rows: [], local: null }, none: answer?.none ?? found?.failed ?? '' };
+    return { placeholder: answer?.placeholder ?? '', found: answer?.groups ?? [], none: answer?.none ?? found?.failed ?? '' };
   }
 
   function showFound() {
@@ -1797,7 +1797,7 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
       } else if (action === 'hiding') {
         context.dialog(SETTINGS_PRIVACY);
       } else if (action === 'sign-in' && host) {
-        context.dialog(SETTINGS_MODELS);
+        context.dialog(SETTINGS_PROVIDERS);
       }
     },
   };

@@ -354,7 +354,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
     private var shippingPresentation: ShippingPresentation {
         ShippingPresentation(status: work?.shipping.status, running: work?.shipping.running == true,
                              reach: work?.shipping.reach ?? HomeLink.ReachSnapshot(reach: .answering, lastReached: nil, revision: 0),
-                             onBattery: PowerSource.onBattery(), metered: MacNetwork.system.metered, clock: MacLink.shared?.homeClock)
+                             onBattery: PowerSource.onBattery(), mobile: MacLink.shared?.mobile(pressed: false), clock: MacLink.shared?.homeClock)
     }
 
     private func statusItem(_ entry: StatusMenuEntry) -> NSMenuItem {

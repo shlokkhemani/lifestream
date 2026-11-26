@@ -27,3 +27,15 @@ export function addRow({ placeholder, value = '', finds = [], lit = null, input 
       : '')
     + '</li>';
 }
+
+/**
+ * @param {object} row
+ * @param {string} row.placeholder
+ * @param {string} [row.value]
+ * @param {Attributes} [row.input]
+ */
+export const findRow = ({ placeholder, value = '', input = {} }) => '<li class="ck-srow ck-srow--lead ck-srow--add">'
+  + `<span class="ck-srow__lead" aria-hidden="true">${icon('search', { size: 'sm' })}</span>`
+  + `<input${attributes({ class: 'ck-srow__field mac-body', type: 'search', placeholder, value, 'aria-label': placeholder, autocomplete: 'off',
+    spellcheck: 'false', autocapitalize: 'off', ...input })}>`
+  + '</li>';

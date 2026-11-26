@@ -11,7 +11,7 @@ import { callLock, callsLock, listRunners, openAsker, openLedger, USE_IDS, type 
 import { startHome, type Home } from "./home.js";
 import { LANE, type Main } from "./jobs.js";
 import { machine } from "./machine.js";
-import { modelsPage, WORDS, type ModelsSettings } from "./page-models.js";
+import { modelProviders, WORDS, type ModelsSettings } from "./page-models.js";
 import { runnerOf } from "./test/harness-status.js";
 import { chooseFor } from "./made.js";
 import { Models, MODELS_META, routed, routingOf as resolveRouting, serving, SINCE, type ModelRoute, type Routing, type RoutingInput, type StoredModels, type WorkRouting } from "./models.js";
@@ -1553,7 +1553,7 @@ describe("a runner's files", () => {
     defaults: { pictures: null, audio: null, text: null, chat: null, search: null, hiding: null }, thinking: { chat: null }, model: { cap: 4 }, runners: {}, connectors: {}, unit: "macbook-pro-0001",
   };
   const pageRunner = (stored: StoredModels, runners: ModelsSettings["runners"] = {}) =>
-    runnerOf(modelsPage({ stored, settings: { ...PAGE, runners }, pauses: [], now_ms: D1, day: DAY_SETTINGS }), UNIT);
+    runnerOf(modelProviders({ stored, settings: { ...PAGE, runners }, pauses: [], now_ms: D1, day: DAY_SETTINGS }), UNIT);
 
   async function door(listed: () => RunnerListing[]): Promise<{ url: string; close(): Promise<void> }> {
     const server = createServer((request, response) => {
@@ -1582,18 +1582,16 @@ describe("a runner's files", () => {
       expect(filled).toEqual([]);
       const routes = () => Object.fromEntries(models.list(new Set()).filter((route) => route.transport === "runner").map((route) => [route.id, [route.state, route.line ?? route.where]]));
       expect(routes()).toEqual({
-        [`runner:${UNIT}/qwen3.5-4b`]: ["unavailable", "Downloading, 1.2 of 4.2 GB"], [`runner:${UNIT}/parakeet-unified-en-0.6b`]: ["unavailable", "Not downloaded"],
+        [`runner:${UNIT}/qwen3.5-4b`]: ["unavailable", "Downloading"], [`runner:${UNIT}/parakeet-unified-en-0.6b`]: ["unavailable", "Not downloaded"],
       });
       const read = () => pageRunner({ routes: models.list(new Set()), runners: listed.map((each) => ({ ...each, below: null })), connections: {} });
       expect(read()).toEqual({
-        kind: "runner", id: `runner:${UNIT}`, unit: UNIT, place: "On this Mac", name: "MacBook Pro", line: null, paused: false, found: [], battery: { on: true, line: WORDS.saveBattery }, files: [
+        kind: "runner", id: `runner:${UNIT}`, unit: UNIT, place: WORDS.local, name: "MacBook Pro", line: null, none: null, run: null, paused: false, found: [],
+        battery: { label: WORDS.saveBattery, on: true, line: WORDS.batteryLine }, files: [
+          { id: "qwen3.5-4b", name: "Qwen 3.5", line: "Downloading", working: true, state: "fetching", fits: true, words: null, acts: [{ act: "cancel", words: WORDS.cancel }] },
           {
-            id: "qwen3.5-4b", name: "Qwen 3.5", about: "Describes photos and sums up text · suggested for this Mac's 16 GB", size: "4.2 GB", state: "fetching", line: "Downloading, 1.2 of 4.2 GB",
-            suggested: true, fits: true, acts: ["cancel"],
-          },
-          {
-            id: "parakeet-unified-en-0.6b", name: "Parakeet", about: "Transcribes voice notes in English · suggested for this Mac's 16 GB", size: "0.7 GB", state: "absent", line: "Not downloaded",
-            suggested: true, fits: true, acts: ["fetch"],
+            id: "parakeet-unified-en-0.6b", name: "Parakeet", line: `Transcribes voice notes in English · 0.7 GB · ${WORDS.recommended}`, working: false, state: "absent", fits: true, words: null,
+            acts: [{ act: "fetch", words: WORDS.fetch }],
           },
         ],
       });
@@ -1681,15 +1679,14 @@ describe("a runner's files", () => {
     }
   });
 
-  it("a runner's Save battery: none where its machine states no battery or it is away; on unless turned off; while on battery and on, why its older work waits", () => {
+  it("a runner's Save battery: none where its machine states no battery or it is away; on unless turned off; its line says what it does", () => {
     const battery = (power: RunnerListing["power"], runners: Record<string, { save_battery?: boolean }> = {}, present = true) =>
       pageRunner({ routes: [], runners: [{ ...runner(present, []), power, below: null }], connections: {} }, runners).battery;
     const OFF = { [UNIT]: { save_battery: false } };
-    expect([battery(null), battery("mains"), battery("battery"), battery("mains", OFF), battery("battery", OFF)]).toEqual([
-      null, { on: true, line: WORDS.saveBattery }, { on: true, line: WORDS.batteryHeld }, { on: false, line: WORDS.saveBattery }, { on: false, line: WORDS.saveBattery },
-    ]);
+    const saving = (on: boolean) => ({ label: WORDS.saveBattery, on, line: WORDS.batteryLine });
+    expect([battery(null), battery("mains"), battery("battery"), battery("mains", OFF), battery("battery", OFF)]).toEqual([null, saving(true), saving(true), saving(false), saving(false)]);
     expect(battery("battery", {}, false)).toBeNull();
-    expect(WORDS.batteryHeld).toBe("On battery · older items wait until it's plugged in");
+    expect(WORDS.batteryLine).toBe("On battery, only recent items run.");
   });
 
   const UNIT_TWO = "runner-mac-mini-bb17";

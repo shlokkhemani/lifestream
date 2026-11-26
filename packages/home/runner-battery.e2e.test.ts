@@ -11,7 +11,7 @@ import { ship } from "./test/harness-deliveries.js";
 import { doorHere } from "./test/harness-door.js";
 import { REPO } from "./test/support.js";
 import { testSocket } from "./test/folder.js";
-import { modelsPageOf, runnerOf } from "./test/harness-status.js";
+import { providersOf, runnerOf } from "./test/harness-status.js";
 
 const RUNNER = "runner-macbook-pro-0001";
 const MODEL = "qwen3.5-4b";
@@ -49,8 +49,8 @@ describe("a runner's Save battery", () => {
       }));
       await until("the runner's file a ready route of the home", () => stored().routes.some((each) => each.id === route && each.state === "ready"))
         .catch((error: Error) => { throw new Error(`${error.message}; the home stored ${JSON.stringify(stored())}; the runner said ${said.join("")}`); });
-      const battery = () => runnerOf(modelsPageOf(root), RUNNER).battery;
-      expect(battery()).toEqual({ on: true, line: WORDS.batteryHeld });
+      const battery = () => runnerOf(providersOf(root), RUNNER).battery;
+      expect(battery()).toEqual({ label: WORDS.saveBattery, on: true, line: WORDS.batteryLine });
 
       await verb("connectors", ["set", "fake-poll", "llm.photos", route]);
       await verb("connectors", ["set", "fake-poll", "llm.range", "all"]);
@@ -67,12 +67,12 @@ describe("a runner's Save battery", () => {
 
       await verb("models", ["battery", RUNNER, "spend"]);
       const spent = battery();
-      expect(spent).toEqual({ on: false, line: WORDS.saveBattery });
+      expect(spent).toEqual({ label: WORDS.saveBattery, on: false, line: WORDS.batteryLine });
       await until("the older photo answered on battery", () => done().length === 2);
       expect(await line()).not.toMatch(/plugged in/u);
       await expect(verb("models", ["battery", "runner-nobody-0000", "spend"])).rejects.toThrow("That runner isn't connected.");
       await verb("models", ["battery", RUNNER, "save"]);
-      expect(battery()).toEqual({ on: true, line: WORDS.batteryHeld });
+      expect(battery()).toEqual({ label: WORDS.saveBattery, on: true, line: WORDS.batteryLine });
       artifact(root, "runner-battery", { held, spent, done: done() });
     } finally {
       program.kill("SIGTERM");

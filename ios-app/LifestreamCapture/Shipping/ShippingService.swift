@@ -43,17 +43,17 @@ final class ShippingService {
         if shipper.handedOver { backgroundSync.cancel() }
     }
 
-    private static func photoPass(_ grant: PhotoPass.Grant) async {
+    private static func photoPass(_ grant: PhotoPass.Grant, link: HomeLink) async {
         guard !isTesting, !PhotosServices.shared.bringingIn else { return }
-        await PhotosServices.shared.run(grant, device: await device())
+        await PhotosServices.shared.run(grant, device: await device(link))
     }
 
-    static func device() async -> Device {
+    static func device(_ link: HomeLink) async -> Device {
         let battery = UIDevice.current.batteryState
         if SystemNetwork.shared.facts == nil { for await _ in SystemNetwork.shared.changes() { break } }
         let store = AppRuntime.shared.captureStore
         let free = Room.free(at: await store.root)
-        return Device(metered: SystemNetwork.shared.metered, charging: battery == .charging || battery == .full,
+        return Device(link.mobile(pressed: PhotosServices.shared.bringingIn), charging: battery == .charging || battery == .full,
                       spare: store.volume.spare, changeRoom: free.map { max(0, $0 - Room.bottomBytes) } ?? .max)
     }
 
@@ -152,7 +152,6 @@ final class ShippingService {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1",
             conditions: { [weak self, power, runtime] in
                 PhoneShipper.Conditions(
-                    metered: SystemNetwork.shared.facts.map(\.metered) ?? .expensive,
                     long: UIApplication.shared.applicationState == .active || power.on || self?.processing == true
                         || runtime.locationRecorder.keepsProcessRunning)
             },
@@ -171,7 +170,7 @@ final class ShippingService {
             sleep: { try? await Task.sleep(for: .seconds(max(0, $0.timeIntervalSinceNow))) },
             ready: { [weak self] reason in await self?.ready(reason) ?? false },
             budget: { expired in Budget(expired: expired).end },
-            photoPass: { grant in await Self.photoPass(grant) },
+            photoPass: { [link = self.link] grant in await Self.photoPass(grant, link: link) },
             contacts: { [runtime] manual in
                 guard !Self.isTesting else { return nil }
                 return await runtime.contactsRecorder.pass(manual: manual)

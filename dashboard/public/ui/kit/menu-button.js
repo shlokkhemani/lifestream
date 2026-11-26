@@ -6,7 +6,7 @@ import { icon } from './icon.js';
 
 /** @typedef {import('../../lib/html.js').Attributes} Attributes */
 
-/** @typedef {{ value: string, words: string, note?: string, tag?: string, head?: string, more?: boolean, chosen: boolean, default: boolean, disabled?: boolean, parted?: boolean }} MenuChoice */
+/** @typedef {{ value: string, words: string, note?: string, working?: boolean, tag?: string, head?: string, more?: boolean, chosen: boolean, default: boolean, disabled?: boolean, parted?: boolean }} MenuChoice */
 
 /**
  * @param {object} menu
@@ -37,7 +37,7 @@ export function menuButton({ id, label, words, choices, attrs = {}, busy = false
   const items = choices.flatMap((choice, index) => [
     ...choice.head ? [{ head: choice.head }] : [],
     {
-      name: choice.words, note: choice.note, tag: choice.tag || (choice.default ? 'Default' : ''), chosen: choice.chosen, disabled: choice.disabled, parted: choice.parted,
+      name: choice.words, note: choice.note, working: choice.working, tag: choice.tag || (choice.default ? 'Default' : ''), chosen: choice.chosen, disabled: choice.disabled, parted: choice.parted,
       attrs: { id: `${key}-${index}`, 'data-value': choice.value, class: `ck-fmenu__item${choice.more ? ' ck-flist__more' : ''}` },
     },
   ]);

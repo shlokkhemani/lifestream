@@ -1,7 +1,7 @@
 import type { JsonObject } from "@lifestreamprotocol/core";
 import { MODEL_USES, readRouteId, unfit, USE_IDS, type Input, type Transport, type UseId } from "@lifestreamprotocol/model";
 import { ADDRESS, ROUTE_ID, runnerLine, WORK_MEMBER, type ModelRoute, type StoredModels, type StoredRunner } from "./models.js";
-import { MODELS_FOUND, type ModelLocal, type ModelMenu, type ModelRow } from "./pages.js";
+import { MODELS_FOUND, type ModelGroup, type ModelMenu, type ModelRow } from "./pages.js";
 import { chosenFor, type Settings, type UseDefaults } from "./settings.js";
 import type { Step } from "./streams-report.js";
 
@@ -71,7 +71,9 @@ export const ADDRESS_WINDOW = `Chat needs the server to run a context window of 
 
 export const OFF_STEP: Step = { value: "none", words: MENU.off, note: null };
 
-const NAMES: Readonly<Record<string, string>> = { claude: "Claude", codex: "ChatGPT", openrouter: "OpenRouter", [ADDRESS]: "Custom address" };
+const NAMES: Readonly<Record<string, string>> = { claude: "Claude", codex: "ChatGPT", openrouter: "OpenRouter", [ADDRESS]: "Other server" };
+
+const PLANS_FIRST: readonly string[] = ["claude", "codex"];
 
 export const runnerConnection = (unit: string): string => `runner:${unit}`;
 
@@ -131,12 +133,30 @@ export function usable(route: ModelRoute, runners: readonly StoredRunner[]): boo
 
 export const callable = (route: Pick<ModelRoute, "chat">, use: UseId): boolean => use !== "chat" || route.chat !== null;
 
-export function modelList(routes: readonly ModelRoute[], runners: readonly StoredRunner[], chosen: string | null): { rows: ModelRow[]; local: ModelLocal | null } {
+export function modelList(routes: readonly ModelRoute[], runners: readonly StoredRunner[], chosen: string | null): { rows: ModelRow[]; local: ModelGroup | null } {
   const shown = routes.filter((route) => usable(route, runners));
   const twice = new Set(shown.map((route) => route.name).filter((name, at, names) => names.indexOf(name) !== at));
   const rowOf = (route: ModelRoute): ModelRow => ({ value: route.id, name: route.name, account: twice.has(route.name) ? accountOf(route, runners) : null, chosen: route.id === chosen });
   const local = shown.filter(isLocal).map(rowOf);
   return { rows: shown.filter((route) => !isLocal(route)).map(rowOf), local: local.length === 0 ? null : { label: MENU.local, rows: local } };
+}
+
+export function modelGroups(routes: readonly ModelRoute[], runners: readonly StoredRunner[], chosen: string | null): ModelGroup[] {
+  const shown = routes.filter((route) => usable(route, runners));
+  const rank = (route: ModelRoute): number => {
+    if (isLocal(route)) return PLANS_FIRST.length + 1;
+    const at = PLANS_FIRST.indexOf(route.transport);
+    return at < 0 ? PLANS_FIRST.length : at;
+  };
+  const groups = new Map<string, ModelRoute[]>();
+  for (const route of [...shown].sort((a, b) => rank(a) - rank(b))) {
+    const label = isLocal(route) ? MENU.local : NAMES[route.transport] ?? route.transport;
+    groups.set(label, [...groups.get(label) ?? [], route]);
+  }
+  return [...groups].map(([label, routes]) => {
+    const twice = new Set(routes.map((route) => route.name).filter((name, at, names) => names.indexOf(name) !== at));
+    return { label, rows: routes.map((route) => ({ value: route.id, name: route.name, account: twice.has(route.name) ? accountOf(route, runners) : null, chosen: route.id === chosen })) };
+  });
 }
 
 export interface MenuOf {

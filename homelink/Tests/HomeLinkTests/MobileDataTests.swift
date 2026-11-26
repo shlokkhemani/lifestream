@@ -95,7 +95,6 @@ final class MobileDataTests: XCTestCase {
         XCTAssertEqual(MobileData.Path(expensive: false, constrained: false), .free, "5G with Allow More Data, an unmarked Wi-Fi")
         let both = NetworkFacts(online: true, onLocalNetwork: false, tunnelUp: true, path: 1,
                                 cost: MobileData.Path(expensive: true, constrained: true))
-        XCTAssertEqual(both.metered, .lowDataMode, "the old words follow the one reading")
         let moment = MobileData.Moment(path: both.cost, choice: .everything, loopback: false, pressed: false)
         XCTAssertEqual(moment.decide(.new, bytes: 50_000_000), .waits(.lowData), "Low Data Mode is respected whatever the choice")
         XCTAssertEqual(moment.stated, .lowData)

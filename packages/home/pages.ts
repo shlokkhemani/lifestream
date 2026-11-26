@@ -522,34 +522,38 @@ export const MODELS_FOUND = 20;
 const ModelUseId = named("ModelUseId", oneOf("pictures", "audio", "text", "chat", "search", "hiding"));
 export const ModelRow = named("ModelRow", object({ value: id, name, account: nullable(name), chosen: bool }));
 export type ModelRow = Of<typeof ModelRow>;
-export const ModelLocal = named("ModelLocal", object({ label, rows: list(ModelRow, 1) }));
-export type ModelLocal = Of<typeof ModelLocal>;
+export const ModelGroup = named("ModelGroup", object({ label, rows: list(ModelRow, 1) }));
+export type ModelGroup = Of<typeof ModelGroup>;
 export const ModelMenu = named("ModelMenu", object({
-  default: nullable(ModelRow), rows: list(ModelRow), local: nullable(ModelLocal), more: named("ModelMore", object({ words: label, use: ModelUseId, work: nullable(id) })),
+  default: nullable(ModelRow), rows: list(ModelRow), local: nullable(ModelGroup), more: named("ModelMore", object({ words: label, use: ModelUseId, work: nullable(id) })),
   off: nullable(ModelRow),
 }));
 export type ModelMenu = Of<typeof ModelMenu>;
-const ModelPlace = named("ModelPlace", object({ place: label, value: nullable(id), line: nullable(words), ready: bool, leaves: bool }));
+const ModelPlace = named("ModelPlace", object({ place: label, value: nullable(id), line: nullable(words), working: bool, ready: bool, leaves: bool }));
 const ModelLevel = named("ModelLevel", object({ value: id, name, chosen: bool, suggested: bool }));
-const ModelThinking = named("ModelThinking", object({ value: id, words, levels: list(ModelLevel, 1) }));
+const ModelThinking = named("ModelThinking", object({ label, value: id, words, levels: list(ModelLevel, 1) }));
 const ModelUse = named("ModelUse", object({
   use: ModelUseId,
   label, line: nullable(words), words, value: nullable(id), thinking: nullable(ModelThinking), menu: ModelMenu, places: list(ModelPlace),
 }));
 const ModelFileState = named("ModelFileState", oneOf("absent", "fetching", "ready", "failed"));
-const ModelFileAct = named("ModelFileAct", oneOf("fetch", "remove", "cancel"));
+const ModelFileDo = named("ModelFileDo", oneOf("fetch", "remove", "cancel"));
+const ModelFileAct = named("ModelFileAct", object({ act: ModelFileDo, words: label }));
 const ModelFile = named("ModelFile", object({
-  id, name, about: words, size: words, state: ModelFileState, line: nullable(words), suggested: bool, fits: bool, acts: list(ModelFileAct),
+  id, name, line: words, working: bool, state: ModelFileState, fits: bool, words: nullable(label), acts: list(ModelFileAct),
 }));
 const ModelFound = named("ModelFound", object({ name, size: words, from: label }));
-const ModelBattery = named("ModelBattery", object({ on: bool, line: words }));
+const ModelSwitch = named("ModelSwitch", object({ label, on: bool, line: nullable(words) }));
+const ModelKeyField = named("ModelKeyField", object({ label, placeholder: words, add: label, remove: label }));
+const ModelServerWords = named("ModelServerWords", object({ about: words, add: label, remove: label, field: label, placeholder: words, save: label }));
 const ModelConnection = named("ModelConnection", tagged("kind", {
-  plan: { id, name, line: nullable(words), signed: bool },
-  key: { id, name, line: nullable(words), held: bool },
+  plan: { id, name, line: nullable(words), signed: bool, words: label },
+  key: { id, name, line: nullable(words), held: bool, words: nullable(label), key: ModelKeyField },
   runner: {
-    id, unit: id, place: label, name, line: nullable(words), files: list(ModelFile), found: list(ModelFound), battery: nullable(ModelBattery), paused: bool,
+    id, unit: id, place: label, name, line: nullable(words), none: nullable(words), run: nullable(ModelSwitch), battery: nullable(ModelSwitch),
+    files: list(ModelFile), found: list(ModelFound), paused: bool,
   },
-  address: { id, url: nullable(words), line: nullable(words) },
+  address: { id, label, url: nullable(words), line: nullable(words), words: ModelServerWords },
 }));
 
 export const MOVES = ["people", "places", "streams", "days", "clock", "today", "storage"] as const;
@@ -971,9 +975,17 @@ export const PAGES = {
     moves: ["storage", "today"],
     settled: null,
   }),
-  models: page({
-    route: "/v1/page/models",
-    members: { uses: list(ModelUse, 6, 6), connections: list(ModelConnection) },
+  modelDefaults: page({
+    route: "/v1/page/models/defaults",
+    members: { uses: list(ModelUse, 6, 6) },
+    today: false,
+    device: false,
+    moves: ["streams"],
+    settled: null,
+  }),
+  modelProviders: page({
+    route: "/v1/page/models/providers",
+    members: { accounts: label, connections: list(ModelConnection) },
     today: false,
     device: false,
     moves: ["streams"],
@@ -981,7 +993,7 @@ export const PAGES = {
   }),
   modelsFind: page({
     route: "/v1/page/models/find",
-    members: { placeholder: words, rows: list(ModelRow, 0, MODELS_FOUND), local: nullable(ModelLocal), none: nullable(words) },
+    members: { placeholder: words, groups: list(ModelGroup), none: nullable(words) },
     today: false,
     device: false,
     moves: ["streams"],

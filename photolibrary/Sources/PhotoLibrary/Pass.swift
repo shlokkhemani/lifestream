@@ -28,11 +28,6 @@ public actor PhotoPass {
             self.wanted = wanted
         }
 
-        public init(caughtUp: Bool, history: Bool = true, start: Date? = nil,
-                    wanted: @escaping @Sendable () async throws -> PhotosWanted) {
-            self.init(caughtUp: caughtUp, history: history, start: start, wanted: { _ in try await wanted() })
-        }
-
         func states(_ snapshot: PhotoSnapshot) -> Bool {
             guard let start, let created = snapshot.creationDate else { return true }
             return created >= start

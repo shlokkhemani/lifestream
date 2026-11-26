@@ -15,7 +15,7 @@ import { FLOWS } from '../public/lib/hash.js';
 import { meaningParts, MEANING_BUSY, MEANING_LINE } from '../public/ui/connectors/settings-search.js';
 import { LACKS, SCREEN_EVERY, workShown } from '../public/ui/connectors/changes.js';
 import { keyOf, movesMeaning, movesPrivacy } from '../public/ui/connectors/pending.js';
-import { SETTINGS_MEANING, SETTINGS_MODELS } from '../public/ui/connectors/settings.js';
+import { SETTINGS_MEANING, SETTINGS_DEFAULTS } from '../public/ui/connectors/settings.js';
 import { NO_CHANGES, partsOf } from '../public/ui/onboarding/view.js';
 import { sessionOf } from '../public/ui/flows/model.js';
 import { STATE_OFF, STATE_ON } from './fixtures/screen.mjs';
@@ -76,7 +76,7 @@ test('P1: every page draws; the Mac\'s own neither listed nor drawn in a browser
   assert.ok(PAGES.some(page => page.id === 'privacy'), 'Privacy is listed, under Models');
   assert.deepEqual(SETTINGS_INDEX.mac.map(group => [group.label, group.entries.map(entry => entry.label)]), [
     ['Lifestream', ['General', 'Storage', 'Day and time', 'Recovery key']], ['Devices', ['This Mac', 'iPhone', 'Chrome extension']],
-    ['Models', ['AI models', 'Privacy', 'Search by meaning']], ['App', ['Appearance', 'Updates', 'Advanced']]]);
+    ['Models', ['Default models', 'Providers', 'Privacy', 'Search by meaning']], ['App', ['Appearance', 'Updates', 'Advanced']]]);
 });
 
 test('P1: with no home, the list is the skeleton whole, and Recovery key, This Mac and Updates open', () => {
@@ -123,7 +123,7 @@ test('P3: reading, a browser, a home that does not answer, a Mac that does not h
   for (const [state, report, unread, note] of /** @type {const} */ ([[null, REPORT, false, NOTES.browser], [AWAY, REPORT, false, ''],
     [HOST_STATE, null, true, ''], [HOST_STATE, REPORT, true, ''], [ELSEWHERE, REPORT, false, NOTES.elsewhere],
     [HOST_STATE, REPORT, false, '']])) {
-    for (const page of ['home', 'iphone', 'chrome', 'models', 'advanced']) {
+    for (const page of ['home', 'iphone', 'chrome', 'defaults', 'providers', 'advanced']) {
       assert.equal(at(`settings/${page}`, { state, report, unread })?.note, note, `${page}: ${note}`);
     }
     for (const page of ['mac', 'appearance']) assert.equal(at(`settings/${page}`, { state, report, unread })?.note, '', page);
@@ -264,7 +264,7 @@ test('P8: every dialog hash the Mac app sends draws its page', () => {
   }
 });
 
-test('P9: Search by meaning: its model is AI models\' Search by meaning, its power a setting, its index\'s state as the home reads it', () => {
+test('P9: Search by meaning: its model is Default models\' Search by meaning, its power a setting, its index\'s state as the home reads it', () => {
   const meaning = (/** @type {any} */ read, more = {}) => /** @type {Detail} */ (at(SETTINGS_MEANING, { screen: { read, drawn: null }, ...more }));
   assert.ok(SETTINGS_INDEX.mac.find(group => group.label === 'Models')?.entries.some(page => page.id === 'meaning'));
   assert.deepEqual(settingsAt(SETTINGS_MEANING), { page: 'meaning', row: '' });
@@ -278,11 +278,11 @@ test('P9: Search by meaning: its model is AI models\' Search by meaning, its pow
   const search = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'search'));
   const model = /** @type {any} */ (rowOf(meaning(STATE_ON), 'Model'));
   assert.deepEqual([model.end.words, model.line, model.tag], [search.words, MEANING_LINE, 'Runs on a Mac only'], 'the home\'s words of the pick');
-  assert.deepEqual(model.end.acts.map((/** @type {any} */ act) => [act.label, act.do]), [['Change', { open: SETTINGS_MODELS }]],
-    'the pick is made on AI models');
+  assert.deepEqual(model.end.acts.map((/** @type {any} */ act) => [act.label, act.do]), [['Change', { open: SETTINGS_DEFAULTS }]],
+    'the pick is made on Default models');
   const off = meaning(STATE_OFF, { models: SEARCH_OFF });
   const none = /** @type {any} */ (rowOf(off, 'Model'));
-  assert.deepEqual([none.end.words, none.end.acts.map((/** @type {any} */ act) => act.label)], ['Off', ['Choose']], 'on or off as AI models\' Search by meaning holds it');
+  assert.deepEqual([none.end.words, none.end.acts.map((/** @type {any} */ act) => act.label)], ['Off', ['Choose']], 'on or off as Default models\' Search by meaning holds it');
   assert.equal(rowOf(off, 'Search by meaning'), undefined, 'no toggle of its own');
   assert.equal(/** @type {any} */ (rowOf(off, 'When it runs')?.end).menu.words, 'Only when plugged in and idle');
   assert.equal(rowOf(off, 'Searchable'), undefined);
@@ -290,9 +290,9 @@ test('P9: Search by meaning: its model is AI models\' Search by meaning, its pow
   const choices = (/** @type {string} */ label) => /** @type {any} */ (rowOf(off, label)?.end).menu.choices.map((/** @type {any} */ each) => each.do.host);
   assert.deepEqual(choices('When it runs'), [{ act: 'home-setting', settings: { 'search.meaning.power': 'plugged-idle' } }]);
   assert.equal(/** @type {any} */ (rowOf(off, 'When it runs')?.end).menu.busy, MEANING_BUSY);
-  const bare = meaningParts({ state: STATE_OFF, failed: false, acts: true, model: null, choose: { open: SETTINGS_MODELS } });
+  const bare = meaningParts({ state: STATE_OFF, failed: false, acts: true, model: null, choose: { open: SETTINGS_DEFAULTS } });
   const unread = /** @type {any} */ (bare.parts[0].panel?.rows.find(row => row.label === 'Model'));
-  assert.deepEqual([unread.end.words, unread.end.acts[0].label], ['Off', 'Choose'], 'before AI models is read: off, to choose');
+  assert.deepEqual([unread.end.words, unread.end.acts[0].label], ['Off', 'Choose'], 'before Default models is read: off, to choose');
   assert.equal(bare.reading, false);
   const on = meaning(STATE_ON);
   const searchable = /** @type {any} */ (rowOf(on, 'Searchable'));
@@ -324,7 +324,7 @@ test('P9: Search by meaning: its model is AI models\' Search by meaning, its pow
       [search.words, []]);
   }
   const pick = { act: /** @type {const} */ ('models'), do: /** @type {const} */ ('default'), use: /** @type {const} */ ('search'), model: 'none' };
-  assert.equal(movesMeaning(pick), true, 'AI models\' pick reads the screen\'s state again');
+  assert.equal(movesMeaning(pick), true, 'Default models\' pick reads the screen\'s state again');
   assert.equal(movesPrivacy(pick, null), false);
   assert.equal(movesMeaning({ ...pick, use: 'text' }), false);
   assert.equal(SCREEN_EVERY, 10_000);

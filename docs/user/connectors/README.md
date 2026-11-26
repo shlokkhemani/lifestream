@@ -88,7 +88,7 @@ sections. Each connector's page gives its own defaults, and any setting only it 
 - **AI** lists each thing an AI model does with the connector, such as **Email summaries**.
   - Click one to choose its **Model**: **Default**, a model that fits it, or **Off**; **More**
     finds one the menu does not list by its name or id. **Default**, which names its model,
-    is the model set for its use under **Settings** › **AI models** › **Uses**, such as **Text**
+    is the model set for its use under **Settings** › **Default models**, such as **Text**
     for **Email summaries**. Below **Model**, **Personal details** says what Lifestream hides
     before a model off your Mac reads an item.
   - **Read back to** sets which data a model reads: **New only**, **Last 30 days**, **Last year**,
@@ -169,7 +169,7 @@ by itself once your Mac joins another Wi-Fi, or Low Data Mode is off.
 
 **Waiting for power**\
 Your Mac is on battery, and this work waits until it is plugged in. To run it on battery, turn off
-**Save battery** in **Settings** › **AI models**.
+**Save battery** in **Settings** › **Providers**.
 
 **Couldn't reach** *the connector* **· tries again at** *a time*\
 A moment's failure. Lifestream tries again at the time shown.

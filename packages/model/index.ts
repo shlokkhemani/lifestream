@@ -34,7 +34,7 @@ export {
   type StoredAccess,
   type Withheld,
 } from "./access-log.js";
-export { ArtifactError, ensureArtifact, removeArtifact, type Artifact } from "./artifacts.js";
+export { ArtifactError, ensureArtifact, fetchDocument, holdsArtifact, removeArtifact, type Artifact } from "./artifacts.js";
 export { checkAgain, codesigned, lastEntry, makeReady, readyEntry, Refused, removeBuilds, type Build, type ReadyOptions, type SignatureCheck } from "./builds.js";
 export { bare, compatible, faults, readAnswer, type Read } from "./answer-types.js";
 export { askIdentity, openAsker, type Answer, type Asker, type AskerOptions, type AskState, type By, type Candidate, type Known, type Pending, type RoutedAsk, type Sending } from "./asker.js";

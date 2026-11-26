@@ -97,18 +97,18 @@ export const composerAttach = ({ attrs = {}, active, off = '' } = {}) => {
 };
 
 /** @typedef {import('../../lib/model-menu.js').MenuParts} AskMenu */
-/** @typedef {{ placeholder: string, found: AskMenu, none: string }} AskFind */
+/** @typedef {{ placeholder: string, found: import('../../pages.js').ModelGroup[], none: string }} AskFind */
 
 /**
- * @param {AskMenu} found
+ * @param {import('../../pages.js').ModelGroup[]} found
  * @param {string} chosen
  * @param {string} none
  * @param {boolean} [shown]
  */
-export const askFound = (found, chosen, none, shown = true) => floatRows({ role: 'menu', lit: null, items: menuLines(found).flatMap((line, at) => 'more' in line ? [] : [
-  ...line.head ? [{ head: line.head, attrs: { 'data-ck-page-of': 'other', hidden: !shown } }] : [],
-  { name: line.row.name, tag: line.row.account ?? '', chosen: line.row.value === chosen,
-    attrs: { id: `ck-pick-found-${at}`, 'data-value': `model:${line.row.value}`, 'data-ck-page-of': 'other', class: 'ck-fmenu__item', hidden: !shown } },
+export const askFound = (found, chosen, none, shown = true) => floatRows({ role: 'menu', lit: null, items: found.flatMap((group, at) => [
+  { head: group.label, attrs: { 'data-ck-page-of': 'other', hidden: !shown } },
+  ...group.rows.map((row, place) => ({ name: row.name, tag: row.account ?? '', chosen: row.value === chosen,
+    attrs: { id: `ck-pick-found-${at}-${place}`, 'data-value': `model:${row.value}`, 'data-ck-page-of': 'other', class: 'ck-fmenu__item', hidden: !shown } })),
 ]) }) + (none ? `<p${attributes({ class: 'ck-flist__none mac-subhead', 'data-ck-page-of': 'other', hidden: !shown })}>${esc(none)}</p>` : '');
 
 /**
@@ -368,7 +368,7 @@ export function askSteps({ said, working = false, live = working, steps, open = 
   const opens = !live && steps.length > 0;
   const head = `<button${attributes({ type: 'button', class: 'ck-steps__line mac-subhead', disabled: !opens,
     'aria-expanded': opens ? String(open) : null, ...attrs })}>`
-    + `<span class="ck-steps__roll" data-ck-roll><span class="ck-steps__words${working ? ' is-working' : ''}">${esc(said)}</span></span>`
+    + `<span class="ck-steps__roll" data-ck-roll><span class="ck-steps__words${working ? ' ck-shimmer' : ''}">${esc(said)}</span></span>`
     + (!working && steps.length ? icon('forward', { size: 'xs', className: 'ck-steps__caret' }) : '') + '</button>';
   const list = opens ? `<div${attributes({ class: 'ck-steps__open', 'aria-hidden': open ? null : 'true', inert: !open })}><div>`
     + '<ol class="ck-steps__list">' + steps.map(step => `<li class="ck-steps__step mac-subhead${step.failed ? ' is-failed' : ''}">`

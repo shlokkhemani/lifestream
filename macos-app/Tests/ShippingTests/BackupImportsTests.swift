@@ -358,7 +358,7 @@ class BackupImportsTests: XCTestCase {
                                       imports: ImportShipping(sourceId: lane, ledger: .in(carried, files: ledgers.files), ledgers: ledgers, room: room))
                 }
             },
-            clock: clock.read, record: { _ in }, keepAwake: { {} }, network: .free, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+            clock: clock.read, record: { _ in }, keepAwake: { {} }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
     }
 }
 

@@ -32,7 +32,7 @@ const DEMO = {
     { name: 'Coding agent', line: 'Pass · from the internet · added 2 Nov', hides: 'Hides all' }],
   reads: [{ name: 'ChatGPT', line: 'Synced 19:02', tone: 'engaged' }, { name: 'Claude', line: 'Couldn’t sync', tone: 'caution' },
     { name: 'X', line: 'Off', tone: 'idle' }],
-  qwen: 'Describes photos and sums up text · 4.2 GB',
+  qwen: 'Describes photos and sums up text · 6.1 GB',
   words: 3,
   sent: [{ name: 'Anthropic', items: 412, hidden: 3912 }, { name: 'OpenAI', items: 1, hidden: 14 }],
   jobs: 8,
@@ -180,28 +180,32 @@ const PAGES = [
     ] },
   ] },
   { group: 'Models', pages: [
-    { id: 'models', label: 'AI models', icon: 'ai', body: shown => [
-      settingsSection({ heading: 'Subscriptions', rows: [
-        row('ChatGPT', 'Use your ChatGPT plan.', settingValue('Not connected') + act('Connect')),
-        row('Claude', 'Signed in · Max plan', settingValue('Connected') + act('Disconnect', 'plain')),
+    { id: 'defaults', label: 'Default models', icon: 'ai', body: shown => [
+      settingsSection({ rows: [
+        row('Chat', '', menu('chat', 'Chat', 'Claude Opus 5.5')),
+        row('Thinking', '', menu('thinking', 'Thinking', 'Medium'), { attrs: { class: 'ck-srow--inset' } }),
+        row('Photos', '', menu('pictures', 'Photos', 'Qwen 3.5 9B')),
+        row('Voice notes', '', menu('audio', 'Voice notes', 'Parakeet', shown.note)),
+        row('Text', '', menu('text', 'Text', 'Off')),
+        row('Search by meaning', '', menu('search', 'Search by meaning', 'Nomic Embed')),
+        row('Hiding details', '', menu('hiding', 'Hiding details', 'Off')),
       ] }),
-      settingsSection({ heading: 'API keys', rows: [
-        row('OpenRouter', 'Pay per call with your own key.', settingValue('Not set') + act('Add key')),
-        row('Custom server', 'Any server that speaks the OpenAI API, such as Ollama or LM Studio.', settingValue('Not set')
-          + act('Add server')),
+    ] },
+    { id: 'providers', label: 'Providers', icon: 'ai-apps', body: shown => [
+      settingsSection({ heading: 'Accounts', rows: [
+        row('Claude', '', settingValue('Signed in', { done: true })),
+        row('ChatGPT', '', act('Sign in')),
+        row('OpenRouter', 'Hundreds of models with one key.', act('Add key')),
       ] }),
-      settingsSection({ heading: `On ${shown.runner}`, rows: [
-        row('Run models', 'Turn off to hold their work until you turn it back on.', sw(true, 'Run models')),
-        row('Save battery', 'Runs only today\'s and yesterday\'s items on battery; the rest wait until it\'s plugged in.', sw(true, 'Save battery')),
-        row('Qwen 3.5', shown.qwen, settingValue('Not downloaded') + act('Download')),
-        row('Parakeet', 'Transcribes English speech · 0.7 GB', settingValue('Downloaded', { done: true }) + act('Remove', 'plain')),
-        row('Nemotron Speech', 'Transcribes 28 languages, Hindi among them · 0.8 GB', settingValue('Downloading')
-          + act('Cancel', 'plain'), { holds: progressLine({ label: 'Nemotron Speech downloading', share: 0.41, words: '0.3 of 0.8 GB' }) }),
+      settingsSection({ heading: 'Local models', rows: [
+        row('Run local models', '', sw(true, 'Run local models')),
+        row('Save battery', 'On battery, only recent items run.', sw(true, 'Save battery')),
+        row('Qwen 3.5 9B', shown.qwen, settingValue('Downloaded', { done: true }) + act('Remove', 'plain')),
+        row('Parakeet', 'Downloading · 3 min left', act('Cancel', 'plain'), { working: true }),
+        row('Gemma 4 27B', 'Needs 48 GB of memory', '', { dim: true }),
       ] }),
-      settingsSection({ heading: 'Defaults', line: 'What a connector uses unless you pick another in its LLM processing.', rows: [
-        row('Pictures', '', menu('pictures', 'Pictures', 'Claude')),
-        row('Audio', '', menu('audio', 'Audio', 'Parakeet', shown.note)),
-        row('Text', '', menu('text', 'Text', 'Claude')),
+      settingsSection({ heading: 'Other server', rows: [
+        row('Any OpenAI-compatible server, like vLLM or another Mac.', '', act('Add server')),
       ] }),
     ] },
     { id: 'privacy', label: 'Privacy', icon: 'hidden', body: shown => [
@@ -331,9 +335,9 @@ const body = shown => '<div class="gallery__specimen"><p class="gallery__label m
   + `<div class="gallery__set-page gallery__set-parts" data-set-page="parts">${parts(shown, 'parts').join('')}</div>`
   + `<div class="gallery__set-page gallery__set-held" data-set-page="held">${held()}</div>`
   + '<div class="gallery__set-page gallery__set-narrow" data-set-page="narrow">'
-  + `${(ALL.find(each => each.id === 'models')?.body(shown) ?? []).slice(2, 3).join('')}${parts(shown, 'narrow').join('')}</div></div></div>`
+  + `${(ALL.find(each => each.id === 'providers')?.body(shown) ?? []).slice(1, 2).join('')}${parts(shown, 'narrow').join('')}</div></div></div>`
   + '<div class="gallery__specimen"><p class="gallery__label mac-mono-label">At 200 % zoom: a 1440 window is 720 wide</p>'
-  + `<div class="gallery__set-zoomed">${frame('mac', shown, 'gallery__set--zoomed')}${frame('models', shown, 'gallery__set--zoomed')}`
+  + `<div class="gallery__set-zoomed">${frame('mac', shown, 'gallery__set--zoomed')}${frame('providers', shown, 'gallery__set--zoomed')}`
   + `${frame('agents', shown, 'gallery__set--zoomed')}</div></div>`;
 
 export const settings = () => '<section class="gallery__group" data-gallery-settings>'
