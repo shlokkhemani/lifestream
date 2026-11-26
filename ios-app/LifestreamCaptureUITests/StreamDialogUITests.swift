@@ -122,8 +122,8 @@ final class StreamDialogUITests: XCTestCase {
         XCTAssertEqual(app.sheetGrabber().frame.minY, top, accuracy: 1, "the sheet stands where it stood")
 
         let photosMember = try HomeReport.member(whatsapp, "llm.photos")
-        let models = try XCTUnwrap(photosMember["steps"] as? [[String: Any]])
-        let model = try XCTUnwrap(models.last.flatMap { $0["words"] as? String })
+        let models = try XCTUnwrap((photosMember["menu"] as? [String: Any])?["rows"] as? [[String: Any]])
+        let model = try XCTUnwrap(models.last.flatMap { $0["name"] as? String })
         app.openAI("llm.photos")
         let back = app.buttons["drawer.back"].firstMatch
         XCTAssertEqual(back.label, "Back to \(HomeReport.said(whatsapp, "name"))")

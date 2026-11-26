@@ -85,7 +85,7 @@ describe("the bench's measures", () => {
   it("measures each choice: nothing under Don't hide, the rules alone with an empty name table, the names and the detector with a hiding model; a wrong hide by type; a text the detector cannot read apart", async () => {
     const detector = fakeDetector(WORDS);
     detector.unread(UNREAD);
-    const input: BenchInput = { items: items(), names: NAMES, detector: { runner: RUNNER, detector }, lists: [loose, strict], scratch: scratch() };
+    const input: BenchInput = { items: items(), names: NAMES, detector: { detector }, lists: [loose, strict], scratch: scratch() };
     const report = await bench(input);
 
     expect(measured(report, "Don't hide")).toMatchObject({ items: 3, cannot: 0, found: { found: 0, of: 7 }, wrong: 0 });
@@ -113,7 +113,7 @@ describe("the bench's measures", () => {
 
   it("counts half a detail hidden as missed, and prints a choice it cannot run as not measured, with why, the others measured", async () => {
     const half = itemOf({ source: NOTES, kind: "note", key: "half", details: [{ type: "person", text: "Zed Sample" }] }, { text: "Zed Sample wrote." }, 1);
-    const found = await bench({ items: [half], names: NAMES, detector: { runner: RUNNER, detector: fakeDetector({ Zed: "person" }) }, lists: [], scratch: scratch() });
+    const found = await bench({ items: [half], names: NAMES, detector: { detector: fakeDetector({ Zed: "person" }) }, lists: [], scratch: scratch() });
     expect(measured(found, "Hide with a hiding model")).toMatchObject({ found: { found: 0, of: 1 }, wrong: 0 });
 
     const absent = await bench({ items: [half], names: NAMES, detector: { why: "no runner named (--detector runner-<unit>)" }, lists: [], scratch: scratch() });
@@ -124,13 +124,13 @@ describe("the bench's measures", () => {
     const other = itemOf({ source: NOTES, kind: "note", key: "other", details: [{ type: "person", text: "Zed Sample" }] }, { text: "Then Zed Sample came." }, 2);
     const lost = fakeDetector({ "Zed Sample": "person" });
     lost.fail();
-    const once = await bench({ items: [half, other], names: NAMES, detector: { runner: RUNNER, detector: lost }, lists: [], scratch: scratch() });
+    const once = await bench({ items: [half, other], names: NAMES, detector: { detector: lost }, lists: [], scratch: scratch() });
     expect(measured(once, "Hide with a hiding model")).toMatchObject({ items: 1, found: { found: 1, of: 1 }, fallbacks: [{ item: 1, why: "the fake detector failed, as scripted" }] });
     expect(measured(once, "Hide what the home knows")).toMatchObject({ items: 2, fallbacks: [] });
     expect(render(once)).toContain("\nHide with a hiding model: the hiding model answered 1 of 2 items; fell back on item 1: the fake detector failed, as scripted\n");
     const away = fakeDetector({});
     away.set({ state: "absent", why: "The hiding model's runner is not heard from." });
-    const failed = await bench({ items: [half, other], names: NAMES, detector: { runner: RUNNER, detector: away }, lists: [], scratch: scratch() });
+    const failed = await bench({ items: [half, other], names: NAMES, detector: { detector: away }, lists: [], scratch: scratch() });
     expect(failed.choices.at(-1)).toEqual({ choice: "Hide with a hiding model", why: NOT_USED });
   });
 
@@ -206,7 +206,7 @@ describe("the bench against a home, through its door", () => {
       runner.kill("SIGTERM");
       await exited;
     });
-    const watching = openDetector({ runner: () => RUNNER, line: "mark", drive: driveHalf(door.url, { call: () => home.tokens.call, drive: () => home.tokens.drive }), fresh_ms: 0 });
+    const watching = openDetector({ chosen: () => `runner:${RUNNER}/privacy-filter`, line: "mark", drive: driveHalf(door.url, { call: () => home.tokens.call, drive: () => home.tokens.drive }), fresh_ms: 0 });
     await until("the detector is ready on the runner", () => watching.state().state === "ready")
       .catch((error: Error) => { throw new Error(`${error.message}; the state is ${JSON.stringify(watching.state())}; the runner said ${said.join("")}`); });
 

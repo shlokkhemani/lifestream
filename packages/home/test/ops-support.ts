@@ -20,7 +20,7 @@ export const DAY = 24 * HOUR;
 export const T0 = Date.UTC(2026, 8, 1, 8);
 export const ARTIFACTS = join(tmpdir(), "lifestream-home-ops-e2e");
 export const SETTINGS: OpsSettings = {
-  day: { zone: "UTC", day_start_hour: 4 }, history: { start: "all" }, connectors: {}, clients: {}, sources: { off: [] }, sites: { chosen: [] }, unit: "macbook-pro-0001", defaults: { pictures: null, audio: null, text: null }, runners: {},
+  day: { zone: "UTC", day_start_hour: 4 }, history: { start: "all" }, connectors: {}, clients: {}, sources: { off: [] }, sites: { chosen: [] }, unit: "macbook-pro-0001", defaults: { pictures: null, audio: null, text: null, chat: null, search: null, hiding: null }, runners: {},
   door: { port: 0, max_bundle_bytes: 1 << 30 }, model: effectiveOf({ "day.zone": "UTC", unit: "macbook-pro-0001" }, "").settings.model, helpers: 2,
   privacy: readPrivacySettings({}), screen_cutover_ms: effectiveOf({ "day.zone": "UTC", unit: "macbook-pro-0001" }, "").settings.screen_cutover_ms,
 };

@@ -1,0 +1,481 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-06-01",
+  "uses": [
+    {
+      "use": "pictures",
+      "label": "Photos",
+      "line": null,
+      "words": "GPT-6 Luna",
+      "value": "codex:gpt-6-luna",
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [
+          {
+            "value": "codex:gpt-6-luna",
+            "name": "GPT-6 Luna",
+            "account": null,
+            "chosen": true
+          }
+        ],
+        "local": {
+          "label": "Local",
+          "rows": [
+            {
+              "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+              "name": "Qwen 3.5 4B",
+              "account": null,
+              "chosen": false
+            }
+          ]
+        },
+        "more": {
+          "words": "More",
+          "use": "pictures",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": false
+        }
+      },
+      "places": [
+        {
+          "place": "On this Mac",
+          "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+          "line": "Download Qwen 3.5 4B · 4 GB",
+          "ready": true,
+          "leaves": false
+        },
+        {
+          "place": "Claude",
+          "value": "claude:claude-haiku-5-5",
+          "line": "Connect Claude first",
+          "ready": false,
+          "leaves": true
+        },
+        {
+          "place": "ChatGPT",
+          "value": "codex:gpt-6-luna",
+          "line": null,
+          "ready": true,
+          "leaves": true
+        }
+      ]
+    },
+    {
+      "use": "audio",
+      "label": "Voice notes",
+      "line": null,
+      "words": "Parakeet",
+      "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": {
+          "label": "Local",
+          "rows": [
+            {
+              "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+              "name": "Parakeet",
+              "account": "MacBook Pro",
+              "chosen": true
+            },
+            {
+              "value": "runner:runner-mac-mini-0002/parakeet-unified-en-0.6b",
+              "name": "Parakeet",
+              "account": "Mac mini",
+              "chosen": false
+            }
+          ]
+        },
+        "more": {
+          "words": "More",
+          "use": "audio",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": false
+        }
+      },
+      "places": [
+        {
+          "place": "On this Mac",
+          "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+          "line": null,
+          "ready": true,
+          "leaves": false
+        },
+        {
+          "place": "On Mac mini",
+          "value": "runner:runner-mac-mini-0002/parakeet-unified-en-0.6b",
+          "line": null,
+          "ready": true,
+          "leaves": false
+        }
+      ]
+    },
+    {
+      "use": "text",
+      "label": "Text",
+      "line": "Gone One isn't offered now",
+      "words": "Gone One",
+      "value": "openrouter:vendor-a/gone-1",
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [
+          {
+            "value": "codex:gpt-6-luna",
+            "name": "GPT-6 Luna",
+            "account": null,
+            "chosen": false
+          }
+        ],
+        "local": {
+          "label": "Local",
+          "rows": [
+            {
+              "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+              "name": "Qwen 3.5 4B",
+              "account": null,
+              "chosen": false
+            }
+          ]
+        },
+        "more": {
+          "words": "More",
+          "use": "text",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": false
+        }
+      },
+      "places": [
+        {
+          "place": "On this Mac",
+          "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+          "line": "Download Qwen 3.5 4B · 4 GB",
+          "ready": true,
+          "leaves": false
+        },
+        {
+          "place": "Claude",
+          "value": "claude:claude-haiku-5-5",
+          "line": "Connect Claude first",
+          "ready": false,
+          "leaves": true
+        },
+        {
+          "place": "ChatGPT",
+          "value": "codex:gpt-6-luna",
+          "line": null,
+          "ready": true,
+          "leaves": true
+        }
+      ]
+    },
+    {
+      "use": "chat",
+      "label": "Chat",
+      "line": "Sign in to Claude again",
+      "words": "Claude Opus 5.5",
+      "value": "claude:claude-opus-5-5",
+      "thinking": {
+        "value": "high",
+        "words": "High",
+        "levels": [
+          {
+            "value": "low",
+            "name": "Low",
+            "chosen": false,
+            "suggested": false
+          },
+          {
+            "value": "medium",
+            "name": "Medium",
+            "chosen": false,
+            "suggested": true
+          },
+          {
+            "value": "high",
+            "name": "High",
+            "chosen": true,
+            "suggested": false
+          }
+        ]
+      },
+      "menu": {
+        "default": null,
+        "rows": [
+          {
+            "value": "codex:gpt-6.2-sol",
+            "name": "GPT-6.2 Sol",
+            "account": null,
+            "chosen": false
+          },
+          {
+            "value": "codex:gpt-6-luna",
+            "name": "GPT-6 Luna",
+            "account": null,
+            "chosen": false
+          }
+        ],
+        "local": null,
+        "more": {
+          "words": "More",
+          "use": "chat",
+          "work": null
+        },
+        "off": null
+      },
+      "places": [
+        {
+          "place": "Claude",
+          "value": "claude:claude-opus-5-5",
+          "line": "Connect Claude first",
+          "ready": false,
+          "leaves": true
+        },
+        {
+          "place": "ChatGPT",
+          "value": "codex:gpt-6.2-sol",
+          "line": null,
+          "ready": true,
+          "leaves": true
+        }
+      ]
+    },
+    {
+      "use": "search",
+      "label": "Search by meaning",
+      "line": "Not downloaded",
+      "words": "EmbeddingGemma 2",
+      "value": "runner:runner-macbook-pro-0001/embeddinggemma-2-q8-512",
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": {
+          "label": "Local",
+          "rows": [
+            {
+              "value": "runner:runner-macbook-pro-0001/embeddinggemma-2-q8-512",
+              "name": "EmbeddingGemma 2",
+              "account": null,
+              "chosen": true
+            }
+          ]
+        },
+        "more": {
+          "words": "More",
+          "use": "search",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": false
+        }
+      },
+      "places": [
+        {
+          "place": "On this Mac",
+          "value": "runner:runner-macbook-pro-0001/embeddinggemma-2-q8-512",
+          "line": "Download EmbeddingGemma 2 · 0.5 GB",
+          "ready": true,
+          "leaves": false
+        }
+      ]
+    },
+    {
+      "use": "hiding",
+      "label": "Hiding details",
+      "line": "Parakeet doesn't do this",
+      "words": "Parakeet",
+      "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
+      "thinking": null,
+      "menu": {
+        "default": null,
+        "rows": [],
+        "local": {
+          "label": "Local",
+          "rows": [
+            {
+              "value": "runner:runner-macbook-pro-0001/privacy-filter",
+              "name": "Privacy Filter",
+              "account": null,
+              "chosen": false
+            }
+          ]
+        },
+        "more": {
+          "words": "More",
+          "use": "hiding",
+          "work": null
+        },
+        "off": {
+          "value": "none",
+          "name": "Off",
+          "account": null,
+          "chosen": false
+        }
+      },
+      "places": [
+        {
+          "place": "On this Mac",
+          "value": "runner:runner-macbook-pro-0001/privacy-filter",
+          "line": "Download Privacy Filter · 4 GB",
+          "ready": true,
+          "leaves": false
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "runner:runner-macbook-pro-0001",
+      "unit": "runner-macbook-pro-0001",
+      "place": "On this Mac",
+      "name": "MacBook Pro",
+      "line": null,
+      "files": [
+        {
+          "id": "qwen3.5-4b",
+          "name": "Qwen 3.5 4B",
+          "about": "Describes photos and sums up text · suggested for this Mac's 16 GB",
+          "size": "4 GB",
+          "state": "absent",
+          "line": "Not downloaded",
+          "suggested": true,
+          "fits": true,
+          "acts": [
+            "fetch"
+          ]
+        },
+        {
+          "id": "parakeet-unified-en-0.6b",
+          "name": "Parakeet",
+          "about": "Transcribes voice notes in English · suggested for this Mac's 16 GB",
+          "size": "0.7 GB",
+          "state": "ready",
+          "line": null,
+          "suggested": true,
+          "fits": true,
+          "acts": [
+            "remove"
+          ]
+        },
+        {
+          "id": "nemotron-3.5-asr-0.6b",
+          "name": "Nemotron Speech",
+          "about": "Transcribes voice notes in English, Hindi and 2 more languages",
+          "size": "0.8 GB",
+          "state": "absent",
+          "line": "Not downloaded",
+          "suggested": false,
+          "fits": true,
+          "acts": [
+            "fetch"
+          ]
+        },
+        {
+          "id": "qwen3.5-35b-a3b",
+          "name": "Qwen 3.5 35B-A3B",
+          "about": "Describes photos and sums up text · Needs a Mac with 48 GB",
+          "size": "22 GB",
+          "state": "absent",
+          "line": "Not downloaded",
+          "suggested": false,
+          "fits": false,
+          "acts": []
+        },
+        {
+          "id": "embeddinggemma-2-q8-512",
+          "name": "EmbeddingGemma 2",
+          "about": "Search by meaning · suggested for this Mac's 16 GB",
+          "size": "0.5 GB",
+          "state": "absent",
+          "line": "Not downloaded",
+          "suggested": true,
+          "fits": true,
+          "acts": [
+            "fetch"
+          ]
+        }
+      ],
+      "found": [],
+      "battery": {
+        "on": true,
+        "line": "On battery · older items wait until it's plugged in"
+      },
+      "paused": false,
+      "kind": "runner"
+    },
+    {
+      "id": "runner:runner-mac-mini-0002",
+      "unit": "runner-mac-mini-0002",
+      "place": "On Mac mini",
+      "name": "Mac mini",
+      "line": "Paused since 11:59",
+      "files": [
+        {
+          "id": "parakeet-unified-en-0.6b",
+          "name": "Parakeet",
+          "about": "Transcribes voice notes in English · suggested for Mac mini's 16 GB",
+          "size": "0.7 GB",
+          "state": "ready",
+          "line": null,
+          "suggested": true,
+          "fits": true,
+          "acts": [
+            "remove"
+          ]
+        }
+      ],
+      "found": [],
+      "battery": null,
+      "paused": true,
+      "kind": "runner"
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "line": "Sign in to Claude again",
+      "signed": false,
+      "kind": "plan"
+    },
+    {
+      "id": "codex",
+      "name": "ChatGPT",
+      "line": null,
+      "signed": true,
+      "kind": "plan"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "line": "Add the key for OpenRouter",
+      "held": false,
+      "kind": "key"
+    },
+    {
+      "id": "address",
+      "url": "http://127.0.0.1:1234/v1",
+      "line": "Chat needs the server to run a context window of 32,000 tokens or more",
+      "kind": "address"
+    }
+  ]
+}

@@ -348,7 +348,7 @@ describe("the ledger's version", () => {
     }
     const again = folder.store(LEDGER_STORE, path, { mustExist: true });
     try {
-      expect(again.pragma("user_version", { simple: true })).toBe(16);
+      expect(again.pragma("user_version", { simple: true })).toBe(LATEST);
       expect(again.prepare("SELECT what, chars FROM outbound ORDER BY seq").all()).toEqual([{ what: "ask", chars: 10 }, { what: "feedback", chars: 12 }]);
       expect(again.pragma("integrity_check", { simple: true })).toBe("ok");
     } finally {

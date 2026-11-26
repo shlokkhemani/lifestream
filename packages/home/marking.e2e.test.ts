@@ -468,11 +468,11 @@ describe("key values marked ahead", () => {
 });
 
 describe("the marking job in a home", () => {
-  it("marks a fresh home's synthetic record to 100% on the fake runner once the hiding model is chosen, the store holding each passage's marks, and follows privacy.detector as it is set", async () => {
+  it("marks a fresh home's synthetic record to 100% on the fake runner once the hiding model is chosen, the store holding each passage's marks, and follows the Hiding details default as it is set", async () => {
     const RUNNER = `runner-${TEST_UNIT}`;
     const root = makeRoot("lifestream-marking-home-", { sources: { [A]: "fake-rows" }, settings: { "families.notes": { text: "1" } }, defaults: false });
     roots.push(root);
-    editSettings(root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "privacy.detector": RUNNER });
+    editSettings(root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "model.defaults.hiding": `runner:${RUNNER}/privacy-filter` });
     const door = await doorHere(root);
     const home = await startHome(root, { stopGraceMs: 50, registry: FAKES, log: () => undefined, tickMs: TICK_MS });
     const machine = process.env.LIFESTREAM_MACHINE_DIR!;
@@ -500,21 +500,24 @@ describe("the marking job in a home", () => {
       expect(notes.map((note) => kept.get(sha256(note))?.marks)).toEqual([
         [{ start: notes[0]!.indexOf("Ada Example"), end: notes[0]!.indexOf("Ada Example") + 11, type: "person" }], [{ start: 9, end: 29, type: "email" }], [],
       ]);
-      const set = (value: string) => askHome(testSocket(root), "settings", ["set", "privacy.detector", value]);
+      const set = async (value: string | null) => {
+        editSettings(root, { "model.defaults.hiding": value });
+        await askHome(testSocket(root), "settings", ["set", "privacy.links", "tokens"]);
+      };
       const ticks = async (what: string) => {
         const at = home.stats().ticks.count;
         await until(what, () => home.stats().ticks.count >= at + 30);
       };
-      await set("off");
+      await set(null);
       const late = "A note for Ada Example written while hiding is off.";
       await ship(root, { source: A, fetched_ms: Date.now(), rows: [{ kind: "note", key: "n9", content: { text: late, at: at + 9 * MINUTE, photo: false }, at: at + 9 * MINUTE }] });
       await until("the index holds the note written while hiding is off", () => progress().total === notes.length + 1);
-      await ticks("30 ticks with privacy.detector off");
+      await ticks("30 ticks with Hiding details off");
       expect(progress().marked).toBe(notes.length);
-      await set("runner-elsewhere-bb01");
-      await ticks("30 ticks with privacy.detector on a runner never heard from");
+      await set("runner:runner-elsewhere-bb01/privacy-filter");
+      await ticks("30 ticks with Hiding details on a runner never heard from");
       expect(progress().marked).toBe(notes.length);
-      await set(RUNNER);
+      await set(`runner:${RUNNER}/privacy-filter`);
       await until("the job marks the late note on the home's own runner", () => progress().marked === notes.length + 1);
       artifact.settings = progress();
       expect(marks.read([sha256(late)], { id: "", file: "", decode: "" }).get(sha256(late))?.marks).toEqual([{ start: late.indexOf("Ada Example"), end: late.indexOf("Ada Example") + 11, type: "person" }]);

@@ -1,6 +1,10 @@
 // @ts-check
 import { CHATGPT_CODE, CHATGPT_SIGNED_IN, hostState, SENSES } from './onboarding-home.mjs';
-import { ASK_FILES } from './ask-ready.mjs';
+import { askReady, askSignedOut } from './ask-ready.mjs';
+
+const TERRA = { id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['high'], default: 'high', group: 'ChatGPT' };
+const TOUR_READY = askReady([TERRA]);
+const TOUR_OUT = askSignedOut([TERRA], 'Chat needs your ChatGPT sign-in on your Mac.');
 
 /** @param {any} shared */
 export function onboardingScreens({ onboarding }) {
@@ -37,11 +41,11 @@ export function onboardingScreens({ onboarding }) {
     O('ob-media', 'Make your pictures and audio searchable', 'media', 'many', made({ granted: all, more: { ask_login: CHATGPT_SIGNED_IN } })),
     O('ob-set', 'You’re all set', 'set', 'many', made({ granted: all, more: { ask_login: CHATGPT_SIGNED_IN } })),
     O('ob-reading', 'A step, before the report is read', 'mac', 'empty', made(), { arm: () => { onboarding.quietly('empty'); onboarding.holdReports(true); }, disarm: () => onboarding.holdReports(false), raw: true, run: `await S.sleep(1500);`, whole: false }),
-    T('tour-1', 'Tour step 1: Ask anything', 1, { stub: [{ url: 'api/ask$', method: 'GET', json: { ...ASK_FILES, login: 'missing', model: 'synthetic-terra', group: 'ChatGPT', said: 'Chat needs your ChatGPT sign-in on your Mac.', default: { model: 'synthetic-terra' }, models: [{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['high'], default: 'high', group: 'ChatGPT', photos: true }] } }, { url: 'api/ask/chats', json: { chats: [] } }] }),
-    T('tour-1-offer', 'Tour step 1: the first question offered', 1, { stub: [{ url: 'api/ask$', method: 'GET', json: { ...ASK_FILES, login: 'ready', model: 'synthetic-terra', name: 'Synthetic Terra', thinking: 'high', group: 'ChatGPT', default: { model: 'synthetic-terra' }, models: [{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['high'], default: 'high', group: 'ChatGPT', photos: true }] } }, { url: 'api/ask/chats', json: { chats: [] } }], run: `await S.sleep(1500);` }),
-    T('tour-1-answered', 'Tour step 1: docked over the first answer', 1, { stub: [{ url: 'api/ask$', method: 'GET', json: { ...ASK_FILES, login: 'ready', model: 'synthetic-terra', name: 'Synthetic Terra', thinking: 'high', group: 'ChatGPT', default: { model: 'synthetic-terra' }, models: [{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['high'], default: 'high', group: 'ChatGPT', photos: true }] } }, { url: 'api/ask/chats', json: { chats: [] } },
+    T('tour-1', 'Tour step 1: Ask anything', 1, { stub: [{ url: 'api/ask$', method: 'GET', json: TOUR_OUT }, { url: 'api/ask/chats', json: { chats: [] } }] }),
+    T('tour-1-offer', 'Tour step 1: the first question offered', 1, { stub: [{ url: 'api/ask$', method: 'GET', json: TOUR_READY }, { url: 'api/ask/chats', json: { chats: [] } }], run: `await S.sleep(1500);` }),
+    T('tour-1-answered', 'Tour step 1: docked over the first answer', 1, { stub: [{ url: 'api/ask$', method: 'GET', json: TOUR_READY }, { url: 'api/ask/chats', json: { chats: [] } },
       { url: 'api/ask$', method: 'POST', lines: [{ type: 'chat', chat: '1792396847000-aaa009', n: 2 }, { type: 'done', message: { chat: '1792396847000-aaa009', n: 2, at_ms: Date.now(), role: 'assistant', text: 'You spent most of your week at River Flat and the Climbing Hall.', refs: {}, steps: [], end: 'done', ms: 8000, model: 'synthetic-terra', thinking: 'high' } }] }], run: `await S.sleep(1500); await S.press('Ask'); await S.sleep(1500);`, optional: true }),
-    T('tour-2', 'Tour step 2: Quick search', 2, { stub: [{ url: 'api/ask$', method: 'GET', json: { ...ASK_FILES, login: 'missing', model: 'synthetic-terra', group: 'ChatGPT', said: 'Chat needs your ChatGPT sign-in on your Mac.', default: { model: 'synthetic-terra' }, models: [{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['high'], default: 'high', group: 'ChatGPT', photos: true }] } }] }),
+    T('tour-2', 'Tour step 2: Quick search', 2, { stub: [{ url: 'api/ask$', method: 'GET', json: TOUR_OUT }] }),
     T('tour-3', 'Tour step 3: Your people', 3),
     T('tour-4', 'Tour step 4: Your places', 4),
     T('tour-5', 'Tour step 5: Add more of your life', 5),

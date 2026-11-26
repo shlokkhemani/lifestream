@@ -136,7 +136,7 @@ export function readConnectors(db: Database.Database, input: ConnectorsInput): S
     const tables = readTables(db);
     const processing = readProcessing(tables, input.ledger?.rates(now_ms) ?? null, {
       connectors: registry.connectors, families: registry.families, histories: historiesOf(folded.connectors), blocks: settings.connectors, defaults: settings.defaults, runners: settings.runners, day, now_ms,
-      privacy: settings.privacy, home: settings.unit,
+      privacy: settings.privacy,
     });
     const grouped = (connector: Connector) => Object.values(connector.fields ?? {}).some((field) => field.home === true);
     const quiet = registry.connectors.some(grouped) ? readQuiet(folder, peopleFileOf(root, input.machine)) as Readonly<Record<string, number>> | undefined : undefined;
@@ -1209,7 +1209,7 @@ function membersOf(connector: Connector, running: Running, applied: Applied, { s
     if (key.startsWith(WORK_MEMBER) || key.startsWith(PRIVACY_MEMBER)) {
       const drawn = processing?.members.get(key);
       if (drawn === undefined) return [];
-      return [{ key, kind: "choice", label: drawn.label, about: drawn.about, value: member.value, words: drawn.words, from: member.from, default: null, steps: drawn.steps, ...(drawn.route === undefined ? {} : { route: drawn.route }), panel: null, control: drawn.steps === null ? null : "menu", where: null }];
+      return [{ key, kind: "choice", label: drawn.label, about: drawn.about, value: member.value, words: drawn.words, from: member.from, default: null, steps: drawn.steps, ...(drawn.menu === undefined ? {} : { menu: drawn.menu }), ...(drawn.route === undefined ? {} : { route: drawn.route }), ...(drawn.line === undefined ? {} : { line: drawn.line }), panel: null, control: drawn.steps === null && drawn.menu === undefined ? null : "menu", where: null }];
     }
     const field = connector.fields?.[key];
     const marks = applied === null || key === "start" || connector.fields?.[key]?.home === true ? null : applied(key, member.value);

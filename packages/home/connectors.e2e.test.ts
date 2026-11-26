@@ -925,7 +925,7 @@ describe("the connectors", () => {
       ["folders", "list", "Folders", [], "All Mail", "declaration", "settings"],
       ["start", "start", "Starts from", null, "All time", "unset", "backfill"],
       ["pace", "duration", "Catch up every", "1m", "Every minute", "declaration", "backfill"],
-      ["llm.mail", "choice", "Email summaries", "default", "fake-model", "declaration", null],
+      ["llm.mail", "choice", "Email summaries", "default", "Default · fake-model", "declaration", null],
       ["llm.range", "choice", "Read back to", null, "1 Jan 1970", "unset", null],
       ["privacy.mail", "choice", "Email summaries: personal details", "default", "Personal details hidden", "declaration", null],
     ]);
@@ -990,7 +990,7 @@ describe("the connectors", () => {
     write.commit((tx) => tx.tables.controls.clear("home"));
     write.commit((tx) => {
       const runners = [{ unit: "runner-macbook-pro-0001", name: "MacBook Pro", present: false, power: null, memory_gb: 16, files: [], below: null }];
-      tx.tables.meta.set(MODELS_META, JSON.stringify({ routes: [], runners, openrouter: { connected: false } } satisfies StoredModels));
+      tx.tables.meta.set(MODELS_META, JSON.stringify({ routes: [], runners, connections: {} } satisfies StoredModels));
       tx.tables.controls.set({ target: "runner:runner-macbook-pro-0001", reason: "", at_ms: 1, by: "you" });
       tx.tables.controls.set({ target: "runner:runner-mac-mini-bb17", reason: "the mini is busy", at_ms: 1, by: "terminal" });
     });

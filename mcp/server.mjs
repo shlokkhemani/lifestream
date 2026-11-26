@@ -5,7 +5,6 @@ import { createServer } from 'node:http';
 import { isIPv4 } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { createModels } from '@earendil-works/pi-ai/models';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -13,7 +12,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { LIMITS, openAsk } from './lib/ask/ask.mjs';
 import { openClaude } from './lib/ask/claude.mjs';
 import { openCodex } from './lib/ask/codex.mjs';
-import { homeKey, OPENROUTER, openRouterProvider } from './lib/ask/openrouter.mjs';
+import { modelsRead } from './lib/ask/conversations.mjs';
 import { machineDir, PROGRAM_OF, programAt } from './lib/ask/programs.mjs';
 import { openSignIn } from './lib/ask/sign-in.mjs';
 import { createPublicHandler, PUBLIC_PORT } from './lib/agents/public.mjs';
@@ -524,16 +523,13 @@ export function settingsFrom(argv, env) {
 
 /**
  * @param {string} machine
- * @param {{ door: string, openrouter?: string | null, codeMs?: number, followMs?: number, liveMs?: number, listedMs?: number | null, now?: () => number, log?: (line: Record<string, unknown>) => void }} options
+ * @param {{ door: string, codeMs?: number, followMs?: number, liveMs?: number, listedMs?: number | null, now?: () => number, log?: (line: Record<string, unknown>) => void }} options
  */
-export function askOn(machine, { door, openrouter = null, codeMs, followMs, liveMs, listedMs, now = Date.now, log = LOG }) {
-  const keys = homeKey({ machine, door, log });
-  const models = createModels({ credentials: keys });
-  models.setProvider(openRouterProvider(openrouter));
-  const codex = openCodex({ at: () => programAt(machine, 'codex'), log, now });
+export function askOn(machine, { door, codeMs, followMs, liveMs, listedMs, now = Date.now, log = LOG }) {
+  const codex = openCodex({ at: () => programAt(machine, 'codex'), log });
   const claude = openClaude({ at: () => programAt(machine, 'claude'), machine, log, now });
-  const signIn = openSignIn({ codex, claude, machine, log, ...(codeMs === undefined ? {} : { codeMs }), ...(followMs === undefined ? {} : { followMs }) });
-  return { models, otherwise: OPENROUTER, codex, claude, machine, now, signIn, ...(liveMs === undefined ? {} : { liveMs }), ...(listedMs === undefined ? {} : { listedMs }) };
+  const signIn = openSignIn({ codex, claude, machine, reread: () => modelsRead(machine, door), log, ...(codeMs === undefined ? {} : { codeMs }), ...(followMs === undefined ? {} : { followMs }) });
+  return { codex, claude, machine, now, signIn, ...(liveMs === undefined ? {} : { liveMs }), ...(listedMs === undefined ? {} : { listedMs }) };
 }
 
 /** @param {{ port: number, publicPort: number, door: string, machine?: string, log?: (line: Record<string, unknown>) => void, interfaces?: () => Interfaces }} settings */

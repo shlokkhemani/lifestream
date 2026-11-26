@@ -2,12 +2,10 @@ import { describe, expect, it } from "vitest";
 import { unfit } from "./fit.js";
 import type { RunnerFile, RunnerListing } from "./runner-wire.js";
 import type { Transport } from "./transport.js";
-import { addressTransport } from "./transports/address.js";
 import { claudeTransport } from "./transports/claude.js";
 import { codexTransport } from "./transports/codex.js";
 import { openRouterTransport } from "./transports/openrouter.js";
 import { runnerTransport } from "./transports/runner.js";
-import { transcriptionsTransport } from "./transports/transcriptions.js";
 import { MODEL_USES, unfitWords, USE_IDS, workNeed } from "./uses.js";
 
 const OPENROUTER = { held: () => true, key: () => "synthetic-openrouter-key" };
@@ -31,13 +29,17 @@ describe("the uses", () => {
     expect(workNeed({ kind: "audio" })).toBe(MODEL_USES.audio.need);
   });
 
+  it("fills Text with no thinking level and Chat at medium in its own order, and leaves Photos, Voice notes, Search and Hiding Off until picked", () => {
+    expect(Object.fromEntries(USE_IDS.map((use) => [use, MODEL_USES[use].fill]))).toEqual({
+      pictures: null, audio: null, text: { thinking: null }, chat: { thinking: "medium", order: ["claude", "codex", "runner", "openrouter"] }, search: null, hiding: null,
+    });
+  });
+
   it("each transport suggests a declared row only for a use it fits, and no plan suggests its small model for Chat", async () => {
     const transports: Transport[] = [
       claudeTransport({ claude: undefined }),
       codexTransport({ codex: undefined }),
       openRouterTransport(OPENROUTER),
-      transcriptionsTransport(OPENROUTER),
-      addressTransport({ url: "http://127.0.0.1:11434/v1", model: "synthetic-local", kinds: ["pictures", "text"], held: () => true, key: () => undefined }),
     ];
     const suggested: Record<string, readonly string[]> = {};
     for (const transport of transports) {
@@ -48,11 +50,12 @@ describe("the uses", () => {
     }
     expect(suggested).toEqual({
       "claude:claude-haiku-5-5": ["pictures", "text"],
+      "claude:claude-opus-5-5": ["chat"],
       "codex:gpt-6-luna": ["pictures", "text"],
+      "codex:gpt-6.2-sol": ["chat"],
+      "openrouter:elevenlabs/scribe-v2": ["audio"],
       "openrouter:google/gemini-3.8-flash": ["pictures", "text"],
       "openrouter:openai/gpt-6-luna": ["pictures", "text", "chat"],
-      "openrouter-voice:elevenlabs/scribe-v2": ["audio"],
-      "address:synthetic-local": [],
     });
   });
 

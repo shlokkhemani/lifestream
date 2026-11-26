@@ -123,45 +123,51 @@ With more than one iPhone, this page is called **iPhones**.
 
 ### AI models
 
-[Choose which AI models read your data](./ai-models.md) says how to use these.
-
-#### Subscriptions
-
-| Setting | What it changes | Default |
-|---|---|---|
-| **ChatGPT** | Connects your ChatGPT plan, for Chat and for connector work. **Connect** downloads Codex, then signs you in. **Sign out** disconnects it. | Not connected, unless you connected it during setup |
-| **Claude** | Connects your Claude plan in the same way. **Connect** downloads Claude Code, then signs you in. | Not connected, unless you connected it during setup |
-
-#### API keys
-
-| Setting | What it changes | Default |
-|---|---|---|
-| **OpenRouter** | Paste a key from openrouter.ai/keys into **OpenRouter key** and click **Save**. Lifestream keeps the key in your vault. **Remove** deletes it. | Not set |
-| **Custom server** | A model that you run yourself, at an address that takes requests the way OpenAI's API does, such as Ollama's or LM Studio's. **Add server** sets its **Address**, **Model** and what it **Takes**. **Remove** stops using it. | Not set |
+[Choose which AI models read your data](./ai-models.md) says how to use these. The page lists your
+connections first, then **Uses**.
 
 #### On this Mac
 
 This part lists the models that run on your Mac. A part for each other Mac that runs models takes
 that Mac's name, such as **On Mac mini**. Each model has **Download**, then **Cancel** while it
-downloads, **Remove** once it is ready, or **Try again** if the download failed.
-[Use a model on your Mac](./ai-models.md#use-a-model-on-your-mac) lists the models and their sizes.
+downloads, **Remove** once it is ready, or **Try again** if the download failed. Picking a model
+under **Uses** downloads it too. The hiding model is not listed here: it downloads when you pick it
+for **Hiding details**.
+[Use a model on your Mac](./ai-models.md#use-a-model-on-your-mac) lists the models.
 
 | Setting | What it changes | Default |
 |---|---|---|
 | **Run models** | Off, the Mac holds its models' work until you turn it on again. It shows once a model is ready. | On |
 | **Save battery** | On battery, the Mac's models work only on today's and yesterday's items. The rest wait until it is plugged in. | On |
 
-#### Defaults
-
-Each default is the model that every connector setting at **Default** uses.
+#### Accounts
 
 | Setting | What it changes | Default |
 |---|---|---|
-| **Pictures** | The model for **Photo descriptions**, or **Off**. | Off |
-| **Audio** | The model for **Voice note transcripts**, or **Off**. | Off |
-| **Text** | The model for **Email summaries**, **Chat summaries** and **Screen summaries**. | The first model that is ready for text |
+| **ChatGPT** | Connects your ChatGPT plan. **Connect** downloads Codex, then signs you in. **Sign out** disconnects it. | Not connected, unless you connected it during setup |
+| **Claude** | Connects your Claude plan in the same way. **Connect** downloads Claude Code, then signs you in. | Not connected, unless you connected it during setup |
+| **OpenRouter** | Paste a key from openrouter.ai/keys into **OpenRouter key** and click **Save**. Lifestream keeps the key in your vault. **Remove** deletes it. | Not set |
 
-Until a model is ready for it, **Text** says **No model yet**.
+#### Custom address
+
+| Setting | What it changes | Default |
+|---|---|---|
+| **Custom address** | A server you run yourself, at an address that takes requests the way OpenAI's API does, such as Ollama's or LM Studio's. It lists its own models. **Add address** sets its **Address**. **Remove** stops using it. | Not set |
+
+#### Uses
+
+Each use is the model one job runs on. Its menu lists the models that fit it. Picking a model on
+your Mac that isn't downloaded yet downloads it, and the use's line shows how far it is.
+
+| Setting | What it changes | Default |
+|---|---|---|
+| **Photos** | The model for **Photo descriptions**, or **Off**. | Off |
+| **Voice notes** | The model for **Voice note transcripts** and Chat's voice notes, or **Off**. | Off |
+| **Text** | The model for **Email summaries**, **Chat summaries** and **Screen summaries**, or **Off**. | The first model that is ready for text |
+| **Chat** | The model Chat answers with. | Claude Opus 5.5, else GPT-6.2 Sol, else GPT-6 Luna through OpenRouter, once one is ready |
+| **Thinking** | Under **Chat**: how long Chat's model thinks before it answers. | Medium |
+| **Search by meaning** | The model that finds moments on your screen by meaning, or **Off**. It lists only models that run on a Mac. | Off |
+| **Hiding details** | The hiding model, which finds names Lifestream has never seen, or **Off**. It lists only models that run on a Mac. | Off |
 
 ### Privacy
 
@@ -171,8 +177,8 @@ what hiding replaces and what it misses.
 
 | Setting | What it changes | Default |
 |---|---|---|
-| **Hide personal details** | **Hide what Lifestream knows** replaces numbers, addresses, links, passwords and the names in People. **Hide with a hiding model** also finds names Lifestream has never seen. **Don't hide** sends each item as it is. | Hide what Lifestream knows |
-| **Hiding model** | The model **Hide with a hiding model** uses. It runs on this Mac, and is about 1.6 GB. **Download** gets it and picks **Hide with a hiding model**. | Not downloaded |
+| **Hide personal details** | **Hide what Lifestream knows** replaces numbers, addresses, links, passwords and the names in People. **Don't hide** sends each item as it is. | Hide what Lifestream knows |
+| **Hiding model** | Shows the model chosen for **Hiding details** in **AI models**, which also finds names Lifestream has never seen. **Choose** or **Change** opens **AI models**. | Off |
 | **Chat** | What Chat hides when it asks a model: **Hide all**, **Keep names** or **Don't hide**. If Chat's voice notes go to a company, the row says so: sound can't be hidden. | **Hide all**, or **Don't hide** when **Hide personal details** is **Don't hide** |
 | **Links** | What a link keeps: **Hide sign-in parts and codes** keeps its site and its path, **Hide everything after the site** keeps its site alone, **Don't hide** leaves it as it is. | Hide sign-in parts and codes |
 | **Always hide** | Words hidden wherever they appear. **Edit** adds or removes one. | None |
@@ -185,16 +191,15 @@ covers the 13 days before. Click **View**, then an item, to see **What was sent*
 ### Search by meaning
 
 **Search by meaning** lets [Search](./search.md#search-by-meaning) find a moment on your screen by
-what it was about, not only by its words. It runs on this Mac only, and nothing leaves it.
+what it was about, not only by its words. It runs on a Mac only, and nothing leaves it.
 
 | Setting | What it changes | Default |
 |---|---|---|
-| **Search by meaning** | On, this Mac downloads its model and reads your screen's text for meaning, newest day first. Off, Lifestream asks first, then deletes what it kept. Word search stays as it is. | Off, unless you chose **Yes** during setup |
-| **Model** | The model that reads for meaning: **EmbeddingGemma 2**, a 303 MB download. | EmbeddingGemma 2 |
+| **Model** | Shows the model chosen for **Search by meaning** in **AI models**, such as **EmbeddingGemma 2**. **Choose** or **Change** opens **AI models**. Download the model under **On this Mac** first. Once one is chosen, this Mac reads your screen's text for meaning, newest day first. Word search works either way. | Off |
 | **When it runs** | **Only when plugged in and idle**, so it never slows you down or spends your battery. | Only when plugged in and idle |
 
-While it is on, **Searchable** says how much of your screen it has read, and **On disk** how much
-space it keeps.
+While a model is chosen, **Searchable** says how much of your screen it has read, and **On disk**
+how much space it keeps.
 
 ## App
 

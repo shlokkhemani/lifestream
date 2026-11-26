@@ -489,6 +489,9 @@ enum CannedHome {
                         if case .string(let named) = value, let step = steps.first(where: { $0["value"] as? String == named }) {
                             member["words"] = step["words"]
                         }
+                        if case .string(let named) = value, let menu = member["menu"] as? [String: Any] {
+                            (member["menu"], member["words"]) = Self.chose(named, in: menu, words: member["words"])
+                        }
                     }
                     if says[key] != nil, member["panel"] as? String == nil { member["panel"] = "settings" }
                     return member
@@ -498,6 +501,24 @@ enum CannedHome {
         }
 
         var reads: Bool { lock.withLock { !gone } }
+
+        private static func chose(_ value: String, in menu: [String: Any], words: Any?) -> ([String: Any], Any?) {
+            var menu = menu
+            var said = words
+            let mark = { (row: [String: Any]) -> [String: Any] in
+                var row = row
+                row["chosen"] = row["value"] as? String == value
+                if row["value"] as? String == value, value != "default" { said = row["name"] }
+                return row
+            }
+            for key in ["default", "off"] { if let row = menu[key] as? [String: Any] { menu[key] = mark(row) } }
+            menu["rows"] = (menu["rows"] as? [[String: Any]] ?? []).map(mark)
+            if var local = menu["local"] as? [String: Any] {
+                local["rows"] = (local["rows"] as? [[String: Any]] ?? []).map(mark)
+                menu["local"] = local
+            }
+            return (menu, said)
+        }
 
         func set(_ body: Data) -> (Int, [String: Any]) {
             guard !Self.away else {
@@ -1416,6 +1437,8 @@ enum CannedHome {
                 return asked.one("id").flatMap(CannedPages.settingsPage).map { tagged(CannedHome.homeSettings.page($0), tag) } ?? missing("NOT_FOUND")
             case HomeLink.Pages.Storage.route:
                 return CannedPages.storage().map { tagged($0, tag) } ?? missing("PAGE_UNKNOWN")
+            case HomeLink.Pages.ModelsFind.route:
+                return CannedPages.modelsFind().map { tagged($0, tag) } ?? missing("PAGE_UNKNOWN")
             case HomeLink.Pages.Feedback.route:
                 return CannedFeedback.page().map { tagged($0, tag) } ?? missing("PAGE_UNKNOWN")
             case "/v1/connectors":
@@ -2298,6 +2321,10 @@ enum CannedHome {
 
         static func storage() -> Data? {
             answer("storage.counted", in: "pages")
+        }
+
+        static func modelsFind() -> Data? {
+            answer("modelsFind.claude", in: "pages")
         }
 
         static func caseOf(_ words: String) -> String {

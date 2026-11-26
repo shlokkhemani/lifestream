@@ -9,13 +9,18 @@ public struct MenuRow<Value: Hashable>: View {
         let note: String?
         let group: String?
         let apart: Bool
+        let off: Bool
+        let opens: Bool
 
-        public init(_ value: Value, _ words: String, note: String? = nil, group: String? = nil, apart: Bool = false) {
+        public init(_ value: Value, _ words: String, note: String? = nil, group: String? = nil, apart: Bool = false, off: Bool = false,
+                    opens: Bool = false) {
             self.value = value
             self.words = words
             self.note = note
             self.group = group
             self.apart = apart
+            self.off = off
+            self.opens = opens
         }
 
         public var id: Value { value }
@@ -206,10 +211,14 @@ public struct MenuRow<Value: Hashable>: View {
                         .foregroundStyle(Cockpit.Color.text)
                         .opacity(option.value == selection ? 1 : 0)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(option.words).cockpit(.body).foregroundStyle(Cockpit.Color.text)
+                        Text(option.words).cockpit(.body).foregroundStyle(option.off ? Cockpit.Color.textTertiary : Cockpit.Color.text)
                         if let under = under(option) {
                             Text(under).cockpit(.footnote).foregroundStyle(Cockpit.Color.textSecondary)
                         }
+                    }
+                    if option.opens {
+                        Spacer(minLength: Cockpit.Space.s2)
+                        Icon(.forward, size: .sm).foregroundStyle(Cockpit.Color.textTertiary)
                     }
                 }
                 .padding(.horizontal, Cockpit.Space.s4)
@@ -255,9 +264,17 @@ struct MenuChoices<Value: Hashable>: View {
 
     private func items(_ options: [MenuRow<Value>.Option]) -> some View {
         ForEach(options) { option in
-            Toggle(isOn: Binding(get: { option.value == selection }, set: { if $0 { selection = option.value } })) {
-                Text(option.words)
-                if let under = Self.under(option, defaultValue) { Text(under) }
+            if option.opens {
+                Button { selection = option.value } label: {
+                    Label { Text(option.words) } icon: { MenuIcon.image(.forward) }
+                }
+                .disabled(option.off)
+            } else {
+                Toggle(isOn: Binding(get: { option.value == selection }, set: { if $0 { selection = option.value } })) {
+                    Text(option.words)
+                    if let under = Self.under(option, defaultValue) { Text(under) }
+                }
+                .disabled(option.off)
             }
         }
     }

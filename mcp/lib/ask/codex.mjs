@@ -2,16 +2,12 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { kept } from './programs.mjs';
 
 /**
  * @typedef {{ method: string, params: any, id?: number | string }} Message
  * @typedef {(message: Message) => unknown} Listener
- * @typedef {{ id: string, displayName: string, hidden: boolean, isDefault: boolean, defaultReasoningEffort: string, supportedReasoningEfforts: { reasoningEffort: string }[], inputModalities?: string[] }} CodexModel
  */
 
-const MODELS_MS = 60 * 60_000;
-const ACCOUNT_CHANGED = new Set(['account/login/completed', 'account/logout']);
 
 const CONFIG = [
   'check_for_update_on_startup=false', 'analytics.enabled=false', 'approval_policy="never"', 'sandbox_mode="read-only"',
@@ -32,8 +28,8 @@ function codexEnv(home, env = process.env) {
   return { ...rest, CODEX_HOME: home, HOME: home };
 }
 
-/** @param {{ at: () => import('./programs.mjs').At | null, log: (line: Record<string, unknown>) => void, now?: () => number }} options */
-export function openCodex({ at, log, now = Date.now }) {
+/** @param {{ at: () => import('./programs.mjs').At | null, log: (line: Record<string, unknown>) => void }} options */
+export function openCodex({ at, log }) {
   /** @type {import('node:child_process').ChildProcessWithoutNullStreams | null} */
   let child = null;
   /** @type {Promise<void> | null} */
@@ -72,7 +68,6 @@ export function openCodex({ at, log, now = Date.now }) {
     const thread = typeof message.params?.threadId === 'string' ? threads.get(message.params.threadId) : undefined;
     const listeners = thread === undefined ? [...methods.get(message.method) ?? []] : [thread];
     if (message.id === undefined) {
-      if (ACCOUNT_CHANGED.has(message.method)) models.forget();
       for (const listener of listeners) listener(message);
       return;
     }
@@ -114,7 +109,6 @@ export function openCodex({ at, log, now = Date.now }) {
           ready = null;
         }
         const why = new CodexError(closed ? 'Codex was closed.' : `Codex stopped (${how instanceof Error ? how.message : `exit ${how}`})`);
-        models.forget();
         for (const [id, waiting] of pending) {
           pending.delete(id);
           waiting.fail(why);
@@ -143,19 +137,11 @@ export function openCodex({ at, log, now = Date.now }) {
     if (closed) throw new CodexError('Codex was closed.');
     await start();
     const answer = await send(method, params);
-    if (ACCOUNT_CHANGED.has(method)) models.forget();
     return answer;
   };
 
-  const models = kept(MODELS_MS, () => request('model/list', {}).then(answer => {
-    if (!Array.isArray(answer.data)) throw new CodexError('Codex answered with no list of its models.');
-    return /** @type {CodexModel[]} */ (answer.data).filter(each => !each.hidden);
-  }), now);
-
   return {
     request,
-
-    models: models.read,
 
     /**
      * @param {string} thread

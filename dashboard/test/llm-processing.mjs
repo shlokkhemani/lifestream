@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCRIBED, LLM_REPORT, MODELS, MODELS_BARE, RANGE_STEP, SHAPED, SUBSCRIBED, TRANSCRIBED } from '../public/kit-gallery-llm.js';
+import { BATTERY_SPENT, DESCRIBED, LLM_REPORT, MODELS, MODELS_BARE, ON_BATTERY, RANGE_STEP, SAVE_BATTERY, SHAPED, SUBSCRIBED, TRANSCRIBED } from '../public/kit-gallery-llm.js';
 import { HOST_STATE, REPORT } from '../public/kit-gallery-report.js';
-import { AI_PAGE, detailOf, OPENED } from '../public/ui/connectors/dialog.js';
+import { AI_PAGE, detailOf, MODEL_PAGE, modelFinding, OPENED } from '../public/ui/connectors/dialog.js';
 import { detailMarkup } from '../public/ui/connectors/detail.js';
 import { LACKS } from '../public/ui/connectors/changes.js';
 import { isSettings, NOTES, savedAct, SETTINGS_MODELS, SETTINGS_PRIVACY, settingsDetail, shownPage, TYPED } from '../public/ui/connectors/settings.js';
-import { SAVE_BATTERY, SUBSCRIPTIONS } from '../public/ui/connectors/settings-models.js';
+import { SUBSCRIPTIONS } from '../public/ui/connectors/settings-models.js';
 import { AT_REST } from '../public/ui/connectors/view.js';
 import { actKey, keyOf, landedOf, pendingOf, settled, thingKey } from '../public/ui/connectors/pending.js';
 import { ELSEWHERE, flowOf, MODEL_ITEMS, modelOf, sessionOf } from '../public/ui/flows/model.js';
@@ -64,6 +64,12 @@ const part = (detail, label) => detail.parts.find(each => each.label === label);
 const rowIn = (detail, partLabel, rowLabel) => part(detail, partLabel)?.panel?.rows.find(each => each.label === rowLabel);
 /** @param {any} row */
 const endActs = row => (row?.end?.acts ?? []).map((/** @type {any} */ act) => [act.label, act.do]);
+/** @typedef {Extract<import('../public/pages.js').ModelConnection, { kind: 'runner' }>} Runner */
+const RUNNERS = /** @type {Runner[]} */ (MODELS.connections.filter(each => each.kind === 'runner'));
+/** @param {Partial<Runner>} said @returns {import('../public/pages.js').Models} */
+const withRunner = said => ({ ...MODELS, connections: MODELS.connections.map((each, at) => at === 0 && each.kind === 'runner' ? { ...each, ...said } : each) });
+/** @param {Detail} detail @param {string} label */
+const rowsOf = (detail, label) => part(detail, label)?.panel?.rows ?? [];
 const BARRED = /\b(?:work|route|kind|floor|family|grant)s?\b/iu;
 const RUN_LINE = 'Turn off to hold their work until you turn it back on.';
 
@@ -131,9 +137,11 @@ test('L2, L3: a row per work pushing its page, Range last; on the page its model
       assert.deepEqual(each.waiting, (member.waiting ?? []).map(wait => wait.line));
       const menu = menuOf(each.end);
       assert.equal(menu.words, member.words);
+      const models = member.menu ? [member.menu.default, ...member.menu.rows, ...member.menu.local?.rows ?? []] : [];
       assert.deepEqual(menu.choices.map((/** @type {any} */ choice) => [choice.words, choice.note, choice.chosen, choice.default]),
-        (member.steps ?? []).map(step => [step.words, step.note ?? '', step.value === member.value, false]),
-        `${id} ${row.member}: no step marked Default, its Default step naming itself`);
+        [...models.map(each => [each?.name, '', each?.chosen, false]), ...member.menu ? [[member.menu.more.words, '', false, false]] : [],
+          ...member.menu?.off ? [[member.menu.off.name, '', member.menu.off.chosen, false]] : []],
+        `${id} ${row.member}: the home's menu, Default first, each model its name, More, then Off`);
       assert.equal(inside.panels[0].rows.length, row.privacy ? 2 : 1, `${id} ${row.member}: its hiding under its model`);
       assert.equal(dialog(id, HOST_STATE).panels.flatMap(panel => panel.rows).filter(drawn => drawn.label === member.label).length, 1,
         member.label);
@@ -148,12 +156,43 @@ test('L2, L3: a row per work pushing its page, Range last; on the page its model
   assert.ok(isSettings(SETTINGS_MODELS));
 });
 
+test('L4b: More opens a page of its own: the home\'s field and the rows it found, each set as a step is, the chosen one marked, local ones under Local; in a browser no act', () => {
+  const id = SHAPED[0];
+  const row = worksOf(id)[0];
+  const member = memberOf(id, row.member);
+  assert.ok(member.menu, `${id} ${row.member}: its work member carries the home's menu`);
+  const pages = [`${AI_PAGE}${row.member}`, `${MODEL_PAGE}${row.member}`];
+  assert.deepEqual(modelFinding(LLM_REPORT, id, { ...OPENED, pages }), member.menu.more.work === null ? { use: member.menu.more.use } : { work: member.menu.more.work });
+  assert.equal(modelFinding(LLM_REPORT, id, { ...OPENED, pages: pages.slice(0, 1) }), null, 'only on its own page');
+  const one = { value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false };
+  const found = { key: '', failed: '', answer: { position: '1:1', today: '2026-06-01', placeholder: 'Search', none: null,
+    rows: [one, { ...one, value: String(member.value), name: 'Held', chosen: true }], local: { label: 'Local', rows: [{ ...one, value: 'runner:mac/two', name: 'Two' }] } } };
+  const page = /** @type {Detail} */ (detailOf(LLM_REPORT, HOST_STATE, id, { ...OPENED, pages, typed: 'model', found }));
+  assert.equal(page.name, member.menu.more.words);
+  /** @param {string} value */
+  const sets = value => ({ host: { act: 'setting', connector: id, member: row.member, value } });
+  assert.deepEqual(page.panels.map(panelShown => [panelShown.label, panelShown.rows.map(each => [each.label, each.line, each.act, each.end])]), [
+    ['', [['Model One', '', sets(one.value), null], ['Held', '', sets(String(member.value)), { words: '', done: true }]]],
+    ['Local', [['Two', '', sets('runner:mac/two'), null]]]]);
+  assert.deepEqual([page.panels[0].add?.placeholder, page.panels[0].add?.typed, page.panels[0].note], ['Search', 'model', '']);
+  const none = /** @type {Detail} */ (detailOf(LLM_REPORT, HOST_STATE, id, { ...OPENED, pages, typed: 'zzz',
+    found: { ...found, answer: { ...found.answer, rows: [], local: null, none: 'No matches' } } }));
+  assert.deepEqual([none.panels.length, none.panels[0].note], [1, 'No matches']);
+  const browser = /** @type {Detail} */ (detailOf(LLM_REPORT, null, id, { ...OPENED, pages, typed: 'model', found }));
+  assert.ok(browser.panels.flatMap(each => each.rows).every(each => each.act === null), 'no act in a browser');
+});
+
 test('L4: a step on a work\'s page sends its setting, the range its own with its date row; in a browser words alone', () => {
   for (const id of SHAPED) {
     for (const row of worksOf(id)) {
       const model = pageOf(id, row.member, HOST_STATE).panels[0].rows[0];
-      assert.deepEqual(menuOf(model.end).choices.map((/** @type {any} */ choice) => choice.do),
-        (memberOf(id, row.member).steps ?? []).map(step => ({ host: { act: 'setting', connector: id, member: row.member, value: step.value } })));
+      const worked = memberOf(id, row.member);
+      const menu = worked.menu;
+      /** @param {string} value */
+      const sets = value => ({ host: { act: 'setting', connector: id, member: row.member, value } });
+      assert.deepEqual(menuOf(model.end).choices.map((/** @type {any} */ choice) => choice.do), menu
+        ? [...[menu.default, ...menu.rows, ...menu.local?.rows ?? []].flatMap(each => each ? [sets(each.value)] : []), { page: `model:${row.member}` }, ...menu.off ? [sets(menu.off.value)] : []]
+        : (worked.steps ?? []).map(step => sets(step.value)));
       assert.equal(menuOf(model.end).date, null, row.member);
       const browser = pageOf(id, row.member, null).panels[0].rows[0];
       assert.deepEqual([browser.end, browser.act], [{ words: memberOf(id, row.member).words }, null], `${id} ${row.member}: words in a browser`);
@@ -203,13 +242,14 @@ test('L6: Settings opens at the page its id names, AI models marked in its list;
   assert.equal(models.name, 'AI models');
   const items = models.nav?.groups.flatMap(group => group.items) ?? [];
   assert.deepEqual(items.filter(each => each.on).map(each => [each.label, each.do]), [['AI models', { open: SETTINGS_MODELS }]]);
-  assert.deepEqual(partLabels(models), ['Subscriptions', 'API keys', 'On this Mac', 'On Mac mini', 'On iMac', 'Defaults']);
+  assert.deepEqual(partLabels(models), ['On this Mac', 'On Mac mini', 'On iMac', 'Accounts', '', 'Custom address', 'Uses'],
+    'connections by place, runners first, then the uses');
   assert.equal(models.foot, null);
   assert.equal(settings({ id: 'settings/general' }), null);
 
   const reading = settings({ models: null });
   assert.equal(reading.reading, true);
-  assert.deepEqual(partLabels(reading), ['Subscriptions'], 'the host\'s, drawn while the models read is not');
+  assert.deepEqual(partLabels(reading), ['Accounts'], 'the host\'s, drawn while the models read is not');
   const failed = settings({ models: null, failed: READ_FAILED });
   assert.equal(failed.reading, false);
   assert.equal(failed.readFailed?.drawn, READ_FAILED);
@@ -218,72 +258,73 @@ test('L6: Settings opens at the page its id names, AI models marked in its list;
   assert.deepEqual(partLabels(stale), partLabels(models), 'what was shown stays');
   assert.deepEqual(actsIn(detailMarkup(stale, AT_REST)).filter(act => 'host' in act || 'save' in act || 'page' in act), [],
     'no control acts on what may have changed');
+  const browser = settings({ state: null, subscriptions: null });
+  assert.deepEqual(rowsOf(browser, 'Accounts').map(row => [row.label, /** @type {any} */ (row.end).words]),
+    [['Claude', 'Signed in'], ['ChatGPT', 'Not signed in'], ['OpenRouter', 'Connected']], 'with no flow the plans are the home\'s rows');
 });
 
-test('L7: API keys: OpenRouter typed and saved, Connected and Remove; the address on its page, set and removed', () => {
+test('L7: OpenRouter typed and saved, Connected and Remove; the custom address is its URL, on its page, set and removed', () => {
   const bare = settings({ models: MODELS_BARE });
-  const openrouter = rowIn(bare, 'API keys', 'OpenRouter');
+  const openrouter = rowsOf(bare, '').find(row => row.label === 'OpenRouter');
   assert.equal(openrouter?.line, 'Pay per call with your own key.');
   const end = /** @type {any} */ (openrouter?.end);
   assert.deepEqual([end.field.key, end.field.kind, end.field.value], [TYPED.key, 'secret', '']);
   assert.deepEqual(end.acts.map((/** @type {any} */ act) => [act.label, act.disabled, act.do]), [['Save', true, { save: 'openrouter' }]]);
   const typed = { ...OPENED, fields: { [TYPED.key]: ' sk-or-example ' } };
-  assert.equal(/** @type {any} */ (rowIn(settings({ models: MODELS_BARE, opened: typed }), 'API keys', 'OpenRouter')?.end).acts[0].disabled, false);
+  const filled = rowsOf(settings({ models: MODELS_BARE, opened: typed }), '').find(row => row.label === 'OpenRouter');
+  assert.equal(/** @type {any} */ (filled?.end).acts[0].disabled, false);
   assert.deepEqual(savedAct('openrouter', typed), { act: 'seal', secret: 'openrouter', value: 'sk-or-example' });
   assert.equal(savedAct('openrouter', OPENED), null);
 
-  const custom = rowIn(bare, 'API keys', 'Custom server');
+  const custom = rowIn(bare, 'Custom address', 'Custom address');
   assert.deepEqual([custom?.line, /** @type {any} */ (custom?.end).words, endActs(custom)],
-    ['Any server that speaks the OpenAI API, such as Ollama or LM Studio.', 'Not set', [['Add server', { page: 'address' }]]]);
+    ['Any server that speaks the OpenAI API, such as Ollama or LM Studio. It lists its own models.', 'Not set',
+      [['Add address', { page: 'address' }]]]);
   const page = settings({ models: MODELS_BARE, opened: { ...OPENED, pages: ['address'] } });
   assert.deepEqual([page.name, page.back], ['AI models', { label: 'AI models' }]);
-  assert.deepEqual(part(page, 'Custom server')?.acts.map(act => [act.label, act.disabled, act.do]), [['Save', true, { save: 'address' }]]);
-  const address = { ...OPENED, pages: ['address'], fields: { [TYPED.url]: 'http://127.0.0.1:11434/v1', [TYPED.model]: 'llava:13b',
-    [TYPED.takes]: 'pictures' } };
-  assert.deepEqual(savedAct('address', address), { act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', model: 'llava:13b',
-    kinds: ['pictures'] });
-  assert.deepEqual(savedAct('address', { ...address, fields: { ...address.fields, [TYPED.takes]: '' } })?.kinds, ['pictures', 'text'],
-    'Takes defaults to pictures and text');
-  assert.equal(savedAct('address', { ...address, fields: { [TYPED.url]: 'http://x' } }), null);
+  assert.deepEqual(part(page, 'Custom address')?.acts.map(act => [act.label, act.disabled, act.do]), [['Save', true, { save: 'address' }]]);
+  assert.deepEqual(part(page, 'Custom address')?.panel?.rows.map(row => row.label), ['Address'], 'no model and no Takes: the address lists its own');
+  const address = { ...OPENED, pages: ['address'], fields: { [TYPED.url]: ' http://127.0.0.1:11434/v1 ' } };
+  assert.deepEqual(savedAct('address', address), { act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1' });
+  assert.equal(savedAct('address', { ...address, fields: { [TYPED.url]: ' ' } }), null);
 
   const full = settings({});
-  const connected = rowIn(full, 'API keys', 'OpenRouter');
+  const connected = rowsOf(full, '').find(row => row.label === 'OpenRouter');
   assert.deepEqual([connected?.line, /** @type {any} */ (connected?.end).words, endActs(connected)],
     ['Pay per call with your own key.', 'Connected', [['Remove', { host: { act: 'seal', secret: 'openrouter', value: null } }]]]);
-  const set = rowIn(full, 'API keys', 'Custom server');
-  assert.deepEqual([set?.line, set?.only, endActs(set)], [MODELS.address?.words, MODELS.address?.takes,
-    [['Remove', { host: { act: 'models', do: 'address', none: true } }]]]);
-  const worded = settings({ models: { ...MODELS, address: { url: 'http://x', model: 'm', words: 'Said by the home', takes: 'Takes it' } } });
-  assert.deepEqual([rowIn(worded, 'API keys', 'Custom server')?.line, rowIn(worded, 'API keys', 'Custom server')?.only],
-    ['Said by the home', 'Takes it']);
+  const set = rowsOf(full, 'Custom address')[0];
+  assert.deepEqual([set?.label, endActs(set)], ['http://127.0.0.1:11434/v1', [['Remove', { host: { act: 'models', do: 'address', none: true } }]]]);
+  const said = settings({ models: { ...MODELS, connections: MODELS.connections.map(each => each.kind === 'address'
+    ? { ...each, line: 'Said by the home' } : each) } });
+  assert.equal(rowsOf(said, 'Custom address')[0]?.only, 'Said by the home');
 });
 
-test('L8: each model file\'s act its state\'s, its progress, size and failure said; a runner away acts on nothing', () => {
+test('L8: each model file\'s acts the home\'s, its size, about and failure said; a runner away acts on nothing', () => {
   const full = settings({});
   /** @param {import('../public/ui/connectors/dialog.js').DetailPart | undefined} at */
   const files = at => (at?.panel?.rows ?? []).filter(row => row.label !== 'Run models' && row.label !== 'Save battery');
-  const ACTS = /** @type {const} */ ({ absent: ['Download', 'fetch'], fetching: ['Cancel', 'remove'], ready: ['Remove', 'remove'],
-    failed: ['Try again', 'fetch'] });
-  /** @param {import('../public/types.js').ModelRunner} runner */
-  const drawn = runner => runner.files.map(each => [each.name, each.about, each.line ?? '',
-    [[ACTS[each.state][0], { host: { act: 'models', do: 'file', runner: runner.unit, id: each.id, to: ACTS[each.state][1] } }]]]);
-  const [mac, mini, imac] = MODELS.runners;
-  assert.deepEqual(mac.files.map(each => each.state), ['ready', 'fetching', 'absent'], 'the fixture holds three states');
-  assert.deepEqual(files(part(full, 'On this Mac')).map(row => [row.label, row.line, row.only, endActs(row)]),
-    drawn(mac));
-  assert.deepEqual(files(part(full, 'On Mac mini')).map(row => [row.label, row.line, row.only, endActs(row)]),
-    drawn(mini));
-  const said = settings({ models: { ...MODELS, runners: [{ ...mac,
-    files: mac.files.map((each, at) => ({ ...each, line: at === 1 ? 'Half way there' : null })) }] } });
-  assert.deepEqual(files(part(said, 'On this Mac')).map(row => row.only), ['', 'Half way there', '']);
+  const LABELS = /** @type {const} */ ({ fetch: ['Download', 'fetch'], cancel: ['Cancel', 'remove'], remove: ['Remove', 'remove'] });
+  /** @param {Runner} runner */
+  const drawn = runner => runner.files.map(each => [each.name, `${each.size} · ${each.about}`, each.line ?? '', !each.fits,
+    each.acts.map(act => [act === 'fetch' && each.state === 'failed' ? 'Try again' : LABELS[act][0],
+      { host: { act: 'models', do: 'file', runner: runner.id.slice('runner:'.length), id: each.id, to: LABELS[act][1] } }])]);
+  const [mac, mini, imac] = RUNNERS;
+  assert.deepEqual(mac.files.map(each => each.state), ['ready', 'fetching', 'absent', 'absent', 'ready'], 'the fixture holds three states');
+  assert.deepEqual(files(part(full, 'On this Mac')).map(row => [row.label, row.line, row.only, row.dim, endActs(row)]), drawn(mac));
+  assert.deepEqual(files(part(full, 'On Mac mini')).map(row => [row.label, row.line, row.only, row.dim, endActs(row)]), drawn(mini));
+  assert.deepEqual(endActs(files(part(full, 'On this Mac')).find(row => row.label === 'Qwen 3.5 35B-A3B')), [],
+    'a file too large for its Mac: no act, greyed');
   assert.deepEqual(part(full, 'On iMac')?.panel?.rows.map(row => [row.label, endActs(row)]), [[imac.line, []]]);
-  const bare = settings({ models: { ...MODELS, runners: [{ ...mac, line: 'Said by the home' }] } });
-  assert.deepEqual(part(bare, 'On this Mac')?.lines, ['Said by the home']);
-  assert.deepEqual(files(part(bare, 'On this Mac')).flatMap(endActs), [], 'a runner away: no act');
+  const away = settings({ models: withRunner({ line: 'Said by the home' }) });
+  assert.deepEqual(part(away, 'On this Mac')?.lines, ['Said by the home']);
+  assert.deepEqual(files(part(away, 'On this Mac')).flatMap(endActs), [], 'a runner away: no act');
+  const found = settings({ models: withRunner({ found: [{ name: 'llama4:8b', size: '4.9 GB', from: 'From Ollama' }] }) });
+  assert.deepEqual(rowsOf(found, 'From Ollama').map(row => [row.label, /** @type {any} */ (row.end).words, endActs(row)]),
+    [['llama4:8b', '4.9 GB', []]], 'a found model, with no button');
 });
 
 test('L8b: a runner\'s calls: Run models, its switch first where one file is ready or a pause stands, off with the home\'s words of the pause; none ready, none; in a browser its words', () => {
-  const [mac] = MODELS.runners;
+  const [mac] = RUNNERS;
   /**
    * @param {Detail} detail
    * @param {string} label
@@ -293,30 +334,31 @@ test('L8b: a runner\'s calls: Run models, its switch first where one file is rea
     return row?.label === 'Run models' ? [row.line, /** @type {any} */ (row.end)?.toggle ?? /** @type {any} */ (row.end)?.words] : null;
   };
   /** @param {'pause' | 'resume'} to */
-  const act = to => ({ host: { act: 'models', do: 'runner', runner: mac.unit, to } });
+  const act = to => ({ host: { act: 'models', do: 'runner', runner: 'runner-macbook-pro-0001', to } });
   const running = settings({});
-  assert.equal(mac.paused, null, 'the fixture\'s runner runs unpaused');
+  assert.equal(mac.paused, false, 'the fixture\'s runner runs unpaused');
   assert.deepEqual(run(running, 'On this Mac'), ['Turn off to hold their work until you turn it back on.',
     { on: true, label: 'Run models', do: act('pause') }]);
-  const paused = settings({ models: { ...MODELS, runners: [{ ...mac, paused: 'Said by the home' }] } });
+  const pausedRead = withRunner({ paused: true, line: 'Said by the home' });
+  const paused = settings({ models: pausedRead });
   assert.deepEqual(run(paused, 'On this Mac'), ['Said by the home', { on: false, label: 'Run models', do: act('resume') }]);
-  assert.deepEqual((part(paused, 'On this Mac')?.panel?.rows ?? []).filter(row => mac.files.some(file => file.name === row.label)).map(row => endActs(row).length), mac.files.map(() => 1));
-  const unready = settings({ models: { ...MODELS, runners: [{ ...mac, files: mac.files.map(file => ({ ...file, state: file.state === 'ready' ? 'absent' : file.state })) }] } });
+  assert.ok((part(paused, 'On this Mac')?.panel?.rows ?? []).filter(row => mac.files.some(file => file.name === row.label && file.acts.length))
+    .every(row => endActs(row).length > 0), 'a paused runner\'s files still act');
+  const unready = settings({ models: withRunner({ files: mac.files.map(file => ({ ...file, state: file.state === 'ready' ? 'absent' : file.state })) }) });
   assert.equal(run(unready, 'On this Mac'), null);
   assert.equal(run(running, 'On iMac'), null);
   assert.deepEqual(run(running, 'On Mac mini')?.[1], { on: false, label: 'Run models', do: { host: { act: 'models', do: 'runner',
-    runner: MODELS.runners[1].unit, to: 'resume' } } });
-  assert.deepEqual(run(settings({ state: null }), 'On MacBook Pro')?.[1], 'On');
+    runner: 'runner-mac-mini-bb17', to: 'resume' } } });
+  assert.deepEqual(run(settings({ state: null }), 'On this Mac')?.[1], 'On');
   assert.deepEqual(run(settings({ failed: READ_FAILED }), 'On this Mac')?.[1], 'On');
   assert.ok(actsIn(detailMarkup(running, AT_REST)).some(each => JSON.stringify(each) === JSON.stringify(act('pause'))));
   const pending = /** @type {any} */ (pendingOf(act('pause').host, { report: null, models: MODELS, hiding: null }));
   assert.equal(keyOf(act('pause').host), keyOf(act('resume').host));
   assert.equal(settled(pending, { report: null, models: MODELS, hiding: null }), false);
-  assert.equal(settled(pending, { report: null, hiding: null, models: { ...MODELS, runners: [{ ...mac, paused: 'Said by the home' }, ...MODELS.runners.slice(1)] } }), true);
+  assert.equal(settled(pending, { report: null, hiding: null, models: pausedRead }), true);
 });
 
-test('L8c: a runner\'s Save battery: after Run models where its machine has a battery, on by default; on battery and on, the home\'s words of why its older work waits the part\'s line; in a browser its words', () => {
-  const [mac] = MODELS.runners;
+test('L8c: a runner\'s Save battery: after Run models where its machine has a battery, the home\'s words of it; in a browser its words', () => {
   /**
    * @param {Detail} detail
    * @param {string} label
@@ -327,48 +369,72 @@ test('L8c: a runner\'s Save battery: after Run models where its machine has a ba
     return row ? [rows.indexOf(row), row.line, /** @type {any} */ (row.end)?.toggle ?? /** @type {any} */ (row.end)?.words] : null;
   };
   /** @param {'save' | 'spend'} to */
-  const act = to => ({ host: { act: 'models', do: 'battery', runner: mac.unit, to } });
-  /** @param {import('../public/types.js').ModelRunner['battery']} battery */
-  const with_ = battery => settings({ models: { ...MODELS, runners: [{ ...mac, battery }, ...MODELS.runners.slice(1)] } });
-  assert.deepEqual(mac.battery, { on: true, held: null }, 'the home\'s fixture: on, by default, on mains');
+  const act = to => ({ host: { act: 'models', do: 'battery', runner: 'runner-macbook-pro-0001', to } });
   assert.deepEqual(save(settings({}), 'On this Mac'), [1, SAVE_BATTERY, { on: true, label: 'Save battery', do: act('spend') }]);
-  assert.deepEqual(part(settings({}), 'On this Mac')?.lines, []);
-  const held = with_({ on: true, held: 'Said by the home' });
-  assert.deepEqual(part(held, 'On this Mac')?.lines, ['Said by the home']);
-  assert.deepEqual(save(with_({ on: false, held: null }), 'On this Mac')?.[2], { on: false, label: 'Save battery', do: act('save') });
+  assert.deepEqual(save(settings({ models: ON_BATTERY }), 'On this Mac')?.[1], 'On battery · older items wait until it\'s plugged in');
+  assert.deepEqual(save(settings({ models: BATTERY_SPENT }), 'On this Mac')?.[2], { on: false, label: 'Save battery', do: act('save') });
   assert.equal(save(settings({}), 'On Mac mini'), null);
   assert.equal(save(settings({}), 'On iMac'), null);
-  const unready = settings({ models: { ...MODELS, runners: [{ ...mac, files: mac.files.map(file => ({ ...file, state: file.state === 'ready' ? 'absent' : file.state })) }, ...MODELS.runners.slice(1)] } });
+  const unready = settings({ models: withRunner({ files: RUNNERS[0].files.map(file => ({ ...file, state: file.state === 'ready' ? 'absent' : file.state })) }) });
   assert.deepEqual(save(unready, 'On this Mac')?.slice(0, 2), [0, SAVE_BATTERY]);
-  assert.deepEqual(save(settings({ state: null }), 'On MacBook Pro')?.[2], 'On');
-  const pending = /** @type {any} */ (pendingOf(act('spend').host, { report: null, models: MODELS }));
+  assert.deepEqual(save(settings({ state: null }), 'On this Mac')?.[2], 'On');
+  const pending = /** @type {any} */ (pendingOf(act('spend').host, { report: null, models: MODELS, hiding: null }));
   assert.equal(keyOf(act('spend').host), keyOf(act('save').host));
-  assert.equal(settled(pending, { report: null, models: MODELS }), false);
-  assert.equal(settled(pending, { report: null, models: { ...MODELS, runners: [{ ...mac, battery: { on: false, held: null } }, ...MODELS.runners.slice(1)] } }), true);
+  assert.equal(settled(pending, { report: null, models: MODELS, hiding: null }), false);
+  assert.equal(settled(pending, { report: null, models: BATTERY_SPENT, hiding: null }), true);
 });
 
-test('L9: Defaults: each kind a menu of the home\'s steps in the home\'s words, each sending its route, the one held checked; Pictures and Audio open with the home\'s Off', () => {
+test('L9: Uses: six rows in the home\'s order, each one picker of the home\'s menu: each model its name, local ones under Local, then More, Off last but for Chat; the one held checked', () => {
   const full = settings({});
-  for (const [kind, label] of /** @type {const} */ ([['pictures', 'Pictures'], ['audio', 'Audio'], ['text', 'Text']])) {
-    const choice = MODELS.defaults[kind];
-    const menu = menuOf(rowIn(full, 'Defaults', label)?.end);
-    assert.equal(menu.words, choice.words);
-    assert.deepEqual(menu.choices.map((/** @type {any} */ each) => [each.words, each.note, each.chosen, each.do]),
-      choice.steps.map(step => [step.words, step.note ?? '', step.value === choice.value,
-        { host: { act: 'models', do: 'default', kind, route: step.value } }]));
+  assert.deepEqual(rowsOf(full, 'Uses').map(row => row.label),
+    ['Photos', 'Voice notes', 'Text', 'Chat', 'Thinking', 'Search by meaning', 'Hiding details'], 'Chat\'s level under its row');
+  assert.deepEqual(part(full, 'Uses')?.lines, [], 'no line under Uses');
+  const levelless = settings({ models: { ...MODELS, uses: MODELS.uses.map(use => use.use === 'chat' ? { ...use, thinking: null } : use) } });
+  assert.deepEqual(rowsOf(levelless, 'Uses').map(row => row.label),
+    ['Photos', 'Voice notes', 'Text', 'Chat', 'Search by meaning', 'Hiding details'], 'a Chat model with no levels: no Thinking row');
+  for (const use of MODELS.uses) {
+    const menu = menuOf(rowIn(full, 'Uses', use.label)?.end);
+    assert.deepEqual([menu.words, menu.find], [use.words, '']);
+    assert.equal(menu.choices.at(-1).words, use.use === 'chat' ? 'More' : 'Off', `${use.use}: Off last, never for Chat`);
   }
-  assert.deepEqual([MODELS.defaults.pictures.steps[0], MODELS.defaults.audio.steps[0]].map(step => step.words), ['Off', 'Off'], 'the home lists Off first');
-  assert.notEqual(MODELS.defaults.pictures.value, MODELS.defaults.pictures.steps[0].value, 'a picked Pictures offers Off to go back to');
-  assert.equal(MODELS.defaults.audio.words, 'Off');
-  assert.equal(MODELS.defaults.text.steps.some(step => step.words === 'Off'), false);
-  assert.equal(menuOf(rowIn(full, 'Defaults', 'Audio')?.end).choices.filter((/** @type {any} */ each) => each.words === 'Off').length, 1, 'Off once');
-  assert.equal(menuOf(rowIn(full, 'Defaults', 'Text')?.end).choices.some((/** @type {any} */ each) => each.chosen), false);
-  assert.equal(rowIn(settings({ state: null }), 'Defaults', 'Audio')?.end?.words, 'Off', 'without acts it reads Off too');
+  const photos = menuOf(rowIn(full, 'Uses', 'Photos')?.end);
+  /** @param {string} model */
+  const picks = model => ({ host: { act: 'models', do: 'default', use: 'pictures', model } });
+  const pictures = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'pictures'));
+  const [plan, vision] = pictures.menu.rows;
+  const qwen = pictures.menu.local?.rows[0];
+  assert.deepEqual(photos.choices.map((/** @type {any} */ each) => [each.words, each.note, each.tag ?? '', each.head ?? '', each.chosen, Boolean(each.parted), Boolean(each.more), each.do]), [
+    ['Plan Model One', '', '', '', false, false, false, picks(plan.value)], ['Vision One', '', '', '', true, false, false, picks(vision.value)],
+    ['Qwen 3.5 4B', '', '', 'Local', false, true, false, picks(qwen?.value ?? '')], ['More', '', '', '', false, false, true, { page: 'more:pictures' }],
+    ['Off', '', '', '', false, false, false, picks('none')]]);
+  assert.equal(rowIn(settings({ state: null }), 'Uses', 'Voice notes')?.end?.words, 'Off', 'without acts it reads the home\'s words');
 
-  const offStep = MODELS.defaults.pictures.steps[0];
-  const off = /** @type {any} */ (pendingOf({ act: 'models', do: 'default', kind: 'pictures', route: offStep.value }, { report: null, models: MODELS, hiding: null }));
+  const found = { key: '', failed: '', answer: { position: '1:1', today: '2026-06-01', placeholder: 'Search', none: null,
+    rows: [{ value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false }],
+    local: { label: 'Local', rows: [{ value: 'runner:mac/model-2', name: 'Model Two', account: 'MacBook Pro', chosen: true }] } } };
+  const more = settings({ opened: { ...OPENED, pages: ['more:pictures'], typed: 'model', found } });
+  assert.deepEqual([more.name, more.back], ['More', { label: 'AI models' }]);
+  assert.deepEqual(more.parts.map(each => [each.label, each.panel?.add?.placeholder ?? null, each.panel?.rows.map(row => [row.label, row.tag ?? '', row.act, row.end])]), [
+    ['', 'Search', [['Model One', '', picks('openrouter:vendor-b/model-1'), null]]],
+    ['Local', null, [['Model Two', 'MacBook Pro', picks('runner:mac/model-2'), { words: '', done: true }]]]]);
+  const none = settings({ opened: { ...OPENED, pages: ['more:pictures'], typed: 'zzz', found: { ...found, answer: { ...found.answer, rows: [], local: null, none: 'No matches' } } } });
+  assert.equal(none.parts[0].panel?.note, 'No matches');
+
+  const chat = /** @type {import('../public/pages.js').ModelUse} */ (MODELS.uses.find(use => use.use === 'chat'));
+  const high = settings({ models: { ...MODELS, uses: MODELS.uses.map(use => use.use !== 'chat' || !use.thinking ? use : { ...use, thinking: {
+    value: 'high', words: 'High', levels: use.thinking.levels.map(level => ({ ...level, chosen: level.value === 'high' })) } }) } });
+  const levels = menuOf(rowIn(high, 'Uses', 'Thinking')?.end);
+  assert.equal(levels.words, 'High', 'the home\'s words for the chosen level');
+  assert.deepEqual(levels.choices.map((/** @type {any} */ each) => [each.words, each.chosen, each.default, each.do]), [
+    ['Low', false, false, { host: { act: 'models', do: 'default', use: 'chat', model: chat.value, thinking: 'low' } }],
+    ['Medium', false, true, { host: { act: 'models', do: 'default', use: 'chat', model: chat.value, thinking: 'medium' } }],
+    ['High', true, false, { host: { act: 'models', do: 'default', use: 'chat', model: chat.value, thinking: 'high' } }]]);
+  assert.equal(rowIn(settings({ state: null }), 'Uses', 'Thinking')?.end?.words, 'Medium', 'without acts it reads the home\'s words');
+  assert.equal(keyOf(levels.choices[0].do.host), keyOf({ act: 'models', do: 'default', use: 'chat', model: 'none' }), 'waits as Chat\'s pick does');
+
+  const off = /** @type {any} */ (pendingOf({ act: 'models', do: 'default', use: 'pictures', model: 'none' }, { report: null, models: MODELS, hiding: null }));
   assert.equal(settled(off, { report: null, models: MODELS, hiding: null }), false);
-  const cleared = { ...MODELS, defaults: { ...MODELS.defaults, pictures: { ...MODELS.defaults.pictures, value: offStep.value } } };
+  const cleared = { ...MODELS, uses: MODELS.uses.map(use => use.use === 'pictures' ? { ...use, value: null } : use) };
   assert.equal(settled(off, { report: null, models: cleared, hiding: null }), true, 'Off lands when the home reads Off');
 });
 
@@ -441,10 +507,11 @@ test('L12: made: the home\'s line (who wrote it and when, once answered; why, un
 
 test('L17: OpenRouter is connected when the models read says so, and only then', () => {
   const state = { ...HOST_STATE, ask_login: SUBSCRIBED.none };
-  /** @param {{ connected: boolean }} openrouter */
-  const model = openrouter => modelOf({ report: null, state, models: { ...MODELS_BARE, openrouter } });
-  assert.deepEqual([model({ connected: false }).openrouter, model({ connected: false }).connected], [false, false]);
-  assert.deepEqual([model({ connected: true }).openrouter, model({ connected: true }).connected], [true, true]);
+  /** @param {boolean} held */
+  const model = held => modelOf({ report: null, state, models: { ...MODELS_BARE, connections: MODELS_BARE.connections.map(each =>
+    each.kind === 'key' ? { ...each, held } : each) } });
+  assert.deepEqual([model(false).openrouter, model(false).connected], [false, false]);
+  assert.deepEqual([model(true).openrouter, model(true).connected], [true, true]);
   assert.equal(modelOf({ report: null, state, models: null }).connected, false);
   assert.equal(modelOf({ report: null, state }).connected, false);
   const signedIn = modelOf({ report: null, state: { ...HOST_STATE, ask_login: SUBSCRIBED.mixed }, models: MODELS_BARE });
@@ -480,56 +547,52 @@ test('L13: no barred word anywhere this lane draws', () => {
 test('L14: a change waits by what it changes until the read authoritative for it says it', () => {
   /** @param {Partial<import('../public/ui/connectors/pending.js').Reads>} more */
   const reads = more => ({ report: LLM_REPORT, models: MODELS, hiding: null, ...more });
-  const MAC = MODELS.runners[0];
-  const ABSENT = /** @type {import('../public/types.js').ModelFile} */ (MAC.files.find(file => file.state === 'absent'));
-  const text = /** @type {const} */ ({ act: 'models', do: 'default', kind: 'text' });
-  assert.equal(keyOf({ ...text, route: 'openrouter:google/gemini-3-flash' }), keyOf({ ...text, route: 'runner:qwen3.5' }));
-  assert.equal(keyOf({ ...text, route: 'runner:qwen3.5' }), thingKey({ kind: 'default', of: 'text' }), 'the key its menu waits on');
-  const fileKey = keyOf({ act: 'models', do: 'file', runner: MAC.unit, id: ABSENT.id, to: 'fetch' });
-  assert.equal(fileKey, keyOf({ act: 'models', do: 'file', runner: MAC.unit, id: ABSENT.id, to: 'remove' }));
+  const MAC = 'runner-macbook-pro-0001';
+  const ABSENT = /** @type {import('../public/pages.js').ModelFile} */ (RUNNERS[0].files.find(file => file.state === 'absent'));
+  const text = /** @type {const} */ ({ act: 'models', do: 'default', use: 'text' });
+  assert.equal(keyOf({ ...text, model: 'openrouter:vendor-a/vision-1' }), keyOf({ ...text, model: 'none' }));
+  assert.equal(keyOf({ ...text, model: 'runner:qwen3.5' }), thingKey({ kind: 'default', of: 'text' }), 'the key its menu waits on');
+  const fileKey = keyOf({ act: 'models', do: 'file', runner: MAC, id: ABSENT.id, to: 'fetch' });
+  assert.equal(fileKey, keyOf({ act: 'models', do: 'file', runner: MAC, id: ABSENT.id, to: 'remove' }));
   assert.equal(keyOf({ act: 'seal', secret: 'openrouter', value: 'x' }), keyOf({ act: 'seal', secret: 'openrouter', value: null }));
   assert.equal(keyOf({ act: 'general-check' }), null);
-  const slashed = /** @type {any} */ (pendingOf({ act: 'models', do: 'file', runner: MAC.unit, id: 'vendor/model', to: 'fetch' },
+  const slashed = /** @type {any} */ (pendingOf({ act: 'models', do: 'file', runner: MAC, id: 'vendor/model', to: 'fetch' },
     reads({})));
-  assert.deepEqual(slashed.thing, { kind: 'file', runner: MAC.unit, id: 'vendor/model' });
+  assert.deepEqual(slashed.thing, { kind: 'file', runner: MAC, id: 'vendor/model' });
   assert.equal(actKey({ act: 'choose-app' }, { connector: 'screen', member: 'apps' }), 'setting:screen.apps');
   assert.equal(actKey({ act: 'general-check' }), JSON.stringify({ act: 'general-check' }));
 
   const fetch = /** @type {import('../public/ui/connectors/pending.js').Pending} */ (pendingOf({ act: 'models', do: 'file',
-    runner: MAC.unit, id: ABSENT.id, to: 'fetch' }, reads({})));
+    runner: MAC, id: ABSENT.id, to: 'fetch' }, reads({})));
   assert.equal(settled(fetch, reads({})), false, 'the host answered, the read still says absent');
   /** @param {string} state */
-  const nemotron = state => ({ ...MODELS, runners: MODELS.runners.map(runner => ({ ...runner, files: runner.files.map(file =>
-    file.id === ABSENT.id ? { ...file, state: /** @type {any} */ (state) } : file) })) });
+  const nemotron = state => withRunner({ files: RUNNERS[0].files.map(file => file.id === ABSENT.id ? { ...file, state: /** @type {any} */ (state) } : file) });
   assert.equal(settled(fetch, reads({ models: nemotron('fetching') })), true);
   assert.equal(settled(fetch, reads({ models: nemotron('ready') })), true);
   assert.equal(settled(fetch, reads({ models: null })), false, 'a failed read lands nothing');
 
-  const chosen = /** @type {any} */ (pendingOf({ ...text, route: 'runner:qwen3.5' }, reads({})));
-  const textAt = (/** @type {string | null} */ value) => ({ ...MODELS, defaults: { ...MODELS.defaults, text: { ...MODELS.defaults.text, value,
-    steps: [] } } });
-  assert.equal(settled(chosen, reads({ models: textAt(null) })), false);
+  const chosen = /** @type {any} */ (pendingOf({ ...text, model: 'runner:qwen3.5' }, reads({})));
+  /** @param {string | null} value */
+  const textAt = value => ({ ...MODELS, uses: MODELS.uses.map(use => use.use === 'text' ? { ...use, value } : use) });
+  assert.equal(settled(chosen, reads({})), false, 'the host answered, the read still says what it was');
   assert.equal(settled(chosen, reads({ models: textAt('runner:qwen3.5') })), true);
-  assert.equal(settled(chosen, reads({ models: textAt('openrouter:google/gemini-3-flash') })), true, 'changed elsewhere');
+  assert.equal(settled(chosen, reads({ models: textAt('openrouter:vendor-a/vision-1') })), true, 'changed elsewhere');
 
   assert.equal(pendingOf({ act: 'general-login', on: false }, reads({})), null);
   assert.equal(keyOf({ act: 'general-auto-update', on: true }), null);
 
   const key = /** @type {any} */ (pendingOf({ act: 'seal', secret: 'openrouter', value: null }, reads({})));
   assert.equal(settled(key, reads({})), false);
-  assert.equal(settled(key, reads({ models: { ...MODELS, openrouter: { connected: false } } })), true);
+  assert.equal(settled(key, reads({ models: MODELS_BARE })), true);
 
-  const address = /** @type {any} */ (pendingOf({ act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1', model: 'qwen3.5:4b',
-    kinds: ['text'] }, reads({ models: MODELS_BARE })));
+  const address = /** @type {any} */ (pendingOf({ act: 'models', do: 'address', url: 'http://127.0.0.1:11434/v1' }, reads({ models: MODELS_BARE })));
   assert.equal(settled(address, reads({ models: MODELS_BARE })), false);
-  assert.equal(settled(address, reads({ models: { ...MODELS_BARE, address: { url: 'http://127.0.0.1:11434/v1', model: 'qwen3.5:4b',
-    words: 'qwen3.5:4b at http://127.0.0.1:11434/v1', takes: 'Takes text' } } })), true);
-  const stopped = { ...MODELS, runners: MODELS.runners.map(runner => ({ ...runner, line: 'Said by the home' })) };
-  assert.equal(settled(fetch, reads({ models: stopped })), true);
+  assert.equal(settled(address, reads({ models: MODELS })), true);
+  assert.equal(settled(fetch, reads({ models: withRunner({ line: 'Said by the home' }) })), true, 'a runner gone away lands it');
 
-  const defaults = settings({ models: textAt(null) });
-  const busy = { ...AT_REST, busy: new Set([/** @type {string} */ (keyOf({ ...text, route: 'runner:qwen3.5' }))]) };
-  assert.ok(/<button[^>]*aria-busy="true"[^>]*aria-label="Text: No model yet"/u.test(detailMarkup(defaults, busy)), 'the Text menu waits');
+  const uses = settings({ models: { ...textAt(null), uses: textAt(null).uses.map(use => use.use === 'text' ? { ...use, words: 'Off' } : use) } });
+  const busy = { ...AT_REST, busy: new Set([/** @type {string} */ (keyOf({ ...text, model: 'runner:qwen3.5' }))]) };
+  assert.ok(/<button[^>]*aria-busy="true"[^>]*aria-label="Text: Off"/u.test(detailMarkup(uses, busy)), 'the Text menu waits');
   const stream = /** @type {Detail} */ (detailOf(LLM_REPORT, HOST_STATE, 'whatsapp', OPENED));
   const member = { ...AT_REST, busy: new Set(['setting:whatsapp.llm.range']) };
   assert.ok(detailMarkup(stream, member).match(/<button[^>]*aria-busy="true"[^>]*aria-label="([^"]*)"/u)?.[1]
@@ -549,14 +612,14 @@ test('L15: Range\'s date says what it would read before it is sent, one act send
   assert.equal(range({ connector: 'gmail' }).said, null);
 });
 
-test('L16: Settings\' Subscriptions are the model flow\'s two items, ChatGPT and Claude, as the flow draws them', () => {
+test('L16: Settings\' Accounts are the model flow\'s two items, ChatGPT and Claude, as the flow draws them', () => {
   assert.deepEqual([...MODEL_ITEMS], ['chatgpt', 'claude'], 'no OpenRouter item: its key is Settings\' Keys');
   assert.deepEqual([...SUBSCRIPTIONS], ['chatgpt', 'claude']);
   /** @param {any} login */
   const drawn = login => {
     const state = { ...HOST_STATE, ask_login: login };
     const detail = settings({ state, subscriptions: plansOf(state) });
-    const plans = /** @type {any} */ (part(detail, 'Subscriptions'));
+    const plans = /** @type {any} */ (part(detail, 'Accounts'));
     assert.deepEqual(plans.flow, plansOf(state));
     assert.ok(flowPageRows(plans.flow).every(row => detailMarkup(detail, AT_REST).includes(row)), 'its items as its rows');
     return plans.flow.lists[0].items.map((/** @type {any} */ item) => [item.name, item.line, item.act?.label ?? '']);
@@ -568,5 +631,5 @@ test('L16: Settings\' Subscriptions are the model flow\'s two items, ChatGPT and
     ['ChatGPT', 'Enter this code on OpenAI’s page.', 'Open sign-in page'],
     ['Claude', 'Approve on Anthropic’s page. If it shows a code, paste it here.', 'Open sign-in page']]);
   assert.deepEqual(drawn(SUBSCRIBED.failed), [['ChatGPT', 'Sign in with your ChatGPT plan.', 'Sign in'], ['Claude', '', 'Try again']]);
-  assert.equal(part(settings({ subscriptions: null }), 'Subscriptions'), undefined);
+  assert.equal(/** @type {any} */ (part(settings({ subscriptions: null }), 'Accounts'))?.flow, undefined, 'no flow: the home\'s plan rows');
 });

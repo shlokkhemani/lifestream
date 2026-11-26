@@ -89,8 +89,8 @@ private let spoken: [AskSeen.Span] = [.added(0, "[A voice note, written out:]\n\
     let pick = Composer.Pick(words: "Claude Opus 5.5 · Medium",
                              levels: ["low", "medium", "high", "xhigh"].map { MenuRow.Option($0, $0 == "xhigh" ? "Extra high" : $0.capitalized) },
                              level: .constant("medium"), default: "high",
-                             models: [MenuRow.Option("claude/opus", "Claude Opus 5.5", group: "Claude"),
-                                      MenuRow.Option("gpt-6.1-terra", "GPT-6.1 Terra", group: "ChatGPT")],
+                             models: [MenuRow.Option("claude/opus", "Claude Opus 5.5"), MenuRow.Option("gpt-6.1-terra", "GPT-6.1 Terra"),
+                                      MenuRow.Option("runner", "Qwen 3.5 9B", group: "Local"), MenuRow.Option("\n", "More", apart: true, opens: true)],
                              model: .constant("claude/opus"), modelName: "Claude Opus 5.5", reset: {})
     let level = Composer.Level(glyph: .hidden, words: "Hide all",
                                choices: [MenuRow.Option("all", "Hide all"), MenuRow.Option("names", "Keep names"), MenuRow.Option("none", "Don’t hide")],

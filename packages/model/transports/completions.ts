@@ -1,4 +1,4 @@
-import { errorText, SendFailed } from "../transport.js";
+import { errorText, LIST_MS, SendFailed } from "../transport.js";
 
 export interface Post {
   transport: string;
@@ -62,6 +62,14 @@ function parse(transport: string, text: string): { text: string; cost?: number; 
     ...(input === undefined ? {} : { input_tokens: input }),
     ...(output === undefined ? {} : { output_tokens: output }),
   };
+}
+
+export async function getList(transport: string, url: string, fetcher: typeof fetch, headers: Record<string, string>): Promise<Record<string, unknown>> {
+  const response = await fetcher(url, { headers, redirect: "error", signal: AbortSignal.timeout(LIST_MS) });
+  if (!response.ok) throw new Error(`${transport} answered its list with HTTP ${response.status}`);
+  const root = record(await response.json());
+  if (root === undefined) throw new Error(`${transport}'s list is no JSON object`);
+  return root;
 }
 
 export function record(value: unknown): Record<string, unknown> | undefined {

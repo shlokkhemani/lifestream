@@ -518,6 +518,40 @@ const StorageUse = named("StorageUse", object({
   id, part: id, name: label, tone: StorageTone, size: words, share: num, line: nullable(phrase), opens: nullable(id), folded: bool,
 }));
 
+export const MODELS_FOUND = 20;
+const ModelUseId = named("ModelUseId", oneOf("pictures", "audio", "text", "chat", "search", "hiding"));
+export const ModelRow = named("ModelRow", object({ value: id, name, account: nullable(name), chosen: bool }));
+export type ModelRow = Of<typeof ModelRow>;
+export const ModelLocal = named("ModelLocal", object({ label, rows: list(ModelRow, 1) }));
+export type ModelLocal = Of<typeof ModelLocal>;
+export const ModelMenu = named("ModelMenu", object({
+  default: nullable(ModelRow), rows: list(ModelRow), local: nullable(ModelLocal), more: named("ModelMore", object({ words: label, use: ModelUseId, work: nullable(id) })),
+  off: nullable(ModelRow),
+}));
+export type ModelMenu = Of<typeof ModelMenu>;
+const ModelPlace = named("ModelPlace", object({ place: label, value: nullable(id), line: nullable(words), ready: bool, leaves: bool }));
+const ModelLevel = named("ModelLevel", object({ value: id, name, chosen: bool, suggested: bool }));
+const ModelThinking = named("ModelThinking", object({ value: id, words, levels: list(ModelLevel, 1) }));
+const ModelUse = named("ModelUse", object({
+  use: ModelUseId,
+  label, line: nullable(words), words, value: nullable(id), thinking: nullable(ModelThinking), menu: ModelMenu, places: list(ModelPlace),
+}));
+const ModelFileState = named("ModelFileState", oneOf("absent", "fetching", "ready", "failed"));
+const ModelFileAct = named("ModelFileAct", oneOf("fetch", "remove", "cancel"));
+const ModelFile = named("ModelFile", object({
+  id, name, about: words, size: words, state: ModelFileState, line: nullable(words), suggested: bool, fits: bool, acts: list(ModelFileAct),
+}));
+const ModelFound = named("ModelFound", object({ name, size: words, from: label }));
+const ModelBattery = named("ModelBattery", object({ on: bool, line: words }));
+const ModelConnection = named("ModelConnection", tagged("kind", {
+  plan: { id, name, line: nullable(words), signed: bool },
+  key: { id, name, line: nullable(words), held: bool },
+  runner: {
+    id, unit: id, place: label, name, line: nullable(words), files: list(ModelFile), found: list(ModelFound), battery: nullable(ModelBattery), paused: bool,
+  },
+  address: { id, url: nullable(words), line: nullable(words) },
+}));
+
 export const MOVES = ["people", "places", "streams", "days", "clock", "today", "storage"] as const;
 export type Move = (typeof MOVES)[number];
 export type Settled = "people" | "places";
@@ -935,6 +969,22 @@ export const PAGES = {
     today: true,
     device: true,
     moves: ["storage", "today"],
+    settled: null,
+  }),
+  models: page({
+    route: "/v1/page/models",
+    members: { uses: list(ModelUse, 6, 6), connections: list(ModelConnection) },
+    today: false,
+    device: false,
+    moves: ["streams"],
+    settled: null,
+  }),
+  modelsFind: page({
+    route: "/v1/page/models/find",
+    members: { placeholder: words, rows: list(ModelRow, 0, MODELS_FOUND), local: nullable(ModelLocal), none: nullable(words) },
+    today: false,
+    device: false,
+    moves: ["streams"],
     settled: null,
   }),
 } as const satisfies Readonly<Record<string, PageContract<unknown>>>;

@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compareVersions } from "@lifestreamprotocol/core";
 import { contractText, describe, PAGES, PageShapeError, type Contract, type Described, type Member, type PageContract } from "../packages/home/pages.js";
-import { SETTINGS_INDEX, type SettingsEntry, type SettingsGroup } from "../packages/home/page-settings.js";
+import { SETTINGS_ANSWERS, SETTINGS_INDEX, type SettingsEntry, type SettingsGroup } from "../packages/home/page-settings.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -292,9 +292,7 @@ export function settingsSwiftOf(index: Index = SETTINGS_INDEX): string {
   ];
   const body = [
     "public enum Answer: String, Sendable, Equatable {",
-    "    case settingsPage",
-    "    case storage",
-    "    case own",
+    ...SETTINGS_ANSWERS.map((each) => `    case ${each}`),
     "}",
     "",
     "public struct Entry: Sendable, Equatable {",
@@ -320,7 +318,7 @@ export function settingsScriptOf(index: Index = SETTINGS_INDEX): string {
   const entry = (each: SettingsEntry) =>
     `{ id: ${quoted(each.id)}, label: ${quoted(each.label)}, icon: ${quoted(each.icon)}, host: ${each.host}, answer: ${quoted(each.answer)} },`;
   return [
-    "/** @typedef {'settingsPage' | 'storage' | 'own'} SettingsAnswer */",
+    `/** @typedef {${SETTINGS_ANSWERS.map(quoted).join(" | ")}} SettingsAnswer */`,
     "/** @typedef {{ id: string, label: string, icon: string, host: boolean, answer: SettingsAnswer }} SettingsEntry */",
     "/** @typedef {{ label: string, entries: SettingsEntry[] }} SettingsGroup */",
     "",

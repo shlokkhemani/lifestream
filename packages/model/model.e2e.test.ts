@@ -20,13 +20,12 @@ import { isHanded, isPlaced, isStated, runnerInfo, type RunnerEnded, type Runner
 import { readModelSettings, type ModelSettings, type TransportSettings } from "./settings.js";
 import { NO_SPEECH, SendFailed, type Abilities, type ListedModel, type SendAttachment, type SendRequest, type Transport } from "./transport.js";
 import { addressTransport } from "./transports/address.js";
-import { CLAUDE_ITEM_MODEL } from "./transports/claude.js";
-import { codexTransport } from "./transports/codex.js";
+import { CLAUDE_CHAT_MODEL, CLAUDE_ITEM_MODEL } from "./transports/claude.js";
+import { CODEX_CHAT_MODEL, codexTransport } from "./transports/codex.js";
 import { fakeTransport, type FakeOptions } from "./transports/fake.js";
 import { priced, transportSecret, transportsOf, type Found } from "./transports/index.js";
 import { openRouterTransport } from "./transports/openrouter.js";
 import { CALL_PASS, listRunners, runnerTransport, warmRunner } from "./transports/runner.js";
-import { CLOUD_VOICE, transcriptionsTransport } from "./transports/transcriptions.js";
 
 const ARTIFACTS = join(tmpdir(), "lifestream-model-e2e");
 const CALL_MAIN = fileURLToPath(new URL("./call-main.ts", import.meta.url));
@@ -579,7 +578,7 @@ describe("the model package: each way it could fail, written before the code", (
 
   it("a call process is handed a transports block the settings would refuse, and sends with it", () => {
     const root = scratch();
-    const address = { url: "http://127.0.0.1:9/v1", model: "synthetic-local", kinds: ["text"] };
+    const address = { url: "http://127.0.0.1:9/v1", input: ["text"] };
     const call = (transports: unknown) => spawnSync(process.execPath, [...CALL_CMD, "--root", root, "--route", JSON.stringify({ transport: "address", timeout_ms: 1_000 }),
       "--transports", JSON.stringify(transports), ...homeAt(join(root, "machine")), "--key", `sha256:${"a".repeat(64)}`], { encoding: "utf8", input: handed(root) });
     const misspelt = call({ address: { ...address, secrt: "address" } });
@@ -1377,7 +1376,7 @@ describe("the model package: each way it could fail, written before the code", (
   });
 
   it("a custom address on this machine is said to leave it, one on another machine is not, or it is sent audio", async () => {
-    const leaves = (url: string) => named("address", { address: { url, model: "synthetic-local", kinds: ["pictures"] } }).leaves;
+    const leaves = (url: string) => named("address", { address: { url, input: ["text", "image"] } }).leaves;
     expect(["http://127.0.0.1:11434/v1", "http://localhost:8080/v1", "http://[::1]:1234/v1", "https://models.example.com/v1", "http://192.168.1.4:11434/v1"].map(leaves))
       .toEqual([null, null, null, "models.example.com", "192.168.1.4"]);
     const posts: { url: string; headers: unknown; body: unknown }[] = [];
@@ -1386,7 +1385,7 @@ describe("the model package: each way it could fail, written before the code", (
       return Response.json({ choices: [{ message: { content: "a synthetic caption" } }], usage: { prompt_tokens: 9, completion_tokens: 3 } });
     }) as typeof fetch;
     const address = (secret?: string) => () => addressTransport({
-      url: "http://127.0.0.1:11434/v1/", model: "synthetic-local", kinds: ["pictures", "text"], ...(secret === undefined ? {} : { secret }), held: () => true,
+      url: "http://127.0.0.1:11434/v1/", input: ["text", "image"], ...(secret === undefined ? {} : { secret }), held: () => true,
       key: () => (secret === undefined ? undefined : "synthetic-address-key"), fetch: fetcher,
     });
     const home = openHome(scratch(), { via: { "synthetic-local": "address" } });
@@ -1407,7 +1406,7 @@ describe("the model package: each way it could fail, written before the code", (
     }]);
     expect(await home.call(noteKey, { transport: address() })).toMatchObject({ outcome: "failed", sent: true, reason: "the address takes images only, not audio/mp4" });
     expect(posts).toHaveLength(1);
-    expect(await addressTransport({ url: "http://127.0.0.1:11434/v1", model: "synthetic-local", kinds: ["text"], secret: "address", held: () => false, key: () => undefined }).available())
+    expect(await addressTransport({ url: "http://127.0.0.1:11434/v1", secret: "address", held: () => false, key: () => undefined }).available())
       .toEqual({ ok: false, reason: "no_key", detail: "the address's key address is not set" });
     expect(await address()().available()).toEqual({ ok: true });
     home.close();
@@ -1474,7 +1473,7 @@ describe("the model package: each way it could fail, written before the code", (
     const home = openHome(scratch(), { via: { "synthetic-local": "address" } });
     const ask = (n: number): RoutedAsk => ({ family: "mail", item: `mail:synthetic-x${n}`, prompt: "tag", input: said(` mail synthetic-x${n}`), model: "synthetic-local", effort: "none", sampling: { temperature: 0 }, work: "mail", source: "synthetic:account-a:mail" });
     const keys = [1, 2, 3, 4].map((n) => (home.asker.request(ask(n)) as { send: string }).send) as [string, string, string, string];
-    const block = (path: string, secret?: string): TransportSettings => ({ address: { url: base(path), model: "synthetic-local", kinds: ["text"], ...(secret === undefined ? {} : { secret }) } });
+    const block = (path: string, secret?: string): TransportSettings => ({ address: { url: base(path), ...(secret === undefined ? {} : { secret }) } });
     const call = (key: string, transports: TransportSettings) => home.call(key, { transports, found, transport: (name) => named(name, transports, found) });
     expect(transportSecret("address", block("answers", "synthetic-address-key"))).toBe("synthetic-address-key");
     expect(await call(keys[0], block("answers", "synthetic-address-key"))).toMatchObject({ outcome: "replied" });
@@ -2404,9 +2403,8 @@ describe("the claude transport", () => {
   });
 
   it("a transport's seam leaves who provides it, what it costs, who receives the data, its defaults or what it offers unsaid", async () => {
-    const address = { url: "http://127.0.0.1:11434/v1", model: "synthetic-local", kinds: ["pictures", "text"] as const };
     const seams = Object.fromEntries(await Promise.all(["codex", "claude", "openrouter", "address", "fake"].map(async (name) => {
-      const transport = named(name, { address: { ...address, kinds: [...address.kinds] }, fake: {} });
+      const transport = named(name, { address: { url: "http://127.0.0.1:11434/v1", input: ["text", "image"] }, fake: {} });
       return [name, { provider: transport.provider, cost: transport.cost, leaves: transport.leaves, chat: transport.chat, defaults: transport.defaults, models: await transport.models() }] as const;
     })));
     const THINKING = ["low", "medium", "high"];
@@ -2416,17 +2414,24 @@ describe("the claude transport", () => {
       codex: {
         provider: "ChatGPT", cost: "plan", leaves: "OpenAI", chat: "program",
         defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
-        models: [listed("gpt-6-luna", "GPT-6 Luna", { input: ["text", "image"], context_tokens: 1_050_000 }, { suggested: ["pictures", "text"] })],
+        models: [
+          listed("gpt-6-luna", "GPT-6 Luna", { input: ["text", "image"], context_tokens: 1_050_000 }, { suggested: ["pictures", "text"] }),
+          listed(CODEX_CHAT_MODEL, "GPT-6.2 Sol", { input: ["text", "image"], context_tokens: 1_050_000 }, { suggested: ["chat"] }),
+        ],
       },
       claude: {
         provider: "Claude", cost: "plan", leaves: "Anthropic", chat: "program",
         defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
-        models: [listed(CLAUDE_ITEM_MODEL, "Claude Haiku 5.5", { input: ["text", "image"], context_tokens: 200_000 }, { suggested: ["pictures", "text"] })],
+        models: [
+          listed(CLAUDE_ITEM_MODEL, "Claude Haiku 5.5", { input: ["text", "image"], context_tokens: 200_000 }, { suggested: ["pictures", "text"] }),
+          listed(CLAUDE_CHAT_MODEL, "Claude Opus 5.5", { input: ["text", "image"], context_tokens: 200_000 }, { suggested: ["chat"] }),
+        ],
       },
       openrouter: {
         provider: "OpenRouter", cost: "priced", leaves: "OpenRouter", chat: "door",
         defaults: { effort: "low", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 4 },
         models: [
+          listed("elevenlabs/scribe-v2", "Scribe v2", { input: ["audio"], tools: false, thinking: [] }, { suggested: ["audio"], request: { effort: "none" } }),
           listed("google/gemini-3.8-flash", "Gemini 3.8 Flash", { input: ["text", "image", "audio"] }, { suggested: ["pictures", "text"] }),
           listed("openai/gpt-6-luna", "GPT-6 Luna", { input: ["text", "image"] }, { suggested: ["pictures", "text", "chat"] }),
         ],
@@ -2434,7 +2439,7 @@ describe("the claude transport", () => {
       address: {
         provider: "the custom address", cost: "free", leaves: null, chat: "door",
         defaults: { effort: "none", sampling: { temperature: 0 }, timeout_ms: 120_000, concurrency: 1 },
-        models: [listed("synthetic-local", "synthetic-local", { input: ["text", "image"], thinking: [] })],
+        models: [],
       },
       fake: {
         provider: "the test model", cost: "free", leaves: null, chat: null,
@@ -2459,16 +2464,17 @@ describe("the claude transport", () => {
 describe("model settings", () => {
   it("a transports block the home cannot run passes the settings check", () => {
     const block = (transports?: unknown) => ({ cap: 4, ...(transports === undefined ? {} : { transports }) });
-    const address = { url: "http://127.0.0.1:11434/v1", model: "synthetic-local", kinds: ["pictures", "text"] };
+    const address = { url: "http://127.0.0.1:11434/v1", input: ["text", "image"] };
     const refused = {
       nowhere: () => readModelSettings(block({ nowhere: {} })),
       concurrency: () => readModelSettings(block({ codex: { concurrency: 0 } })),
       secret: () => readModelSettings(block({ address: { ...address, secret: "" } })),
       keyed: () => readModelSettings(block({ openrouter: { secret: "openrouter" } })),
       url: () => readModelSettings(block({ address: { ...address, url: "ftp://127.0.0.1/v1" } })),
-      model: () => readModelSettings(block({ address: { ...address, model: "" } })),
-      kinds: () => readModelSettings(block({ address: { ...address, kinds: ["pictures", "video"] } })),
-      audio: () => readModelSettings(block({ address: { ...address, kinds: ["audio"] } })),
+      model: () => readModelSettings(block({ address: { ...address, model: " " } })),
+      input: () => readModelSettings(block({ address: { ...address, input: ["text", "video"] } })),
+      audio: () => readModelSettings(block({ address: { ...address, input: ["text", "audio"] } })),
+      textless: () => readModelSettings(block({ address: { ...address, input: ["image"] } })),
       misspelt: () => readModelSettings(block({ address: { ...address, secrt: "address" } })),
       member: () => readModelSettings(block({ codex: { concurrency: 1, secret: "codex" } })),
       user: () => readModelSettings(block({ address: { ...address, url: "https://person@models.example.com/v1" } })),
@@ -2481,16 +2487,17 @@ describe("model settings", () => {
     expect(refused.secret).toThrow("model.transports.address.secret names a secret");
     expect(refused.keyed).toThrow("model.transports.openrouter.secret: openrouter takes no such member");
     expect(refused.url).toThrow("model.transports.address.url is an http or https address");
-    expect(refused.model).toThrow("model.transports.address.model names the model it runs");
-    expect(refused.kinds).toThrow("model.transports.address.kinds is a list of pictures, audio, text");
-    expect(refused.audio).toThrow("model.transports.address.kinds: an address takes no audio");
+    expect(refused.model).toThrow("model.transports.address.model names a model the address serves");
+    expect(refused.input).toThrow("model.transports.address.input is text, or text and image");
+    expect(refused.audio).toThrow("model.transports.address.input is text, or text and image");
+    expect(refused.textless).toThrow("model.transports.address.input is text, or text and image");
     expect(refused.misspelt).toThrow("model.transports.address.secrt: address takes no such member");
     expect(refused.member).toThrow("model.transports.codex.secret: codex takes no such member");
     expect(refused.user).toThrow("model.transports.address.url holds no user name, password or query: a key goes in its secret");
     expect(refused.password).toThrow("model.transports.address.url holds no user name, password or query: a key goes in its secret");
     expect(refused.query).toThrow("model.transports.address.url holds no user name, password or query: a key goes in its secret");
     expect(refused.cap).toThrow("model.cap is a positive number");
-    for (const ok of [block(), block({ codex: { concurrency: 1 }, claude: {}, openrouter: {}, address: { ...address, secret: "address", concurrency: 2 }, fake: { reply: "a synthetic reply", cost_usd: 0 } })]) {
+    for (const ok of [block(), block({ codex: { concurrency: 1 }, claude: {}, openrouter: {}, address: { url: address.url, secret: "address", concurrency: 2, model: "synthetic-local" }, fake: { reply: "a synthetic reply", cost_usd: 0 } })]) {
       expect(() => readModelSettings(ok)).not.toThrow();
     }
     const messages = Object.fromEntries(Object.entries(refused).map(([name, read]) => {
@@ -2870,7 +2877,7 @@ describe("a call's photos and audio, kept through the home folder", () => {
   });
 });
 
-describe("the cloud voice transport", () => {
+describe("Scribe v2 on the OpenRouter transport", () => {
   const played = (answer: () => Response = () => Response.json({ text: "a synthetic note's words", usage: { cost: 0.0015, seconds: 25, input_tokens: 12, output_tokens: 6 } })) => {
     const posts: { url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
     const fetcher = (async (url: string, init: RequestInit) => {
@@ -2882,22 +2889,20 @@ describe("the cloud voice transport", () => {
 
   it("posts a note as it is to OpenRouter's transcriptions, Scribe v2, with no language: its words and what they cost; the key is OpenRouter's one key", async () => {
     const { posts, fetcher } = played();
-    const transport = transcriptionsTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher });
-    expect([transport.name, transport.provider, transport.cost, transport.leaves]).toEqual(["openrouter-voice", "OpenRouter", "priced", "OpenRouter"]);
-    expect(await transport.models()).toEqual([{
+    const transport = openRouterTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher });
+    expect([transport.name, transport.provider, transport.cost, transport.leaves]).toEqual(["openrouter", "OpenRouter", "priced", "OpenRouter"]);
+    expect((await transport.models())[0]).toEqual({
       model: "elevenlabs/scribe-v2", name: "Scribe v2", input: ["audio"], output: "text", tools: false, context_tokens: null, thinking: [], ready: true, suggested: ["audio"],
-    }]);
-    expect(CLOUD_VOICE).toEqual({ transport: "openrouter-voice", model: "elevenlabs/scribe-v2" });
-    expect(transport.defaults).toEqual({ effort: "none", timeout_ms: 120_000, concurrency: 4 });
-    expect(await transcriptionsTransport({ held: () => false, key: () => undefined }).available()).toMatchObject({ ok: false, reason: "no_key" });
-    expect([transportSecret("openrouter-voice", {}), transportSecret("openrouter", {})]).toEqual(["openrouter", "openrouter"]);
-    expect(transportsOf({}).map((each) => each.name)).toEqual(["runner", "codex", "claude", "openrouter", "openrouter-voice"]);
-    expect(priced({})).toContain("openrouter-voice");
-    expect(readModelSettings({ cap: 8, transports: { "openrouter-voice": { concurrency: 2 } } }).transports).toEqual({ "openrouter-voice": { concurrency: 2 } });
-    const built = named("openrouter-voice", {}, { held: (name) => name === "openrouter", secret: (name) => (name === "openrouter" ? "synthetic-key" : undefined) });
+      request: { effort: "none" },
+    });
+    expect(transportSecret("openrouter", {})).toBe("openrouter");
+    expect(transportsOf({}).map((each) => each.name)).toEqual(["runner", "claude", "codex", "openrouter"]);
+    expect(priced({})).toEqual(["openrouter"]);
+    expect(() => readModelSettings({ cap: 8, transports: { "openrouter-voice": { concurrency: 2 } } })).toThrow("model.transports.openrouter-voice: no transport is named openrouter-voice");
+    const built = named("openrouter", {}, { held: (name) => name === "openrouter", secret: (name) => (name === "openrouter" ? "synthetic-key" : undefined) });
     expect(await built.available()).toEqual({ ok: true });
 
-    const home = openHome(scratch(), { via: { "elevenlabs/scribe-v2": "openrouter-voice" } });
+    const home = openHome(scratch(), { via: { "elevenlabs/scribe-v2": "openrouter" } });
     const wav = Buffer.from("RIFF synthetic wav bytes");
     const audio = home.blobs.put(wav);
     const note: RoutedAsk = {
@@ -2918,8 +2923,8 @@ describe("the cloud voice transport", () => {
 
   it("answers a note with no speech the voice prompt's word: one send, one replied attempt, its cost kept, never a failed try sent again", async () => {
     const { posts, fetcher } = played(() => Response.json({ text: " ", usage: { cost: 0.0004 } }));
-    const transport = transcriptionsTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher });
-    const home = openHome(scratch(), { via: { "elevenlabs/scribe-v2": "openrouter-voice" } });
+    const transport = openRouterTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher });
+    const home = openHome(scratch(), { via: { "elevenlabs/scribe-v2": "openrouter" } });
     const audio = home.blobs.put(Buffer.from("RIFF synthetic silent wav"));
     const note: RoutedAsk = {
       family: "ai", item: `voice:${audio.slice(7)}`, prompt: "transcript", input: said(""), identity: audio.slice(7), attachments: [{ blob: audio, media_type: "audio/wav" }],
@@ -2942,25 +2947,25 @@ describe("the cloud voice transport", () => {
     writeFileSync(jpeg, "synthetic jpeg");
     const send = (answer: () => Response, attachments: SendAttachment[] = [{ path: wav, media_type: "audio/wav" }]) => {
       const { posts, fetcher } = played(answer);
-      const sending = transcriptionsTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher })
+      const sending = openRouterTransport({ held: () => true, key: () => "synthetic-key", fetch: fetcher })
         .send({ model: "elevenlabs/scribe-v2", effort: "none", input: "", signal }, attachments);
       return sending.then((sent) => ({ sent, posts: posts.length }), (error: unknown) => ({
         error: error instanceof SendFailed ? { status: error.status, limit: error.limit ?? null } : (error as Error).message, posts: posts.length,
       }));
     };
     const words = () => Response.json({ text: "words" });
-    expect(await send(words, [])).toEqual({ error: "openrouter-voice writes out one audio file, not 0 audio files", posts: 0 });
-    expect(await send(words, [{ path: wav, media_type: "audio/wav" }, { path: jpeg, media_type: "image/jpeg" }])).toEqual({ error: "openrouter-voice writes out one audio file, not image/jpeg", posts: 0 });
-    expect(await send(words, [{ path: wav, media_type: "audio/wav" }, { path: wav, media_type: "audio/wav" }])).toEqual({ error: "openrouter-voice writes out one audio file, not 2 audio files", posts: 0 });
+    expect(await send(words, [])).toEqual({ error: "openrouter writes out one audio file with elevenlabs/scribe-v2, not 0 audio files", posts: 0 });
+    expect(await send(words, [{ path: wav, media_type: "audio/wav" }, { path: jpeg, media_type: "image/jpeg" }])).toEqual({ error: "openrouter writes out one audio file with elevenlabs/scribe-v2, not image/jpeg", posts: 0 });
+    expect(await send(words, [{ path: wav, media_type: "audio/wav" }, { path: wav, media_type: "audio/wav" }])).toEqual({ error: "openrouter writes out one audio file with elevenlabs/scribe-v2, not 2 audio files", posts: 0 });
     expect(await send(words)).toEqual({ sent: { text: "words", model: "elevenlabs/scribe-v2" }, posts: 1 });
     expect(await send(() => new Response("slow down", { status: 429 }))).toEqual({ error: { status: 429, limit: {} }, posts: 1 });
     expect(await send(() => new Response("overloaded", { status: 503 }))).toEqual({ error: { status: 503, limit: null }, posts: 1 });
-    expect(await send(() => new Response("not json", { status: 200 }))).toEqual({ error: "openrouter-voice reply is not JSON", posts: 1 });
-    expect(await send(() => Response.json({ usage: { cost: 0.001 } }))).toEqual({ error: "openrouter-voice reply states no text", posts: 1 });
+    expect(await send(() => new Response("not json", { status: 200 }))).toEqual({ error: "openrouter reply is not JSON", posts: 1 });
+    expect(await send(() => Response.json({ usage: { cost: 0.001 } }))).toEqual({ error: "openrouter reply states no text", posts: 1 });
     expect(await send(() => new Response(new ReadableStream({ start: (stream) => stream.error(new Error("socket hang up")) }), { status: 200 })))
-      .toEqual({ error: "openrouter-voice: the answer was lost while it was read: socket hang up", posts: 1 });
-    const none = await transcriptionsTransport({ held: () => false, key: () => undefined }).send({ model: "elevenlabs/scribe-v2", effort: "none", input: "", signal }, [{ path: wav, media_type: "audio/wav" }]).catch((error: unknown) => error);
-    expect(none).toMatchObject({ name: "SendFailed", status: null, message: "openrouter-voice has no OpenRouter key" });
+      .toEqual({ error: "openrouter: the answer was lost while it was read: socket hang up", posts: 1 });
+    const none = await openRouterTransport({ held: () => false, key: () => undefined }).send({ model: "elevenlabs/scribe-v2", effort: "none", input: "", signal }, [{ path: wav, media_type: "audio/wav" }]).catch((error: unknown) => error);
+    expect(none).toMatchObject({ name: "SendFailed", status: null, message: "openrouter has no API key" });
   });
 });
 

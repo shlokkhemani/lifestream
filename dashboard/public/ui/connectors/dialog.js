@@ -3,6 +3,7 @@
 /** @import { SignalKind } from '../kit/signal.js' */
 /** @import { HostAct, HostState } from '../../lib/host.js' */
 /** @import { Act, Do } from './words.js' */
+import { findFor, menuLines } from '../../lib/model-menu.js';
 import { count, counted } from '../../lib/words.js';
 import { STATE_LOOKS } from '../kit/connector-row.js';
 import {
@@ -25,7 +26,7 @@ import { DETAIL, disconnectWords, turn } from './words.js';
  * @property {string} busy
  * @property {string} label
  * @property {string} words
- * @property {{ words: string, note: string, chosen: boolean, default: boolean, do: Do | null, parted?: boolean }[]} choices
+ * @property {{ words: string, note: string, chosen: boolean, default: boolean, do: Do | null, parted?: boolean, head?: string, tag?: string, more?: boolean }[]} choices
  * @property {string} find
  * @property {{ label: string, value: string, connector: string, member: string, asks: boolean, said: { note: string, act: Act | null } | null } | null} date
  */
@@ -73,11 +74,11 @@ import { DETAIL, disconnectWords, turn } from './words.js';
 
 /** @typedef {{ steps: { title: string, line: string, open: Act | null }[], last: string, fields: SignInField[], rows: PanelRow[] }} SignIn */
 
-/** @typedef {{ id: string, icon: string, name: string, line: string | null, said?: import('../../types.js').Bolded, state: State | null, callout: Callout | null, held?: Callout[], connect?: { ways: { label: string, rows: Requirement[] }[], notes: string[] } | null, figure: WeekFigure | null, parts: DetailPart[], panels: Panel[], back: { label: string, above?: boolean } | null, foot: { start: Act | null, end: Act[], note?: string, said?: import('../../types.js').Bolded, waits?: import('../../types.js').Bolded, mark?: 'done' | 'waiting' | '', busy?: boolean } | null, confirm: Confirm | null, reading: boolean, ticking: boolean, import?: import('./imports.js').ImportBody, nav?: Nav | null, note?: string, at?: string, reads?: string, where?: string, progress?: Progress | null, signin?: SignIn | null, page?: boolean, storage?: import('./settings-storage.js').StorageModel | null, readFailed?: (import('./settings.js').ReadFailed & { lacking: boolean }) | null }} Detail */
+/** @typedef {{ id: string, icon: string, name: string, line: string | null, said?: import('../../types.js').Bolded, state: State | null, callout: Callout | null, held?: Callout[], connect?: { ways: { label: string, rows: Requirement[] }[], notes: string[] } | null, figure: WeekFigure | null, parts: DetailPart[], panels: Panel[], back: { label: string, above?: boolean } | null, foot: { start: Act | null, end: Act[], note?: string, said?: import('../../types.js').Bolded, waits?: import('../../types.js').Bolded, mark?: 'done' | 'waiting' | '', busy?: boolean } | null, confirm: Confirm | null, reading: boolean, ticking: boolean, import?: import('./imports.js').ImportBody, nav?: Nav | null, note?: string, at?: string, reads?: string, where?: string, progress?: Progress | null, signin?: SignIn | null, page?: boolean, storage?: { answer: import('./settings-storage.js').Storage, more: boolean } | null, readFailed?: (import('./settings.js').ReadFailed & { lacking: boolean }) | null }} Detail */
 
 /** @typedef {{ label: string, query: string, groups: { label: string, items: { id: string, label: string, icon: string, on: boolean, dot: boolean, do: Do }[] }[] }} Nav */
 
-/** @typedef {{ pages: string[], typed: string, lit: number, kept: ReadonlySet<string>, fields?: Readonly<Record<string, string>>, refused?: string, dated?: Dated | null }} Opened */
+/** @typedef {{ pages: string[], typed: string, lit: number, kept: ReadonlySet<string>, fields?: Readonly<Record<string, string>>, refused?: string, dated?: Dated | null, found?: import('../../lib/model-menu.js').Found | null }} Opened */
 
 /** @type {Opened} */
 export const OPENED = { pages: [], typed: '', lit: 0, kept: new Set(), fields: {}, refused: '' };
@@ -164,10 +165,69 @@ function zonesOf() {
  * @param {{ find?: string, date?: Menu['date'] }} [more]
  * @returns {End}
  */
-const menuOf = (connector, member, steps, { find = '', date = null } = {}) => ({ menu: {
-  id: `${connector.id}.${member.key}`, busy: settingKey(connector.id, member.key), label: member.label, words: member.words, find, date,
-  choices: steps.map(step => ({ words: step.words, note: step.note ?? '', chosen: step.value === String(member.value ?? ''),
-    default: step.value === String(member.default ?? ''), do: setTo(connector, member.key, step.value) })) } });
+const menuOf = (connector, member, steps, { find = '', date = null } = {}) => {
+  /** @type {Menu['choices']} */
+  const choices = steps.map(step => ({ words: step.words, note: step.note ?? '', chosen: step.value === String(member.value ?? ''),
+    default: step.value === String(member.default ?? ''), do: setTo(connector, member.key, step.value) }));
+  return { menu: { id: `${connector.id}.${member.key}`, busy: settingKey(connector.id, member.key), label: member.label, words: member.words, find, date, choices } };
+};
+
+/**
+ * @param {import('../../pages.js').ModelMenu} menu
+ * @param {(value: string) => Do | null} pick
+ * @param {Do} more
+ * @returns {Menu['choices']}
+ */
+export const modelChoices = (menu, pick, more) => menuLines(menu).map(line => 'more' in line
+  ? { words: line.more, note: '', chosen: false, default: false, do: more, more: true }
+  : { words: line.row.name, note: '', tag: line.row.account ?? '', head: line.head, chosen: line.row.chosen, default: false, do: pick(line.row.value), parted: line.parted });
+
+/**
+ * @param {Found | null} found
+ * @param {(value: string) => Do | null} pick
+ * @returns {{ rows: PanelRow[], local: { label: string, rows: PanelRow[] } | null, note: string, placeholder: string }}
+ */
+export function foundRows(found, pick) {
+  const answer = found?.answer ?? null;
+  /** @param {import('../../pages.js').ModelRow} row */
+  const rowFor = row => rowOf(row.name, { ...row.account ? { tag: row.account } : {}, act: pick(row.value), end: row.chosen ? { words: '', done: true } : null });
+  return { rows: (answer?.rows ?? []).map(rowFor), local: answer?.local ? { label: answer.local.label, rows: answer.local.rows.map(rowFor) } : null,
+    note: answer?.none ?? found?.failed ?? '', placeholder: answer?.placeholder ?? '' };
+}
+
+/** @typedef {import('../../lib/model-menu.js').Found} Found */
+
+export const MODEL_PAGE = 'model:';
+
+/**
+ * @param {StreamsReport | null} report
+ * @param {string} id
+ * @param {Opened} opened
+ * @returns {import('../../lib/model-menu.js').FindFor | null}
+ */
+export function modelFinding(report, id, opened) {
+  const page = opened.pages.at(-1) ?? '';
+  if (!page.startsWith(MODEL_PAGE)) return null;
+  const member = report?.connectors.find(each => each.id === id)?.members.find(each => each.key === page.slice(MODEL_PAGE.length));
+  return member?.menu ? findFor(member.menu.more) : null;
+}
+
+/**
+ * @param {ConnectorReport} connector
+ * @param {string} key
+ * @param {HostState | null} state
+ * @param {Opened} opened
+ * @returns {{ title: string, panel: Panel, panels?: Panel[] } | null}
+ */
+function modelPage(connector, key, state, opened) {
+  const member = connector.members.find(each => each.key === key);
+  const more = member?.menu?.more;
+  if (!member || !more) return null;
+  const found = foundRows(opened.found ?? null, value => state ? setTo(connector, member.key, value) : null);
+  return { title: more.words, panel: panelOf({ rows: found.rows, note: found.note,
+    add: { placeholder: found.placeholder, typed: opened.typed, finds: [], lit: 0, enter: null, end: null } }),
+  ...found.local ? { panels: [panelOf({ label: found.local.label, rows: found.local.rows })] } : {} };
+}
 
 /**
  * @param {ConnectorReport} connector
@@ -196,6 +256,11 @@ function memberRow(connector, member, state, { date, ...said } = {}) {
     const value = String(member.value ?? '');
     return ending(menuOf(connector, member, [{ value: 'all', words: 'All time', note: null }], { date: { label: 'A date',
       value: /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : '', connector: connector.id, member: member.key, asks: false, said: null } }));
+  }
+  if (control === 'menu' && member.menu) {
+    const { menu } = member;
+    return ending({ menu: { id: `${connector.id}.${member.key}`, busy: settingKey(connector.id, member.key), label: member.label, words: member.words, find: '', date: null,
+      choices: modelChoices(menu, value => setTo(connector, member.key, value), { page: `${MODEL_PAGE}${member.key}` }) } });
   }
   if (control === 'menu') return ending(menuOf(connector, member, member.steps ?? [], date !== undefined ? { date } : {}));
   if (control === 'zone') {
@@ -701,12 +766,13 @@ export function formPage(connector, state, opened) {
  * @param {string} page
  * @param {HostState | null} state
  * @param {Opened} opened
- * @returns {{ title: string, line?: string, panel: Panel, foot?: NonNullable<Detail['foot']>, callout?: Callout | null, signin?: SignIn } | null}
+ * @returns {{ title: string, line?: string, panel: Panel, panels?: Panel[], foot?: NonNullable<Detail['foot']>, callout?: Callout | null, signin?: SignIn } | null}
  */
 function pageOfStream(connector, page, state, opened) {
   if (page === 'signin') return signInPage(connector, state);
   if (page === 'form') return formPage(connector, state, opened);
   if (page.startsWith(AI_PAGE)) return aiPage(connector, page.slice(AI_PAGE.length), state);
+  if (page.startsWith(MODEL_PAGE)) return modelPage(connector, page.slice(MODEL_PAGE.length), state, opened);
   const every = page === 'copies' ? sourceRows(connector, state) : [];
   if (every.length > COPIES_SHOWN + 1) return { title: 'Comes from', panel: panelOf({ rows: every }) };
   const member = page.startsWith('list:')
@@ -845,7 +911,7 @@ export function detailOf(report, state, id, opened = OPENED) {
     if (!inside) break;
     detail = { id, icon: owner.icon, name: inside.title, line: inside.line ?? owner.name, state: null, callout: inside.callout ?? null,
       figure: null, signin: inside.signin ?? null,
-      parts: [], panels: [inside.panel], page: detail.page, back, foot: inside.foot ?? null, confirm: null,
+      parts: [], panels: [inside.panel, ...inside.panels ?? []], page: detail.page, back, foot: inside.foot ?? null, confirm: null,
       reading: false, ticking: detail.ticking };
   }
   return detail;

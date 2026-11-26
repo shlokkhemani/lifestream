@@ -1636,21 +1636,31 @@
           "label": "Email summaries",
           "about": "A model reads each email, and writes one line for each automated one: what it is and what it says.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "text",
+              "work": "gmail/mail"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -2663,21 +2673,31 @@
           "label": "Photo descriptions",
           "about": "A model describes the photos in your chats, so they read as text in your days and in search.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "imessage/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -2689,21 +2709,31 @@
           "label": "Voice note transcripts",
           "about": "A model transcribes your voice notes.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "audio",
+              "work": "imessage/voice"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -3104,21 +3134,31 @@
           "label": "Photo descriptions",
           "about": "A model describes the photos in your chats, so they read as text in your days and in search.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "whatsapp/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -3130,21 +3170,31 @@
           "label": "Voice note transcripts",
           "about": "A model transcribes your voice notes.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "audio",
+              "work": "whatsapp/voice"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -4839,21 +4889,31 @@
           "label": "Photo descriptions",
           "about": "A model writes a short description of each photo, so you can search your photos by what is in them.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "camera/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -5291,21 +5351,31 @@
           "label": "Voice note transcripts",
           "about": "A model transcribes each voice note you record.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "audio",
+              "work": "voice-notes/voice"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -5505,21 +5575,31 @@
           "label": "Photo descriptions",
           "about": "A model writes a short description of each photo, so you can search your photos by what is in them.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "google-photos/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -5782,21 +5862,31 @@
           "label": "Photo descriptions",
           "about": "A model writes a short description of each photo, so you can search your photos by what is in them.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "apple-photos/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -5972,21 +6062,31 @@
           "label": "Chat summaries",
           "about": "A model shortens very long messages in your AI chats to a line or two. Short ones are shown as written.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "text",
+              "work": "ask/chats"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -5998,22 +6098,33 @@
           "label": "Voice notes",
           "about": "A model writes out each voice note you send Chat.",
           "value": "default",
-          "words": "No model yet",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "audio",
+              "work": "ask/voice"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
-          "route": null,
+          },
+          "route": "fake:fake-model",
+          "line": null,
           "panel": null,
           "control": "menu",
           "where": null
@@ -6134,8 +6245,8 @@
           },
           {
             "member": "llm.voice",
-            "shape": "needs",
-            "line": "Connect a model that takes audio",
+            "shape": "waiting",
+            "line": "fake-model isn't offered now",
             "privacy": null
           },
           {
@@ -6393,21 +6504,31 @@
           "label": "Chat summaries",
           "about": "A model shortens very long messages in your AI chats to a line or two. Short ones are shown as written.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "text",
+              "work": "chatgpt/chats"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -6749,21 +6870,31 @@
           "label": "Chat summaries",
           "about": "A model shortens very long messages in your AI chats to a line or two. Short ones are shown as written.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "text",
+              "work": "claude/chats"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -9317,21 +9448,31 @@
           "label": "Screen summaries",
           "about": "A model reads the text that was on your screen during one sitting at your Mac and writes what you were doing.",
           "value": "default",
-          "words": "fake-model",
+          "words": "Default · fake-model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
+            },
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "text",
+              "work": "screen/screen"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",

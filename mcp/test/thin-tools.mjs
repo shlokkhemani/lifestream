@@ -649,6 +649,16 @@ test('14: twenty minutes of the screen read in order through `read`, in one answ
   assert.deepEqual(linesOf(gone.json), [`${minute(0)} to ${minute(10)}`, '`next` reads on: a question about the whole span reads every page to the end']);
 });
 
+const CHAT_MODEL = 'openrouter:openai/gpt-6-luna';
+const MODELS = {
+  connections: [{ id: 'openrouter', kind: 'key', name: 'OpenRouter', line: null }],
+  uses: { chat: { value: CHAT_MODEL, thinking: 'medium', fits: [CHAT_MODEL], menu: {
+    default: null, rows: [{ value: CHAT_MODEL, name: 'GPT-6 Luna', account: null, chosen: true }], local: null, more: { words: 'More', use: 'chat', work: null }, off: null,
+  } } },
+  models: { [CHAT_MODEL]: { id: CHAT_MODEL, connection: 'openrouter', model: 'openai/gpt-6-luna', name: 'GPT-6 Luna', input: ['text', 'image'], tools: true, thinking: ['low', 'medium', 'high'],
+    context_tokens: null, chat: 'door', suggested: ['chat'], group: 'OpenRouter', leaves: 'OpenRouter', state: 'ready', line: null } },
+};
+
 /** @param {string} level @param {Record<string, (body: any, pass: string) => unknown>} [answers] */
 async function fixtureDoor(level, answers = {}) {
   /** @type {{ method: string, path: string, body: any }[]} */
@@ -657,7 +667,7 @@ async function fixtureDoor(level, answers = {}) {
   /** @type {Record<string, (body: any, pass: string) => unknown>} */
   const routes = {
     'GET /v1/me': (_body, pass) => ({ id: pass, kind: pass === 'agent-pass' ? 'agent' : null, resource: null, turn: null }),
-    'GET /v1/models': () => ({ openrouter: { connected: true } }),
+    'GET /v1/models': () => MODELS,
     'GET /v1/clock': () => ({ id: 'clock-1', zone: 'UTC', start_hour: 4, runs: [{ day: '2026-01-01', start_ms: Date.parse('2026-01-01T04:00:00Z'), days: 10_000, zone: 'UTC' }] }),
     'GET /v1/privacy/chat': () => ({ level, epoch: 1 }),
     'GET /v1/people': () => JSON.parse(readFileSync(new URL('./fake/people-you.json', import.meta.url), 'utf8')),
@@ -699,7 +709,7 @@ test('15: one Ask question at each level and one /mcp call, against the hidden f
   const sorted = list => list.map(each => JSON.stringify(each)).sort();
   for (const level of ['none', 'names', 'all']) {
     const door = await fixtureDoor(level);
-    const handler = createHandler({ door: door.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+    const handler = createHandler({ door: door.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }),
       machine: mkdtempSync(join(tmpdir(), 'lifestream-one-path-')), conversations: openMemoryConversations(), titles: false }, log: () => undefined });
     const server = createServer(handler);
     await new Promise(done => server.listen(0, '127.0.0.1', () => done(undefined)));
@@ -726,7 +736,7 @@ test('15: one Ask question at each level and one /mcp call, against the hidden f
         ['/v1/people/search', { name: '[[Person 1]]' }],
         ['/v1/read', { ref: 'r1' }],
       ]));
-      assert.ok(reads.every(call => call.body.to === 'openrouter:faux-1' && call.body.shown.includes('Did the refund come?')), JSON.stringify(reads));
+      assert.ok(reads.every(call => call.body.to === CHAT_MODEL && call.body.shown.includes('Did the refund come?')), JSON.stringify(reads));
       assert.deepEqual(door.calls.filter(call => call.path === '/v1/hide-details' && call.body.what === 'read'), [], 'no route\'s answer hidden by the server');
       assert.deepEqual(door.calls.filter(call => call.path === '/v1/describe'), []);
       bodies.push(sorted(reads.map(call => call.body)));
@@ -765,7 +775,7 @@ test('16: what Chat\'s model was shown is what the home showed it: each tool ans
   searched.not_searched = ['Rosalind'];
   searched.record.hits[0].snippet = 'the refund for order 4411 came';
   const door = await fixtureDoor('all', { 'POST /v1/search': () => searched });
-  const handler = createHandler({ door: door.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+  const handler = createHandler({ door: door.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }),
     machine: mkdtempSync(join(tmpdir(), 'lifestream-shown-')), conversations: openMemoryConversations(), titles: false }, log: () => undefined });
   const server = createServer(handler);
   await new Promise(done => server.listen(0, '127.0.0.1', () => done(undefined)));
@@ -819,7 +829,7 @@ test('17: a page read again in a later context says back what the model once wro
     'POST /v1/count': (/** @type {any} */ body) => (Object.keys(body.args).length === 0 ? fixture('count-catalog') : counted),
     'POST /v1/hide-details': (/** @type {any} */ body) => ({ level: 'all', epoch: 1, texts: body.texts.map((/** @type {{ text: string }[]} */ pieces) => pieces.map(piece => piece.text).join('').replaceAll('Rosalind', '[[Person 1]]')) }),
   });
-  const handler = createHandler({ door: door.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id },
+  const handler = createHandler({ door: door.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }),
     machine: mkdtempSync(join(tmpdir(), 'lifestream-echo-')), conversations: openMemoryConversations(), titles: false, liveMs: 0 }, log: () => undefined });
   const server = createServer(handler);
   await new Promise(done => server.listen(0, '127.0.0.1', () => done(undefined)));

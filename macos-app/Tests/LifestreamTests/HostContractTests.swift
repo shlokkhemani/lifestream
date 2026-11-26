@@ -230,8 +230,26 @@ final class HostContractTests: XCTestCase {
                        .success(.askLogin(.code(attempt: "0f3a9c2e7b1d4a60", code: "synthetic-code#synthetic-state"))))
         XCTAssertEqual(act(["act": "seal", "secret": "openrouter", "value": "sk-or-v1-fake0000"]), .success(.openRouterKey("sk-or-v1-fake0000")))
         XCTAssertEqual(act(["act": "seal", "secret": "openrouter", "value": NSNull()]), .success(.openRouterKey(nil)))
-        XCTAssertEqual(act(["act": "models", "do": "default", "kind": "pictures", "route": "runner:macbook-pro-0001:qwen3.5-4b"]),
-                       .success(.models(.default(kind: .pictures, route: "runner:macbook-pro-0001:qwen3.5-4b"))))
+        for use in HostAct.ModelUse.allCases {
+            XCTAssertEqual(act(["act": "models", "do": "default", "use": use.rawValue, "model": "runner:runner-macbook-pro-0001/qwen3.5-4b"]),
+                           .success(.models(.default(use: use, model: "runner:runner-macbook-pro-0001/qwen3.5-4b"))), use.rawValue)
+        }
+        for use in HostAct.ModelUse.allCases where use != .chat {
+            XCTAssertEqual(act(["act": "models", "do": "default", "use": use.rawValue, "model": "none"]), .success(.models(.default(use: use, model: "none"))))
+        }
+        XCTAssertEqual(act(["act": "models", "do": "default", "use": "chat", "model": "claude:claude-opus-5-5", "thinking": "high"]),
+                       .success(.models(.default(use: .chat, model: "claude:claude-opus-5-5", thinking: "high"))))
+        for refused: [String: Any] in [["use": "text", "model": "claude:claude-opus-5-5", "thinking": "high"],
+                                       ["use": "chat", "model": "none", "thinking": "high"],
+                                       ["use": "chat", "model": "none"],
+                                       ["use": "voice", "model": "claude:claude-opus-5-5"],
+                                       ["kind": "pictures", "route": "claude:claude-opus-5-5"],
+                                       ["use": "pictures", "model": "claude:claude-opus-5-5", "route": "claude:claude-opus-5-5"]] {
+            XCTAssertEqual(act((["act": "models", "do": "default"] as [String: Any]).merging(refused) { $1 }), .failure(.unreadable(nil)), "\(refused)")
+        }
+        XCTAssertEqual(HostAct.ModelsAct.default(use: .chat, model: "claude:claude-opus-5-5", thinking: "high").args,
+                       ["default", "chat", "claude:claude-opus-5-5", "--thinking", "high"])
+        XCTAssertEqual(HostAct.ModelsAct.default(use: .search, model: "none").args, ["default", "search", "none"])
         XCTAssertEqual(act(["act": "models", "do": "file", "runner": "runner-macbook-pro-0001", "id": "qwen3.5-4b", "to": "fetch"]),
                        .success(.models(.file(runner: "runner-macbook-pro-0001", id: "qwen3.5-4b", fetch: true))))
         XCTAssertEqual(act(["act": "models", "do": "file", "runner": "runner-macbook-pro-0001", "id": "qwen3.5-4b", "to": "remove"]),
@@ -244,13 +262,21 @@ final class HostContractTests: XCTestCase {
                        .success(.models(.battery("runner-macbook-pro-0001", save: true))))
         XCTAssertEqual(act(["act": "models", "do": "battery", "runner": "runner-macbook-pro-0001", "to": "spend"]),
                        .success(.models(.battery("runner-macbook-pro-0001", save: false))))
-        XCTAssertEqual(act(["act": "models", "do": "address", "url": "http://127.0.0.1:11434/v1", "model": "qwen3.5:4b", "kinds": ["pictures", "text"]]),
-                       .success(.models(.address(url: "http://127.0.0.1:11434/v1", model: "qwen3.5:4b", kinds: [.pictures, .text]))))
-        XCTAssertEqual(act(["act": "models", "do": "address", "url": "https://user:secret@example.com/v1?key=k", "model": "m", "kinds": ["text"]]),
-                       .success(.models(.address(url: "https://user:secret@example.com/v1?key=k", model: "m", kinds: [.text]))))
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "http://127.0.0.1:11434/v1"]),
+                       .success(.models(.address(url: "http://127.0.0.1:11434/v1", input: nil))))
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "http://127.0.0.1:11434/v1", "input": ["text", "image"]]),
+                       .success(.models(.address(url: "http://127.0.0.1:11434/v1", input: [.text, .image]))))
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "https://user:secret@example.com/v1?key=k", "input": ["text"]]),
+                       .success(.models(.address(url: "https://user:secret@example.com/v1?key=k", input: [.text]))))
+        for input: Any in [["image"], ["image", "text"], ["text", "text"], ["text", "audio"], [String](), "text"] {
+            XCTAssertEqual(act(["act": "models", "do": "address", "url": "http://127.0.0.1:11434/v1", "input": input]), .failure(.unreadable(nil)), "\(input)")
+        }
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "http://127.0.0.1:11434/v1", "model": "qwen3.5:4b"]), .failure(.unreadable(nil)))
+        XCTAssertEqual(act(["act": "models", "do": "address", "url": "none"]), .failure(.unreadable(nil)))
         XCTAssertEqual(act(["act": "models", "do": "address", "none": kCFBooleanTrue as Any]), .success(.models(.addressNone)))
-        XCTAssertEqual(HostAct.ModelsAct.address(url: "http://127.0.0.1:11434/v1", model: "qwen3.5:4b", kinds: [.pictures, .text]).args,
-                       ["address", "http://127.0.0.1:11434/v1", "qwen3.5:4b", "pictures,text"])
+        XCTAssertEqual(HostAct.ModelsAct.address(url: "http://127.0.0.1:11434/v1", input: [.text, .image]).args,
+                       ["address", "http://127.0.0.1:11434/v1", "text,image"])
+        XCTAssertEqual(HostAct.ModelsAct.address(url: "http://127.0.0.1:11434/v1", input: nil).args, ["address", "http://127.0.0.1:11434/v1"])
         XCTAssertEqual(act(["act": "process", "family": "photos", "item": "ph-0001", "prompt": "describe", "route": "openrouter:fake-model"]),
                        .success(.process(family: "photos", item: "ph-0001", prompt: "describe", route: "openrouter:fake-model")))
         XCTAssertEqual(act(["act": "general-login", "on": kCFBooleanTrue as Any]), .success(.general(.login(on: true))))
@@ -264,18 +290,19 @@ final class HostContractTests: XCTestCase {
             XCTAssertEqual(act(["act": "resume", "target": target]), .success(.resumePause(target: target)), target)
         }
         XCTAssertEqual(act(["act": "home-setting", "key": "model.cap", "value": 16]), .success(.homeSetting(.modelCap(16))))
-        XCTAssertEqual(act(["act": "home-setting", "key": "model.cap", "value": NSNull()]), .success(.homeSetting(.modelCap(nil))))
         XCTAssertEqual(HostAct.HomeSetting.modelCap(16).args, ["set", "model.cap", "16"])
-        XCTAssertEqual(HostAct.HomeSetting.modelCap(nil).args, ["reset", "model.cap"])
         XCTAssertEqual(act(["act": "home-setting", "key": "history.start", "value": "2026-05-23"]), .success(.homeSetting(.historyStart("2026-05-23"))))
         XCTAssertEqual(act(["act": "home-setting", "key": "history.start", "value": "all"]), .success(.homeSetting(.historyStart("all"))))
         for value: Any in ["2026-5-23", "everything", "", NSNull(), 6] {
             XCTAssertEqual(act(["act": "home-setting", "key": "history.start", "value": value]), .failure(.unreadable(nil)), "\(value)")
         }
         XCTAssertEqual(HostAct.HomeSetting.historyStart("2026-05-23").args, ["set", #"{"history.start":"2026-05-23"}"#])
-        let choice: [String: Any] = ["privacy.level": "all", "privacy.detector": "runner-macbook-pro-0001"]
+        let choice: [String: Any] = ["privacy.level": "all", "privacy.chat": "names"]
         XCTAssertEqual(act(["act": "home-setting", "settings": choice]),
-                       .success(.homeSetting(.privacy([.word(.detector, "runner-macbook-pro-0001"), .word(.level, "all")]))))
+                       .success(.homeSetting(.privacy([.word(.chat, "names"), .word(.level, "all")]))))
+        for gone in ["privacy.detector", "search.meaning", "search.meaning.model"] {
+            XCTAssertEqual(act(["act": "home-setting", "settings": [gone: "runner-macbook-pro-0001"]]), .failure(.unreadable(nil)), gone)
+        }
         for word in HostAct.HomeSetting.PrivacyWord.allCases {
             XCTAssertEqual(act(["act": "home-setting", "settings": [word.rawValue: "none"]]), .success(.homeSetting(.privacy([.word(word, "none")]))))
             XCTAssertEqual(act(["act": "home-setting", "settings": [word.rawValue: NSNull()]]), .success(.homeSetting(.privacy([.word(word, nil)]))))
@@ -286,19 +313,17 @@ final class HostContractTests: XCTestCase {
             XCTAssertEqual(act(["act": "home-setting", "settings": [list.rawValue: [String]()]]), .success(.homeSetting(.privacy([.words(list, [])]))))
             XCTAssertEqual(act(["act": "home-setting", "settings": [list.rawValue: NSNull()]]), .success(.homeSetting(.privacy([.words(list, nil)]))))
         }
-        XCTAssertEqual(HostAct.HomeSetting.privacy([.word(.detector, "runner-macbook-pro-0001"), .word(.level, "all")]).args,
-                       ["set", #"{"privacy.detector":"runner-macbook-pro-0001","privacy.level":"all"}"#])
+        XCTAssertEqual(HostAct.HomeSetting.privacy([.word(.links, "path"), .word(.level, "all")]).args,
+                       ["set", #"{"privacy.level":"all","privacy.links":"path"}"#])
         XCTAssertEqual(HostAct.HomeSetting.privacy([.words(.always, ["Project Fake", "a/b"]), .word(.chat, nil)]).args,
                        ["set", #"{"privacy.always":["Project Fake","a/b"],"privacy.chat":null}"#])
-        XCTAssertEqual(act(["act": "home-setting", "settings": ["search.meaning": "runner-macbook-pro-0001"]]),
-                       .success(.homeSetting(.meaning([.init(key: .meaning, word: "runner-macbook-pro-0001")]))))
-        XCTAssertEqual(act(["act": "home-setting", "settings": ["search.meaning": "off"]]), .success(.homeSetting(.meaning([.init(key: .meaning, word: "off")]))))
-        let meaning: [String: Any] = ["search.meaning.power": "plugged-idle", "search.meaning.model": "embeddinggemma-2-q8-512", "search.meaning": NSNull()]
-        XCTAssertEqual(act(["act": "home-setting", "settings": meaning]), .success(.homeSetting(.meaning([
-            .init(key: .meaning, word: nil), .init(key: .model, word: "embeddinggemma-2-q8-512"), .init(key: .power, word: "plugged-idle"),
-        ]))))
-        XCTAssertEqual(HostAct.HomeSetting.meaning([.init(key: .meaning, word: "off"), .init(key: .model, word: nil)]).args,
-                       ["set", #"{"search.meaning":"off","search.meaning.model":null}"#])
+        XCTAssertEqual(act(["act": "home-setting", "settings": ["search.meaning.power": "plugged-idle"]]),
+                       .success(.homeSetting(.meaningPower("plugged-idle"))))
+        XCTAssertEqual(act(["act": "home-setting", "settings": ["search.meaning.power": NSNull()]]), .success(.homeSetting(.meaningPower(nil))))
+        XCTAssertEqual(act(["act": "home-setting", "settings": ["search.meaning.power": "plugged-idle", "privacy.level": "all"]]),
+                       .failure(.unreadable(nil)))
+        XCTAssertEqual(HostAct.HomeSetting.meaningPower("plugged-idle").args, ["set", #"{"search.meaning.power":"plugged-idle"}"#])
+        XCTAssertEqual(HostAct.HomeSetting.meaningPower(nil).args, ["set", #"{"search.meaning.power":null}"#])
         XCTAssertEqual(act(["act": "device-name", "unit": "macbook-pro-0001", "name": "-Studio Mac"]),
                        .success(.deviceName(unit: "macbook-pro-0001", name: "-Studio Mac")))
         for theme in AppAppearance.allCases {
@@ -427,6 +452,7 @@ final class HostContractTests: XCTestCase {
             ["type": "act", "act": "home-setting", "key": "model.cap", "value": "8"],
             ["type": "act", "act": "home-setting", "key": "model.cap", "value": kCFBooleanTrue as Any],
             ["type": "act", "act": "home-setting", "key": "model.cap"],
+            ["type": "act", "act": "home-setting", "key": "model.cap", "value": NSNull()],
             ["type": "act", "act": "home-setting", "key": "model.cap", "value": 8, "was": 4],
             ["type": "act", "act": "home-setting", "key": "helpers", "value": 4],
             ["type": "act", "act": "home-setting", "key": "model.cap", "value": 2.5],

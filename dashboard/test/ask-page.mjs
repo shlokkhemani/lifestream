@@ -5,7 +5,7 @@ import { createServer, request as ask } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { MODELS_BARE } from '../public/kit-gallery-llm.js';
 import { hostScript, hostState } from './stand-ins/onboarding-home.mjs';
-import { ASK_FILES } from './stand-ins/ask-ready.mjs';
+import { askReady, askSignedOut } from './stand-ins/ask-ready.mjs';
 import { pageHarness } from './stand-ins/page-harness.mjs';
 import { until } from './until.mjs';
 
@@ -116,12 +116,11 @@ const SEEN_CONVERSATION = {
 };
 
 const MODELS = [
-  { id: 'claude/synthetic-opus', name: 'Synthetic Opus', thinking: ['low', 'high'], default: 'low', group: 'Claude', photos: true },
-  { id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT', photos: true },
-  { id: 'synthetic-luna', name: 'Synthetic Luna', thinking: ['low', 'medium', 'high'], default: 'medium', group: 'ChatGPT', photos: true },
-  { id: 'synthetic-sol', name: 'Synthetic Sol', thinking: ['low', 'medium'], default: 'medium', group: 'ChatGPT', photos: true },
+  { id: 'claude/synthetic-opus', name: 'Synthetic Opus', thinking: ['low', 'high'], default: 'low', group: 'Claude' },
+  { id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT' },
+  { id: 'synthetic-luna', name: 'Synthetic Luna', thinking: ['low', 'medium', 'high'], default: 'medium', group: 'ChatGPT' },
+  { id: 'synthetic-sol', name: 'Synthetic Sol', thinking: ['low', 'medium'], default: 'medium', group: 'ChatGPT' },
 ];
-const PICK_OUT = 'Your pick needs your Claude sign-in on your Mac. Asking Synthetic Terra.';
 const CLAUDE_OUT = 'Chat needs your Claude sign-in on your Mac.';
 
 /** @param {{ url: string, tokens: Record<string, string>, day: string }} home */
@@ -141,6 +140,8 @@ async function chatHome(home) {
   const held = [];
   let written = true;
   let login = 'ready';
+  let defaultOff = false;
+  let defaultThinking = '';
   let failingLogin = false;
   /** @type {'wait' | 'held' | null} */
   let chatRefusal = null;
@@ -245,19 +246,15 @@ async function chatHome(home) {
       const answer = () => {
         const hour = hourAt === null ? {} : { unsaved_in_ms: Math.max(0, hourAt - Date.now()) };
         readies.push({ ...hour, model: pick.model });
-        if (login !== 'ready') {
-          return send({ ...ASK_FILES, login: 'missing', model: MODELS[0].id, name: MODELS[0].name, thinking: 'low', group: 'Claude', said: CLAUDE_OUT,
-            models: [], default: { model: MODELS[0].id }, ...hour });
-        }
-        const offered = MODELS.filter(each => !retired.has(each.id) && (claude || each.group !== 'Claude'));
-        const [fallback] = offered;
+        if (login !== 'ready') return send({ ...askSignedOut([MODELS[0]], CLAUDE_OUT), ...hour });
+        const offered = MODELS.filter(each => !retired.has(each.id))
+          .map(each => claude || each.group !== 'Claude' ? each : { ...each, state: 'unavailable', line: CLAUDE_OUT });
+        const fallback = offered.find(each => !('state' in each));
         const picked = offered.find(each => each.id === pick.model);
-        const out = !picked && pick.model.startsWith('claude/') && !claude;
-        const asks = picked ?? fallback;
-        send({ ...ASK_FILES, login: 'ready', model: asks.id, name: asks.name, group: asks.group,
-          thinking: (picked || !pick.model) && asks.thinking.includes(pick.thinking) ? pick.thinking : asks.default,
-          ...out ? { said: PICK_OUT } : {}, ...pick.model && !picked && !out ? { gone: true } : {},
-          models: offered, default: { model: fallback.id }, starters: STARTERS, ...hour });
+        const chosen = picked ?? (defaultOff ? offered[0] : fallback);
+        send({ ...askReady(offered, { model: defaultOff ? null : fallback?.id ?? null, ...defaultThinking ? { thinking: defaultThinking } : {} }),
+          ...chosen && 'line' in chosen ? { said: chosen.line, act: `Sign in with ${chosen.group}…` } : {},
+          ...pick.model && !picked ? { gone: true } : {}, starters: STARTERS, ...hour });
       };
       if (heldPick && pick.model === heldPick) return void held.push(answer);
       return answer();
@@ -303,7 +300,7 @@ async function chatHome(home) {
       response.writeHead(200, { 'content-type': 'application/x-ndjson' });
       return void response.end(rejoinEvents.map(event => `${JSON.stringify(event)}\n`).join(''));
     }
-    if (url.pathname === '/v1/models') return send(MODELS_BARE);
+    if (url.pathname === '/v1/page/models') return send(MODELS_BARE);
     if (url.pathname.startsWith('/v1/ask')) {
       response.writeHead(204);
       return void response.end();
@@ -353,6 +350,10 @@ async function chatHome(home) {
     failsLogin: now => { failingLogin = now; },
     /** @param {boolean} now */
     claude: now => { claude = now; },
+    /** @param {boolean} now */
+    defaultOff: now => { defaultOff = now; },
+    /** @param {string} level */
+    thinks: level => { defaultThinking = level; },
     /** @param {string} id */
     retire: id => { if (id) retired.add(id); else retired.clear(); },
     /** @param {string} model */
@@ -460,7 +461,8 @@ async function pick(name, value) {
   await press(`.ck-pick .ck-fmenu__item[data-value="${name}:${value}"]`);
 }
 const CHIP = '.ck-pick .ck-pick__words';
-const OFFERED = `[...document.querySelectorAll('.ck-pick .ck-fmenu__item[data-value^="model:"]')].map(each => each.dataset.value.slice(6))`;
+const OFFERED = `[...document.querySelectorAll('.ck-pick .ck-fmenu__item[data-value^="model:"]:not([aria-disabled="true"])')].map(each => each.dataset.value.slice(6))`;
+const LISTED = `[...document.querySelectorAll('.ck-pick .ck-fmenu__item[data-value^="model:"]')].map(each => each.dataset.value.slice(6))`;
 
 const FIRST = '.ck-answer__words p:first-of-type .ck-cites';
 const menuOpen = `document.querySelector('${FIRST} .ck-fmenu__panel')?.hidden === false`;
@@ -663,7 +665,8 @@ describe('ask-page: Chat on the Mac', () => {
       await chrome.until(`document.querySelector('${CHIP}')?.textContent === 'Synthetic Terra · High'`);
       front.claude(false);
       front.tell({ kind: 'models', key: 'models' });
-      await until('Claude’s models gone from the menu', async () => !(await items()).some(id => id.startsWith('claude/')));
+      await until('Claude’s models left out of the menu', async () => !(await items()).some(id => id.startsWith('claude/')));
+      assert.equal((await chrome.evaluate(LISTED)).includes('claude/synthetic-opus'), false);
       assert.equal(front.readies.at(-1)?.model, 'synthetic-terra');
       front.claude(true);
       front.tell({ kind: 'models', key: 'models' });
@@ -686,25 +689,61 @@ describe('ask-page: Chat on the Mac', () => {
     }
   });
 
-  test('C12: a pick whose plan is signed out: the line is the Ask server’s, as given, the composer usable, the pick kept; recent chats not saved said over it', async () => {
+  test('C28: the default and its level are the answer’s: a question with no pick names the default’s level, a pick its model’s own, Reset the default’s again', async () => {
+    front.thinks('low');
+    try {
+      await chrome.load('#view=ask', 'try { localStorage.removeItem("lifestream.ask.pick"); } catch {}');
+      await chrome.until(`document.querySelector('${CHIP}')?.textContent === 'Synthetic Terra · Low'`);
+      await pick('model', 'synthetic-luna');
+      await chrome.until(`document.querySelector('${CHIP}')?.textContent === 'Synthetic Luna · Medium'`);
+      await pick('model', 'synthetic-terra');
+      await chrome.until(`document.querySelector('${CHIP}')?.textContent === 'Synthetic Terra · High'`);
+      await press('.ck-pick .ck-fmenu__btn');
+      await chrome.until(`document.querySelector('.ck-pick .ck-fmenu__panel')?.hidden === false`);
+      await press('.ck-pick .ck-fmenu__item[data-value="reset"]');
+      await chrome.until(`document.querySelector('${CHIP}')?.textContent === 'Synthetic Terra · Low'`);
+    } finally {
+      front.thinks('');
+    }
+  });
+
+  test('C29: no default model: the first model’s line, the composer waits, nothing checked; a ready model picked is asked on', async () => {
+    front.defaultOff(true);
+    try {
+      await chrome.load('#view=ask', 'try { localStorage.removeItem("lifestream.ask.pick"); } catch {}');
+      const line = `document.querySelector('.ak-stage .ck-in-place .mac-body')?.textContent`;
+      await chrome.until(`${line} === ${JSON.stringify(CLAUDE_OUT)}`);
+      assert.equal(await chrome.evaluate(`document.querySelector('.ck-composer textarea').disabled`), true);
+      assert.equal(await page.count('.ck-pick [data-value^="model:"][aria-checked="true"]'), 0);
+      await pick('model', 'synthetic-luna');
+      await chrome.until(`document.querySelector('${CHIP}')?.textContent === 'Synthetic Luna · Medium'
+        && !document.querySelector('.ck-composer textarea').disabled && ${line} === undefined`);
+      const before = front.questions.length;
+      await chrome.evaluate(`(() => { const field = document.querySelector('.ck-composer textarea'); field.value = 'Which one?';
+        field.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await press('.ck-composer__send');
+      await front.asked(before + 1);
+      const { submission, ...asked } = front.questions.at(-1) ?? {};
+      assert.match(String(submission), /^[0-9a-f]{32}$/u);
+      assert.deepEqual(asked, { question: 'Which one?', model: 'synthetic-luna' });
+    } finally {
+      front.defaultOff(false);
+      await chrome.evaluate('localStorage.removeItem("lifestream.ask.pick")');
+    }
+  });
+
+  test('C12: a kept pick whose model is not ready: its line is the answer’s, as given, the composer waits, the pick kept and left out of the menu', async () => {
     const kept = { model: 'claude/synthetic-opus', thinking: 'high' };
     await chrome.load('#view=ask', `try { localStorage.setItem("lifestream.ask.pick", ${JSON.stringify(JSON.stringify(kept))}); } catch {}`);
     const line = `document.querySelector('.ak-stage .ck-in-place .mac-body')?.textContent`;
-    await chrome.until(`${line} === ${JSON.stringify(PICK_OUT)}`);
+    await chrome.until(`${line} === ${JSON.stringify(CLAUDE_OUT)}`);
     assert.equal(front.readies.at(-1)?.model, kept.model);
-    assert.equal(await chrome.evaluate(`document.querySelector('.ck-composer textarea').disabled`), false);
+    assert.equal(await chrome.evaluate(`document.querySelector('.ck-composer textarea').disabled`), true);
     assert.equal(await page.count('.ak-stage .ck-in-place button'), 0);
+    assert.equal(await page.words(CHIP), 'Synthetic Opus · High');
+    assert.equal((await chrome.evaluate(LISTED)).includes('claude/synthetic-opus'), false);
     assert.deepEqual(await chrome.evaluate('JSON.parse(localStorage.getItem("lifestream.ask.pick"))'), kept);
-    await page.shot('pick-signed-out', `${line} === ${JSON.stringify(PICK_OUT)}`);
-    front.waits(0);
-    try {
-      await chrome.evaluate(`window.dispatchEvent(new Event('focus'))`);
-      await chrome.until(`${line} === 'Recent chats are not saved to Lifestream yet.'`);
-    } finally {
-      front.waits(null);
-    }
-    await chrome.evaluate(`window.dispatchEvent(new Event('focus'))`);
-    await chrome.until(`${line} === ${JSON.stringify(PICK_OUT)}`);
+    await page.shot('pick-signed-out', `${line} === ${JSON.stringify(CLAUDE_OUT)}`);
   });
 
   test('C13: only the newest read is drawn: a late `gone` for a pick since changed keeps the newer pick; a `gone` for the pick kept forgets it', async () => {

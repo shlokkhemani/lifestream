@@ -1,11 +1,11 @@
 // @ts-check
+import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { bundledProgram } from '../../testing/program.mjs';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createServer, request as httpRequest } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -13,11 +13,13 @@ import { ready } from './programs.mjs';
 import { until } from './until.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
+const HOMELINK_FIXTURES = join(REPO, 'homelink', 'Tests', 'Fixtures');
+const WRITE = process.env.LIFESTREAM_FIXTURES === 'write';
 const COMMAND_MS = 30_000;
 
 /** @type {import('node:child_process').ChildProcessByStdio<import('node:stream').Writable, import('node:stream').Readable, null>} */
 let child;
-/** @type {{ url: string, tokens: { reader: string, agent: string, phone: string, mac: string }, phone: string, mac: string, now_ms: number, ask: { machine: string } }} */
+/** @type {{ url: string, tokens: { reader: string, agent: string, phone: string, mac: string }, phone: string, mac: string, now_ms: number, ask: { machine: string }, chat: { cloud: string, local: string, small: string } }} */
 export let home;
 /** @type {((line: any) => void)[]} */
 const waiting = [];
@@ -88,17 +90,6 @@ export const note = line => void artifact[current]?.push(line);
 const started = performance.now();
 export const homeClock = () => home.now_ms + Math.round(performance.now() - started);
 
-/** @param {('codex' | 'claude')[]} programs */
-export async function machineWith(programs) {
-  const machine = await mkdtemp(join(tmpdir(), 'lifestream-mcp-ask-'));
-  await mkdir(join(machine, 'ask'), { recursive: true });
-  await mkdir(join(machine, 'claude', 'fake'), { recursive: true });
-  await mkdir(join(machine, 'codex', 'fake'), { recursive: true });
-  await copyFile(join(home.ask.machine, 'ask', 'door-token'), join(machine, 'ask', 'door-token'));
-  for (const program of programs) await ready(machine, program);
-  return machine;
-}
-
 /**
  * @param {string} at
  * @param {'GET' | 'POST'} method
@@ -113,16 +104,87 @@ export async function login(at, method, body, { pass = home.tokens.mac, device =
   return { status: response.status, body: /** @type {any} */ (await response.json()) };
 }
 
-/** @param {string | null} value */
-export async function keyed(value) {
-  await command({ cmd: 'key', value });
-  await until(`the models read saying the key is ${value === null ? 'gone' : 'held'}`, async () => {
-    const read = /** @type {any} */ (await (await fetch(`${home.url}/v1/models`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());
-    return read.openrouter?.connected === (value !== null);
+/**
+ * @param {{ url: string, tokens: { reader: string } }} at
+ * @returns {Promise<any>}
+ */
+export const modelsOf = async at => (await fetch(`${at.url}/v1/models`, { headers: { authorization: `Bearer ${at.tokens.reader}` } })).json();
+
+/**
+ * @param {{ rows: { value: string }[], local: { rows: { value: string }[] } | null }} menu
+ * @returns {string[]}
+ */
+export const listedIn = menu => [...menu.rows, ...menu.local?.rows ?? []].map(row => row.value);
+
+/**
+ * @param {{ url: string, tokens: { reader: string } }} at
+ * @param {string} id
+ * @param {boolean} ready
+ */
+export const rowReady = (at, id, ready) => until(`the models read saying ${id} is ${ready ? 'ready' : 'not ready'}`, async () => ((await modelsOf(at)).models?.[id]?.state === 'ready') === ready);
+
+export const PLAN_ROWS = /** @type {const} */ ({ claude: { chat: 'claude:claude-opus-5-5', listed: 'claude:claude-sonnet-5-5' }, codex: { chat: 'codex:gpt-6.2-sol', listed: 'codex:gpt-6.1-terra' } });
+const PLANS = /** @type {const} */ (['claude', 'codex']);
+
+/**
+ * @typedef {'in' | 'out' | 'absent'} PlanState
+ * @param {Partial<Record<'claude' | 'codex', PlanState>>} wanted
+ */
+export async function plansRead(wanted) {
+  const saying = async () => {
+    const { models } = await modelsOf(home);
+    return PLANS.every(name => {
+      const { chat, listed } = PLAN_ROWS[name];
+      const state = wanted[name] ?? 'absent';
+      return state === 'in' ? models[chat]?.state === 'ready' && models[listed]?.state === 'ready' : models[chat]?.state !== 'ready';
+    });
+  };
+  await until(() => `the home's rows reading ${JSON.stringify(wanted)}`, async () => {
+    if (await saying()) return true;
+    await command({ cmd: 'models-read' });
+    return false;
   });
 }
 
+/**
+ * @param {Partial<Record<'claude' | 'codex', PlanState>>} wanted
+ * @param {{ chat?: string }} [options]
+ */
+export async function plansOn(wanted, { chat } = {}) {
+  const machine = home.ask.machine;
+  for (const own of ['claude', 'pending', 'submitted.ndjson']) await rm(join(machine, 'ask', own), { recursive: true, force: true });
+  await rm(join(machine, 'scratch'), { recursive: true, force: true });
+  for (const name of PLANS) {
+    await rm(join(machine, 'subscriptions', name), { recursive: true, force: true });
+    await rm(join(machine, name, 'fake'), { recursive: true, force: true });
+    await mkdir(join(machine, name, 'fake'), { recursive: true });
+    if ((wanted[name] ?? 'absent') === 'absent') continue;
+    await ready(machine, name);
+    if (wanted[name] === 'in') await writeFile(join(machine, name, 'fake', 'auth.json'), JSON.stringify({ email: 'person-a@example.com', plan: name === 'claude' ? 'max' : 'plus' }));
+  }
+  await plansRead(wanted);
+  if (chat !== undefined) await command({ cmd: 'model', value: chat });
+  return machine;
+}
+
+/** @param {string | null} value */
+export async function keyed(value) {
+  await command({ cmd: 'key', value });
+  await rowReady(home, home.chat.cloud, value !== null);
+}
+
 export const minted = () => randomBytes(16).toString('hex');
+
+/**
+ * @param {string} name
+ * @param {unknown} answer
+ */
+export async function homeLinkFixture(name, answer) {
+  const file = join(HOMELINK_FIXTURES, name);
+  const text = `${JSON.stringify(answer, null, 2)}\n`;
+  if (WRITE) await writeFile(file, text);
+  assert.equal(existsSync(file) ? readFileSync(file, 'utf8') : '', text, `homelink/Tests/Fixtures/${name} is this answer as HomeLink decodes it: LIFESTREAM_FIXTURES=write writes it`);
+}
 
 /** @param {string} at */
 export const statusOf = async at => /** @type {any} */ (await (await fetch(`${at}/ask`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());

@@ -101,7 +101,7 @@ function answered(placed: RunnerPlaced, texts: readonly string[]): RunnerEnded {
   return { ok: { text: JSON.stringify({ dimensions: DIM, vectors: texts.map((text) => vectorText(vectorFor(text))) }), model: placed.model } };
 }
 
-const embedderOf = (drive: DriveHalf) => openEmbedder({ runner: () => RUNNER, model: () => MODEL, drive });
+const embedderOf = (drive: DriveHalf) => openEmbedder({ meaning: () => ({ unit: RUNNER, file: MODEL }), drive });
 const count = (file: string, table: string): number => {
   const db = new Database(file, { readonly: true });
   try {
@@ -266,8 +266,8 @@ describe("the screen job's embedding pass", () => {
   });
 
   it("lands nothing for a reply asked under settings the index no longer states, whatever reaches the run first", async () => {
-    const on = meaningSettingsOf({ meaning: RUNNER, model: MODEL, power: "plugged-idle" });
-    const off = meaningSettingsOf({ meaning: "off", model: MODEL, power: "plugged-idle" });
+    const on = meaningSettingsOf({ unit: RUNNER, file: MODEL, power: "plugged-idle" });
+    const off = meaningSettingsOf(null);
     const { file, index } = indexOf(segments(T0, 1, 12), MODEL, on);
     expect(ScreenIndex.stateMeaning(openHomeFolder(dirname(file)), file, on, 1_000)).toBe(true);
     const queued = index.queueLength();
@@ -320,9 +320,9 @@ describe("the screen job's embedding pass", () => {
 });
 
 describe("embedding end to end", () => {
-  it("embeds the screen's texts on the runner search.meaning names once the index has read them, and turned off, drops the vectors and keeps the words", async () => {
+  it("embeds the screen's texts on the runner the Search by meaning default names once the index has read them, and turned off, drops the vectors and keeps the words", async () => {
     const SOURCE = "screen:local:mac-0001";
-    const root = makeRoot("lifestream-screen-embed-", { sources: { [SOURCE]: "fake-rows" }, settings: { "families.screen": { index: true }, "search.meaning": RUNNER } });
+    const root = makeRoot("lifestream-screen-embed-", { sources: { [SOURCE]: "fake-rows" }, settings: { "families.screen": { index: true }, "model.defaults.search": `runner:${RUNNER}/${MODEL}` } });
     homes.push(root);
     mintPrincipal(openHomeFolder(root), { unit: "test-drive", scopes: ["drive"], token: DRIVE, now_ms: Date.now() });
     const state = (name: string, value: string) => {
@@ -382,7 +382,7 @@ describe("embedding end to end", () => {
       const vectors = join(file, "..", "screen-vectors", generation);
       expect(existsSync(join(vectors, MODEL))).toBe(true);
 
-      await askHome(sock, "settings", ["set", "search.meaning", "off"]);
+      await askHome(sock, "models", ["default", "search", "none"]);
       await until("the vectors gone", () => !existsSync(vectors) && read<{ value: string }>("SELECT value FROM meta WHERE name = 'meaning'")?.value === "false");
       expect(read<{ value: string }>("SELECT value FROM meta WHERE name = 'generation'")).toEqual({ value: generation });
       expect(read<{ n: number }>("SELECT count(*) AS n FROM screen_fts WHERE screen_fts MATCH 'cobalt'")?.n).toBeGreaterThan(0);
@@ -403,7 +403,7 @@ describe("embedding end to end", () => {
 describe("the model's download done", () => {
   it("starts the first batch as the file comes ready, not at the job's own next look a minute later", async () => {
     const SOURCE = "screen:local:mac-0001";
-    const root = makeRoot("lifestream-screen-embed-", { sources: { [SOURCE]: "fake-rows" }, settings: { "families.screen": { index: true }, "search.meaning": RUNNER } });
+    const root = makeRoot("lifestream-screen-embed-", { sources: { [SOURCE]: "fake-rows" }, settings: { "families.screen": { index: true }, "model.defaults.search": `runner:${RUNNER}/${MODEL}` } });
     homes.push(root);
     mintPrincipal(openHomeFolder(root), { unit: "test-drive", scopes: ["drive"], token: DRIVE, now_ms: Date.now() });
     const state = (name: string, value: string) => {

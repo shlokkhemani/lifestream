@@ -597,8 +597,6 @@ export interface Work {
   text_chars?: number;
   /** Its input leaves the machine as it is, whatever the privacy level. */
   as_is?: true;
-  /** The runner's model file that serves it while its setting is unset. */
-  prefers?: string;
 }
 
 /** One way of signing in to a connector, run by one of its acquirers. */

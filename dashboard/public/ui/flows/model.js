@@ -5,7 +5,7 @@ import { subscriptionOf } from '../../lib/host.js';
 import { clock } from '../../lib/words.js';
 import { chromeBrings, extensionOn, formDo, formOf, routeAct, routesOf, signInOf } from '../connectors/page.js';
 
-/** @typedef {{ state: HostState | null, report: StreamsReport | null, models?: import('../../types.js').ModelsRead | null, privacy?: import('../../types.js').PrivacyRead | null, screen?: import('../connectors/settings-search.js').ScreenState | null }} Seen */
+/** @typedef {{ state: HostState | null, report: StreamsReport | null, models?: import('../../pages.js').Models | null, privacy?: import('../../types.js').PrivacyRead | null, screen?: import('../connectors/settings-search.js').ScreenState | null }} Seen */
 
 /** @typedef {'vault' | 'model' | 'phone' | 'browser'} FlowId */
 
@@ -310,34 +310,17 @@ export const SIGNING_MS = 60_000;
 const MODEL_NOTE = 'What you ask, and what it needs from your life, goes to the model you choose.';
 
 const PLANS = {
-  chatgpt: { name: 'ChatGPT', mark: 'chatgpt', program: 'Codex', transport: 'codex', absent: 'Use your ChatGPT plan.',
+  chatgpt: { name: 'ChatGPT', mark: 'chatgpt', program: 'Codex', absent: 'Use your ChatGPT plan.',
     signedOut: 'Sign in with your ChatGPT plan.',
     signing: 'Enter this code on OpenAI’s page.' },
-  claude: { name: 'Claude', mark: 'claude', program: 'Claude Code', transport: 'claude', absent: 'Use your Claude plan.',
+  claude: { name: 'Claude', mark: 'claude', program: 'Claude Code', absent: 'Use your Claude plan.',
     signedOut: 'Sign in with your Claude plan.',
     signing: 'Approve on Anthropic’s page. If it shows a code, paste it here.' },
 };
 /** @typedef {keyof typeof PLANS} PlanId */
 
-/** @param {keyof typeof PLANS} of */
-export const planName = of => PLANS[of].name;
 export const PLAN_IDS = /** @type {PlanId[]} */ (Object.keys(PLANS));
 
-/**
- * @param {string} route
- * @returns {PlanId | null}
- */
-export const planOfRoute = route => PLAN_IDS.find(id => PLANS[id].transport === route.split(':')[0]) ?? null;
-
-/**
- * @param {string} route
- * @param {import('../../lib/host.js').HostAskLogin | null | undefined} login
- * @returns {PlanId | null}
- */
-export const planWanted = (route, login) => {
-  const plan = planOfRoute(route);
-  return plan && login?.[plan].state !== 'signed_in' ? plan : null;
-};
 /** @typedef {PlanId} ModelItem */
 /** @type {ModelItem[]} */
 export const MODEL_ITEMS = PLAN_IDS;
@@ -349,7 +332,7 @@ export function modelOf(seen) {
   const login = seen.state?.ask_login;
   const chatgpt = login?.chatgpt ?? NONE;
   const claude = login?.claude ?? NONE;
-  const openrouter = seen.models?.openrouter.connected === true;
+  const openrouter = seen.models?.connections.some(each => each.kind === 'key' && each.held) === true;
   return { chatgpt, claude, openrouter,
     connected: chatgpt.state === 'signed_in' || claude.state === 'signed_in' || openrouter };
 }

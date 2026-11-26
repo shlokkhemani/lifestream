@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dayBounds } from "@lifestreamprotocol/core";
 import type { Health } from "./health.js";
 import { PAGES } from "./pages.js";
-import { SETTINGS_INDEX, settingsHandler, settingsPageHandler, type Running, type SettingsReads } from "./page-settings.js";
+import { SETTINGS_ANSWERS, SETTINGS_INDEX, settingsHandler, settingsPageHandler, type Running, type SettingsReads } from "./page-settings.js";
 import { servePages } from "./page-serve.js";
 import type { Ask, Reply } from "./reads.js";
 import { Refusal } from "./refusal.js";
@@ -101,7 +101,15 @@ describe("the skeleton", () => {
     expect(SETTINGS_INDEX.mac.map((group) => ({ label: group.label, pages: group.entries.map((each) => ({ id: each.id, label: each.label, icon: each.icon, ...(each.host ? { mac: true } : {}) })) })))
       .toEqual(before);
     const answers = Object.fromEntries(SETTINGS_INDEX.mac.flatMap((group) => group.entries.map((each) => [each.id, each.answer])));
-    expect(Object.entries(answers).filter(([, answer]) => answer !== "own")).toEqual([["storage", "storage"], ["time", "settingsPage"], ["advanced", "settingsPage"]]);
+    expect(Object.entries(answers).filter(([, answer]) => answer !== "own")).toEqual([["storage", "storage"], ["time", "settingsPage"], ["models", "models"], ["advanced", "settingsPage"]]);
+  });
+
+  it("answers AI models with its own page answer, every entry's answer one of SETTINGS_ANSWERS, each a page answer's name but own", () => {
+    expect(SETTINGS_ANSWERS).toEqual(["settingsPage", "storage", "models", "own"]);
+    expect(PAGES.models.route).toBe("/v1/page/models");
+    for (const answer of SETTINGS_ANSWERS.filter((each) => each !== "own")) expect(Object.keys(PAGES), answer).toContain(answer);
+    const used = new Set(Object.values(SETTINGS_INDEX).flatMap((groups) => groups.flatMap((group) => group.entries.map((each) => each.answer))));
+    expect([...used].filter((answer) => !SETTINGS_ANSWERS.includes(answer))).toEqual([]);
   });
 });
 

@@ -248,8 +248,8 @@ async function child(root: string, machine: string): Promise<void> {
   openLedger(scratchFolder, { mode: "migrate" }).close();
   settled(scratchFolder, NOW_MS);
   const writer = openWriter(scratchFolder, machine, QUIET, () => undefined);
-  const detector: Detector = { state: () => ({ state: "absent", why: "no hiding model on the gate" }), find: async () => { throw new Error("no hiding model on the gate"); } } as unknown as Detector;
-  const privacy: PrivacySettings = { level: "all", chat: "all", detector: "off", links: "tokens", always: [], never: [] } as unknown as PrivacySettings;
+  const detector: Detector = { state: () => ({ state: "off" }), find: async () => { throw new Error("no hiding model on the gate"); } };
+  const privacy: PrivacySettings = { level: "all", chat: "all", links: "tokens", always: [], never: [] };
   const pictures = { read: async () => ({ cannot: "no pictures on the gate" }), make: async () => ({ cannot: "no pictures on the gate" }) } as const;
   let engine: number[] = [];
   let engineMs = 0;
@@ -266,9 +266,9 @@ async function child(root: string, machine: string): Promise<void> {
     }
   };
   const hiding = openHiding({
-    settings: () => privacy, names: async (known) => readNameTable(folder, peopleFileOf(root, machine), known), detector, hidingFile: () => null, pictures,
+    settings: () => privacy, names: async (known) => readNameTable(folder, peopleFileOf(root, machine), known), detector, chosen: () => null, hidingFile: () => null, pictures,
     marks: openMarks(scratchFolder, join(scratch, "marks.db")), writer, progress: () => null, day: () => settings.day, clock: () => NOW_MS, log: () => undefined, route,
-    existing: async () => [],
+    existing: async () => [], leavesOf: async () => "OpenAI",
   });
   let conversations = 0;
   const hiddenAsk = async (ask: Ask & { hidden: Hidden }): Promise<Answered> => {

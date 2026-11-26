@@ -7,7 +7,7 @@ import { CHATGPT_SIGNED_IN, hostScript, onboardingHome, SENSES } from './onboard
 import { state } from './onboarding-page.mjs';
 import { pageHarness } from './page-harness.mjs';
 import { QUESTION, SEE, WORDS } from '../../public/ui/tour.js';
-import { ASK_FILES } from './ask-ready.mjs';
+import { askReady, askSignedOut } from './ask-ready.mjs';
 import { SPOTS, spotRow } from './places-home.mjs';
 
 export const WINDOW = { width: 1440, height: 900 };
@@ -28,10 +28,9 @@ export const NO_AI_WALK = MAC_WALK.filter(([id]) => id !== 'answer');
 /** @type {[StepId, string][]} */
 export const BROWSER_WALK = MAC_WALK.filter(([id]) => id !== 'agents');
 
-const READY = { ...ASK_FILES, login: 'ready', model: 'synthetic-model', name: 'Synthetic Model', thinking: 'low', group: 'ChatGPT',
-  default: { model: 'synthetic-model' },
-  models: [{ id: 'synthetic-model', name: 'Synthetic Model', thinking: ['low', 'high'], default: 'low', group: 'ChatGPT', photos: true }] };
-const SIGNED_OUT = { ...ASK_FILES, login: 'missing', model: 'synthetic-model', group: 'ChatGPT', said: 'Chat needs your ChatGPT sign-in on your Mac.' };
+const MODEL = { id: 'synthetic-model', name: 'Synthetic Model', thinking: ['low', 'high'], default: 'low', group: 'ChatGPT' };
+const READY = askReady([MODEL]);
+const SIGNED_OUT = askSignedOut([MODEL], 'Chat needs your ChatGPT sign-in on your Mac.');
 
 /** @param {{ url: string, tokens: Record<string, string>, day: string }} home */
 async function tourHome(home) {

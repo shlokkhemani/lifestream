@@ -148,6 +148,16 @@ final class LifeReader: ObservableObject {
         }
     }
 
+    func findModels(_ words: String, for more: HomeLink.Pages.ModelMore) async throws -> HomeLink.Pages.ModelsFind {
+        let query = ModelFind.query(more).merging(["q": words]) { $1 }
+        return try await ask { link in
+            guard let answer = try await link.page(HomeLink.PageKey(HomeLink.Pages.ModelsFind.route, query), etag: nil) else {
+                throw LinkFailure.unreadable(304)
+            }
+            return try JSONDecoder().decode(HomeLink.Pages.ModelsFind.self, from: answer.value)
+        }
+    }
+
     func act(_ action: HomeLink.OwnerAction) async -> HomeLink.Acted {
         let home = generation
         let acted = await link.acted(action, now: clock())

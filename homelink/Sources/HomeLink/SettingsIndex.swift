@@ -5,6 +5,7 @@ extension HomeLink {
         public enum Answer: String, Sendable, Equatable {
             case settingsPage
             case storage
+            case models
             case own
         }
 
@@ -53,7 +54,7 @@ extension HomeLink {
                 Entry(id: "chrome", label: "Chrome extension", icon: "web", host: false, answer: .own),
             ]),
             Group(label: "Models", entries: [
-                Entry(id: "models", label: "AI models", icon: "ai", host: false, answer: .own),
+                Entry(id: "models", label: "AI models", icon: "ai", host: false, answer: .models),
                 Entry(id: "privacy", label: "Privacy", icon: "hidden", host: false, answer: .own),
                 Entry(id: "meaning", label: "Search by meaning", icon: "search", host: false, answer: .own),
             ]),

@@ -18,9 +18,9 @@ export const CHAT_VOICE: Work = {
   about: "A model transcribes your voice notes.",
 };
 
-/** A model writes out each voice note the person sends Chat, its audio leaving the machine as it is whatever the privacy level, on the runner's Parakeet model while its setting is unset. */
+/** A model writes out each voice note the person sends Chat, its audio leaving the machine as it is whatever the privacy level. */
 export const ASK_VOICE: Work = {
-  label: "Voice notes", kind: "audio", noun: ["voice note", "voice notes"], as_is: true, prefers: "parakeet-unified-en-0.6b",
+  label: "Voice notes", kind: "audio", noun: ["voice note", "voice notes"], as_is: true,
   about: "A model writes out each voice note you send Chat.",
 };
 

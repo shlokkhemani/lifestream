@@ -94,13 +94,12 @@ export {
   type Transport,
   type Unavailable,
 } from "./transport.js";
-export { CHARS_A_TOKEN, MODEL_USES, unfitWords, USE_IDS, WORK_KINDS, workNeed, type UseId, type WorkKind } from "./uses.js";
+export { CHARS_A_TOKEN, MODEL_USES, unfitWords, USE_IDS, WORK_KINDS, workNeed, type Use, type UseId, type WorkKind } from "./uses.js";
 export { checkClaude, claudeEnv, signOutClaude } from "./transports/claude.js";
 export { checkCodex, codexEnv } from "./transports/codex.js";
 export { fakeTransport, type FakeOptions } from "./transports/fake.js";
 export { priced, transportSecret, transportsOf, type Found } from "./transports/index.js";
 export { OPENROUTER_SECRET } from "./transports/openrouter.js";
-export { CLOUD_VOICE, transcriptionsTransport } from "./transports/transcriptions.js";
 export { CALL_PASS, listRunners, RUNNER_TRANSPORT, runnerTransport, warmRunner, type RunnerOptions } from "./transports/runner.js";
 export type { ProgramAt } from "./transports/program.js";
 export { BEAT_MS, CALL_BYTES, CALL_SILENT_MS, CHAT_LINE, DOCUMENT_IDLE_S, EMBED_ROLES, EMBED_TEXTS, embedAnswerOf, embedAskOf, endedOf, EXCHANGE_BYTES, EXCHANGE_SILENT_MS, FETCHING_MS, FIND_HANDED, FIND_LINES, FIND_PASSAGES, findPassages, findAnswerOf, isHanded, isPlaced, isResult, isStated, MOST_FILES, NOT_THE_REQUESTS, POLL_MS, PRESENCE_MS, RUNNER_CALLS, RUNNER_EXCHANGE, RUNNER_WIRE_VERSION, runnerInfo, RUNNERS, STOP_MS, vectorOf, vectorText, type CallLine, type DetectorKey, type EmbedAnswer, type EmbedAsk, type EmbedRole, type FileFailure, type FindLine, type FindAnswer, type FindMark, type RunnerAnswer, type RunnerAttachment, type RunnerBelow, type RunnerCall, type RunnerCode, type RunnerEnded, type RunnerError, type RunnerExchange, type RunnerFailure, type RunnerFile, type RunnerFileState, type RunnerHanded, type RunnerInfo, type RunnerInterruption, type RunnerListing, type RunnerPlaced, type RunnersListed, type RunnerResult, type RunnerStated, type RunnerThermal, type RunnerWait } from "./runner-wire.js";

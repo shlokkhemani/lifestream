@@ -169,7 +169,8 @@ export function openHider(inputs: HiderInputs): Hider {
     ready,
 
     async mark(texts, epoch) {
-      if (inputs.settings().detector === "off") return { wait: "No hiding model is chosen: privacy.detector is off." };
+      const chosen = detector.state();
+      if (chosen.state === "off") return { wait: waitLine(chosen) };
       const passages = texts.flatMap((text) => passagesOf(text).map((passage) => text.slice(passage.start, passage.end)));
       const digests = [...new Set(passages.map(sha256))];
       const unread = new Set<string>();
@@ -220,7 +221,8 @@ export function openHider(inputs: HiderInputs): Hider {
       }
       if (people === undefined) return { wait: NO_NAMES };
       const settings = inputs.settings();
-      const epoch = settings.detector === "off" ? "" : (since ?? store.epoch);
+      const off = detector.state().state === "off";
+      const epoch = off ? "" : (since ?? store.epoch);
       const seal: Seal | null = sealOf(people, reader.sealed);
       const sealed = (type: string, text: string, who?: string) => seal !== null && seal.detail(type, text, who);
       const open = (type: string, text: string, who?: string) => (leaves as readonly string[]).includes(type) && !sealed(type, text, who);
@@ -253,7 +255,7 @@ export function openHider(inputs: HiderInputs): Hider {
       let detected = new Map<string, PassageMark[] | null>();
       let used: string | null = null;
       let fallback: string | undefined;
-      if (settings.detector !== "off" && (hidesAny(level) || seal?.only === true)) {
+      if (!off && (hidesAny(level) || seal?.only === true)) {
         const answer = await detect([...reads.values()].flatMap((passages) => passages.map((passage) => passage.text)), true, "hide", epoch, bound)
           .catch((error: unknown) => ({ rejected: error instanceof Error ? error.message : String(error) }));
         if ("wait" in answer) return answer;

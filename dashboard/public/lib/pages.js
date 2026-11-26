@@ -4,7 +4,7 @@
 import { changedPast } from '../ui/live.js';
 
 /** @typedef {keyof Pages} PageName */
-/** @typedef {'people' | 'places' | 'streams' | 'days' | 'clock' | 'today'} Move */
+/** @typedef {'people' | 'places' | 'streams' | 'days' | 'clock' | 'today' | 'storage'} Move */
 
 /** @type {Record<Move, (change: HomeChange, position: string | null | undefined) => boolean>} */
 const MOVED = {
@@ -15,6 +15,7 @@ const MOVED = {
   days: change => change.days.size > 0,
   clock: change => change.clockMoved,
   today: change => change.clockMoved,
+  storage: change => change.storage,
 };
 
 /** @type {Partial<Record<string, readonly Move[]>> | null} */

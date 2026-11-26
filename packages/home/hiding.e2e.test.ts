@@ -23,7 +23,7 @@ import { editSettings } from "./test/folder.js";
 import { fullAccess } from "./access.js";
 import { agentAt, levelled } from "./test/agent-levels.js";
 import { until } from "./test/harness-root.js";
-import { cleanup, makeHome, makeHomeDb, NOW_MS, REPO } from "./test/support.js";
+import { cleanup, holdModels, LUNA_ROUTE, makeHome, makeHomeDb, NOW_MS, REPO } from "./test/support.js";
 
 const roots: string[] = [];
 afterAll(() => cleanup(roots));
@@ -37,7 +37,7 @@ const NAMES: NameTable = {
     { who: "p-ada", is: "human", shown: "Ada Example", names: ["Ada Example", "Ada", "Example"], accounts: ["person-a@example.com", "+15550000001"] },
   ],
 };
-const PRIVACY: PrivacySettings = { level: "all", chat: "all", detector: "runner-macbook-pro-0001", links: "tokens", always: [], never: [] };
+const PRIVACY: PrivacySettings = { level: "all", chat: "all", links: "tokens", always: [], never: [] };
 const CHAT: HiddenReader = { pass: "p-chat0001", agent: null };
 const TURN: HiddenReader = { pass: "p-turn0001", agent: null, turn: { table: "chat:c1", level: "all" } as never };
 const RECORD = "record.WyJyZWNvcmQiLCJ3aGF0c2FwcDoxNTU1MDAwMDAwOTppcGhvbmUtYWEwMSIsIm1lc3NhZ2UiLCJhMSJd";
@@ -147,8 +147,8 @@ function inProcess(over: { settings?: () => PrivacySettings; names?: () => NameT
       const table = await (over.names ?? (() => NAMES))();
       return table !== undefined && table.version === known ? "same" : table;
     },
-    detector, hidingFile: () => "privacy-filter", pictures, marks, writer: levelled(openHomeFolder(home.root), over.wrap?.(writer) ?? writer, NOW_MS), progress: () => null, existing: async () => [],
-    day: () => ({ zone: "UTC", day_start_hour: 4 }), clock: () => NOW_MS, log: (line) => logs.push(line),
+    detector, chosen: () => "runner:runner-macbook-pro-0001/privacy-filter", hidingFile: () => "privacy-filter", pictures, marks, writer: levelled(openHomeFolder(home.root), over.wrap?.(writer) ?? writer, NOW_MS), progress: () => null, existing: async () => [],
+    day: () => ({ zone: "UTC", day_start_hour: 4 }), clock: () => NOW_MS, log: (line) => logs.push(line), leavesOf: async (model) => LEAVES[model],
     ...(over.bound === undefined ? {} : { bound: over.bound }),
     ...(over.route === undefined ? {} : { route: over.route }),
     ...(over.describe === undefined ? {} : { describe: over.describe }),
@@ -158,6 +158,9 @@ function inProcess(over: { settings?: () => PrivacySettings; names?: () => NameT
   return { home, writer, hiding, detector, marks, logs, ledger };
 }
 
+const LOCAL = "runner:runner-macbook-pro-0001/qwen3.5-9b";
+const FOUND = "runner:runner-macbook-pro-0001/Qwen 3.5 9B Instruct";
+const LEAVES: Readonly<Record<string, string | null>> = { "codex:gpt-6-luna": "OpenAI", [LOCAL]: null, [FOUND]: null };
 const chatCall = (texts: unknown[], more: JsonObject = {}): JsonObject => ({ table: "chat:c1", to: "codex:gpt-6-luna", what: "read", tool: "day", epoch: 0, texts: texts as JsonObject[], ...more });
 const SPAN = { from: "2026-09-08", to: "2026-09-08" };
 const linesOf = (refs: readonly string[]): HidingInputs["route"] => async () => ({ status: 200, epoch: 0, value: { what: "lines", span: SPAN, lines: refs.map((ref) => ({ text: "a line", ref })) } });
@@ -226,6 +229,24 @@ describe("the door's hiding, in this process", () => {
     const params = await hiding.restore(CHAT, { table: "chat:c1", params: [{ value: "[[Person 1]]" }, { value: "r3" }, { value: "dinner with [[Person 2]] and [[Person 9]]" }] }) as { params: { value: string; unknown: string[] }[] };
     expect(params.params.map(({ value, unknown }) => [value, unknown])).toEqual([["Ada Example", []], ["r3", []], ["dinner with Rose and [[Person 9]]", ["[[Person 9]]"]]]);
     expect(await settled(hiding.restore(CHAT, { table: "chat:c1", params: [{ value: "Rose", type: "person" }] }))).toMatchObject({ status: 422, code: "BAD_REQUEST" });
+  });
+
+  it("a turn on a model whose row leaves nothing runs at none and writes no outbound row, a runner's id and a found key with a space alike; an id no row holds is refused; a cloud row's receiver is its leaves", async () => {
+    const day = (line: number) => JSON.stringify({ day: "2026-11-10", line });
+    const { hiding, writer } = inProcess({ route: linesOf([day(3)]) });
+    const today = "2026-09-08";
+    const rows = async () => (await writer.list({ from: today, to: today, day: { zone: "UTC", day_start_hour: 4 } })).rows;
+    for (const to of [LOCAL, FOUND]) {
+      expect(await hiding.hide(CHAT, chatCall([[{ text: "Ada Example", is: "person", who: "p-ada" }, { text: " came by.", free: true }]], { to }))).toMatchObject({ level: "none", texts: ["Ada Example came by."] });
+      expect(await hiding.hide(TURN, chatCall([[{ text: "Ada Example", is: "person", who: "p-ada" }]], { to }))).toMatchObject({ level: "none", texts: ["Ada Example"] });
+      expect(await hiding.read(TURN, "/v1/read", { args: SPAN, to, shown: [] })).toMatchObject({ status: 200 });
+    }
+    expect(await rows()).toEqual([]);
+    expect(await settled(hiding.hide(CHAT, chatCall([[{ text: "x" }]], { to: "runner:runner-macbook-pro-0001/gone" })))).toMatchObject({ status: 422, code: "BAD_REQUEST" });
+    expect(await settled(hiding.read(TURN, "/v1/read", { args: SPAN, to: "codex:gpt-0", shown: [] }))).toMatchObject({ status: 422, code: "BAD_REQUEST" });
+    expect(await rows()).toEqual([]);
+    expect(await hiding.hide(CHAT, chatCall([[{ text: "Ada Example", is: "person", who: "p-ada" }]]))).toMatchObject({ level: "all", texts: ["[[Person 1]]"] });
+    expect(await rows()).toMatchObject([{ receiver: "OpenAI", route: "codex:gpt-6-luna", level: "all" }]);
   });
 
   it("D13: a long record's text is hidden whole, as one piece, in each call: a detail every page reaches is one placeholder, put back whole; a piece cut from inside its text is refused", async () => {
@@ -613,7 +634,8 @@ describe("the door's hiding, in this process", () => {
     expect(await named()).toBeNull();
     settings = { ...PRIVACY, chat: "none" };
     expect(await hiding.hide(CHAT, chatCall(rose, { table: "chat:c-none" }))).toMatchObject({ level: "none", texts: ["Rose came by."] });
-    settings = { ...PRIVACY, detector: "off" };
+    settings = PRIVACY;
+    detector.set({ state: "off" });
     expect(await hiding.hide(CHAT, chatCall([[{ text: "Ada wrote from person-a@example.com", free: true }]]))).toMatchObject({ level: "all", texts: ["[[Person 1]] wrote from [[Email 1]]"] });
     expect(detector.calls).toEqual([]);
 
@@ -704,7 +726,7 @@ describe("a sealed person", () => {
 describe("a Chat question's photos and voice notes", () => {
   it("D13: tags the faces the labeler names on a Chat question's photo with the conversation's placeholders, saved with its table, so the answer is restored to the name; a stranger is covered unnamed; an agent's picture states no tags; GET /v1/privacy says who voice notes leave for", async () => {
     let voice: string | null = null;
-    const { hiding, writer } = inProcess({ settings: () => ({ ...PRIVACY, detector: "off" }), voice: () => voice });
+    const { hiding, writer } = inProcess({ voice: () => voice });
     made.length = 0;
     const answer = await hiding.hide(CHAT, chatCall([[{ text: "Who is next to me here?", free: true }], { picture: FACES, tags: true }], { what: "text" }));
     expect(answer.texts).toEqual(["Who is next to me here?", { jpeg: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64"), drew: true }]);
@@ -728,7 +750,7 @@ describe("a Chat question's photo, as the model got it (docs/operating/door.md)"
   const asked = (hiding: Hiding, picture: JsonObject) => hiding.hide(CHAT, chatCall([[{ text: "Who is here?", free: true }], picture], { what: "text" }));
 
   it("says whether anything was drawn on the picture: a face covered, drew; nothing to cover, not; spans none for a picture", async () => {
-    const { hiding } = inProcess({ settings: () => ({ ...PRIVACY, detector: "off" }) });
+    const { hiding } = inProcess();
     const covered = await asked(hiding, { picture: FACES, tags: true });
     expect(covered.texts).toEqual(["Who is here?", { jpeg: JPEG, drew: true }]);
     expect(covered.spans).toEqual([[], []]);
@@ -736,13 +758,13 @@ describe("a Chat question's photo, as the model got it (docs/operating/door.md)"
   });
 
   it("says drew with hiding off when a named face is tagged on the picture", async () => {
-    const { hiding } = inProcess({ settings: () => ({ ...PRIVACY, chat: "none", detector: "off" }) });
+    const { hiding } = inProcess({ settings: () => ({ ...PRIVACY, chat: "none" }) });
     expect((await asked(hiding, { picture: FACES, tags: true })).texts).toEqual(["Who is here?", { jpeg: JPEG, drew: true }]);
     expect(made.at(-1)?.written).toEqual([{ box: { x: 10, y: 10, width: 40, height: 40 }, placeholder: "[[Person 1]]" }]);
   });
 
   it("refuses a picture asked with any key beside picture and tags, as main does", async () => {
-    const { hiding } = inProcess({ settings: () => ({ ...PRIVACY, detector: "off" }) });
+    const { hiding } = inProcess();
     for (const extra of [{ keep: true }, { keep: false }, { file: BARE }]) expect(await settled(asked(hiding, { picture: FACES, tags: true, ...extra }))).toMatchObject({ status: 422, code: "BAD_REQUEST" });
   });
 });
@@ -765,7 +787,8 @@ describe("a Chat photo's marks warmed at its upload (docs/operating/door.md)", (
     expect(logs).toContainEqual(expect.objectContaining({ hiding: "a photo's marks were not warmed" }));
 
     const off = scripted({ Ada: "person" });
-    const { hiding: unchosen } = inProcess({ detector: off, settings: () => ({ ...PRIVACY, detector: "off" }) });
+    off.set({ state: "off" });
+    const { hiding: unchosen } = inProcess({ detector: off });
     await unchosen.warm(BLOB);
     expect(off.calls).toEqual([]);
   });
@@ -785,8 +808,10 @@ describe("the door's hiding, through the real door on the fake runner", () => {
       unit: "agent", kind: "agent", scopes: ["read"], now_ms: NOW_MS, token: agentPass,
       granted: { agent: { name: "Vault App", via: "pass", from: null, checked: false, client_id: null, resource: null } },
     });
-    editSettings(home.root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "privacy.detector": RUNNER });
-    makeHomeDb(join(home.root, "home.db")).close();
+    editSettings(home.root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "model.defaults.hiding": `runner:${RUNNER}/privacy-filter` });
+    const db = makeHomeDb(join(home.root, "home.db"));
+    holdModels(db, Object.entries(LEAVES).map(([id, leaves]) => ({ ...LUNA_ROUTE, id, leaves })));
+    db.close();
     mkdirSync(join(home.root, "replies"), { recursive: true });
     openLedger(openHomeFolder(home.root), { mode: "migrate" }).close();
     const dir = mkdtempSync(join(tmpdir(), "hiding-journey-"));
@@ -917,9 +942,11 @@ describe("the door's hiding, through the real door on the fake runner", () => {
     expect(await ask("POST", "/v1/hide-details", reader, chatCall(text("Rose came by.")))).toMatchObject({ status: 200, body: { level: "all", texts: ["Rose came by."] } });
     editSettings(home.root, { "privacy.chat": "none" });
     expect(await ask("POST", "/v1/hide-details", reader, chatCall(text("Rose came by."), { table: "chat:c2" }))).toMatchObject({ status: 200, body: { level: "none", texts: ["Rose came by."] } });
-    editSettings(home.root, { "privacy.chat": null, "privacy.detector": "off" });
+    editSettings(home.root, { "privacy.chat": null, "model.defaults.hiding": null });
     expect(await ask("POST", "/v1/hide-details", reader, chatCall(text("Ada wrote.")))).toMatchObject({ status: 200, body: { level: "all", texts: ["[[Person 1]] wrote."] } });
-    editSettings(home.root, { "privacy.detector": RUNNER });
+    expect(await ask("POST", "/v1/hide-details", reader, chatCall(text("Ada wrote."), { to: FOUND }))).toMatchObject({ status: 200, body: { level: "none", texts: ["Ada wrote."] } });
+    expect(await ask("POST", "/v1/hide-details", reader, chatCall(text("Ada wrote."), { to: "codex:gpt-0" }))).toMatchObject({ status: 422, body: { code: "BAD_REQUEST" } });
+    editSettings(home.root, { "model.defaults.hiding": `runner:${RUNNER}/privacy-filter` });
 
     writeFileSync(join(dir, "door-token"), `${home.tokens.runner}\n`, { mode: 0o600 });
     writeFileSync(join(dir, "script.json"), JSON.stringify({ words: { Rose: "person" }, hold: "never answered" }));
@@ -930,6 +957,7 @@ describe("the door's hiding, through the real door on the fake runner", () => {
       await exited;
     });
     await until("the hiding model is ready on the fake runner", async () => (await ask("GET", "/v1/privacy", reader)).body.detector.state === "ready");
+    expect((await ask("GET", "/v1/privacy", reader)).body.detector).toMatchObject({ model: `runner:${RUNNER}/privacy-filter`, file: "privacy-filter", state: "ready" });
 
     const hidden = await ask("POST", "/v1/hide-details", reader, chatCall([
       [{ text: "Ada Example", is: "person", who: "p-ada" }, { text: ": Rose came by, write to person-a@example.com.", free: true }],

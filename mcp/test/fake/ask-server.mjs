@@ -11,7 +11,7 @@ const base = Number(process.env.ASK_NOW_MS);
 const began = Date.now();
 const handler = createHandler({
   door: String(process.env.ASK_DOOR),
-  ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: String(process.env.ASK_MACHINE), now: () => base + Date.now() - began },
+  ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: String(process.env.ASK_MACHINE), now: () => base + Date.now() - began },
   log: () => undefined,
 });
 const server = createServer(handler);

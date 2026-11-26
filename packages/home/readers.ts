@@ -262,9 +262,9 @@ export function openReaders(
 
   const until = <T>(promise: Promise<T>, signal: AbortSignal): Promise<T> => new Promise<T>((resolve, reject) => {
     const stop = () => reject(signal.reason instanceof Reached ? atBound(false) : signal.reason as Error);
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
     if (signal.aborted) return stop();
     signal.addEventListener("abort", stop, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", stop));
   });
 
   const checked = async <T>(name: string, attempt: (signal: AbortSignal, bound: SharedBound, epoch: number) => Promise<T>, signal: AbortSignal): Promise<T> => {

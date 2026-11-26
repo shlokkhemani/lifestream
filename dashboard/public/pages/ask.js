@@ -14,23 +14,24 @@ import { record } from '../ui/ask/recorder.js';
 import { DOOR_WORDS, lacks, NOT_SENT, pageReach, wordsOr } from '../lib/reach.js';
 import { esc } from '../lib/html.js';
 import { today } from '../lib/home-clock.js';
-import { clock, shortDay } from '../lib/words.js';
+import { clock, levelWords, shortDay } from '../lib/words.js';
 import { openingOf } from '../lib/opening.js';
 import { chatAccess } from '../ui/ask/access.js';
 import { answeringIn, began, followChats, moreWhenNear, readChats, titled } from '../ui/ask/chats.js';
 import {
-  asking, chatGroups, citedSources, failedSentence, keptVoice, modelSections, momentOf, replayOf, seenOf, shownRefs, turnDay, turnStamp, turnsOf, voiceShown, withEvent,
+  asking, chatGroups, citedSources, failedSentence, keptVoice, momentOf, replayOf, seenOf, shownRefs, turnDay, turnStamp, turnsOf, voiceShown, withEvent,
 } from '../ui/ask/turns.js';
 import { SETTINGS_MODELS, SETTINGS_PRIVACY } from '../ui/connectors/settings.js';
 import { FEEDBACK } from '../ui/feedback.js';
 import { reducedMotion } from '../ui/dom.js';
 import {
-  adopt, ASK_SENT, askAnswer, askHome, askLevel, askLive, askPaceOf, askPick, askQuestion, askStarters, askSteps, askThread, askThreadReading, askTurn, askWaiting, chatList,
+  adopt, ASK_SENT, askAnswer, askFound, askHome, askLevel, askLive, askPaceOf, askPick, askQuestion, askStarters, askSteps, askThread, askThreadReading, askTurn, askWaiting, chatList,
   chatListReading, chatRow, composer, composerAttach, composerState, holdVoice, inPlaceLine, iconButton, installAsk, installFilterMenus, morph,
   pageHead, thoughtFor,
   noneLine, pageLack, reading, readingAgain, stopVoice, voiceOwner, voicePlays, waitLine, watchPictures,
 } from '../ui/kit/index.js';
 import { onHomeChange } from '../ui/live.js';
+import { findFor, modelFinder } from '../lib/model-menu.js';
 import { replyMarkdown } from '../ui/markdown.js';
 import { installMomentPanel } from '../ui/panel.js';
 
@@ -38,13 +39,6 @@ const DESCRIBED_AT_ONCE = 20;
 
 const NOT_SAVED = 'Not saved yet: Chat can’t write to your Mac’s disk. It keeps trying.';
 const PICKED = 'lifestream.ask.pick';
-const LEVEL_WORDS = /** @type {Record<string, string>} */ ({
-  off: 'No thinking', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
-});
-
-/** @param {string} level */
-const levelWords = level => LEVEL_WORDS[level] ?? level;
-
 /** @returns {{ model: string, thinking: string }} */
 function readPicked() {
   try {
@@ -122,19 +116,23 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
   /** @type {import('../lib/reach.js').Drawn | null} */
   let chatsFailed = null;
   const listLack = () => chatsFailed?.kind === 'lack' ? chatsFailed : null;
-  /** @type {'ready' | 'unreachable' | 'login'} */
+  /** @type {'ready' | 'unreachable' | 'unready'} */
   let status = 'ready';
   let confirmed = false;
   let heard = false;
   let unsaved = false;
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let recheck;
-  /** @type {{ id: string, name: string, thinking: string[], default: string, group?: string, photos?: boolean }[]} */
+  /** @type {import('../lib/api.js').AskModel[]} */
   let models = [];
-  let group = '';
   let said = '';
+  let act = '';
   let stopRefused = { target: /** @type {Thread | null} */ (null), words: '' };
-  let fallback = '';
+  /** @type {import('../lib/api.js').AskReady['default']} */
+  let chatDefault = { model: null, thinking: '', shown: null, choose: null };
+  /** @type {import('../lib/api.js').AskReady['menu'] | null} */
+  let menu = null;
+  let otherTyped = '';
   let picked = readPicked();
   /** @type {{ kind: string, question: string }[]} */
   let starters = [];
@@ -292,10 +290,8 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
     if (status === 'unreachable') {
       return inPlaceLine(DOOR_WORDS.ASK_DOWN, { retry: { 'data-ask-action': 'recheck' }, shape: 'caution' });
     }
-    if (status === 'login' && host) {
-      return inPlaceLine(said, { retry: { 'data-ask-action': 'sign-in' }, label: group ? `Sign in with ${group}…` : 'Connect a model…', shape: 'caution' });
-    }
-    if (status === 'login' && said) return inPlaceLine(said, { shape: 'caution' });
+    if (status === 'unready' && host && act) return inPlaceLine(said, { retry: { 'data-ask-action': 'sign-in' }, label: act, shape: 'caution' });
+    if (status === 'unready' && said) return inPlaceLine(said, { shape: 'caution' });
     if (micSaid) {
       return inPlaceLine(micSaid, host && voice && !voice.ready ? { retry: { 'data-ask-action': 'sign-in' }, label: 'Open AI models', shape: 'caution' }
         : { shape: 'caution' });
@@ -513,7 +509,7 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
         : runs && !turn.text ? '' : askAnswer({
         text: turn.text, refs: turn.refs ? shownRefs(turn.refs, voices) : null, open, stopped: turn.end === 'stopped',
         seen: seen?.answered ?? null, model, eye: { 'data-ask-seen': String(turn.n) }, more: moreOf(turn),
-        failed: turn.end === 'failed' && !(turn.failed === 'login' && status === 'login')
+        failed: turn.end === 'failed' && !(turn.failed === 'login' && status === 'unready')
           ? { sentence: failedSentence(turn),
             retry: heldAgain(turn) || (!outbox.has(turn.submission) && turn.n !== null) ? { 'data-ask-retry': String(at) } : null }
           : null,
@@ -1239,7 +1235,7 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
     const turn = current(target, submission);
     if (!turn || (event.type === 'error' && event.error === 'erased')) return;
     if (event.type === 'error' && event.error === 'login') {
-      status = 'login';
+      status = 'unready';
       said = event.message ?? '';
       drawStatus();
       void readReady();
@@ -1354,7 +1350,9 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
   }
 
   /** @param {string} id */
-  const modelOf = id => models.find(each => each.id === id) ?? models.find(each => each.id === fallback);
+  const modelOf = id => models.find(each => each.id === id) ?? models.find(each => each.id === chatDefault.model);
+  /** @param {import('../lib/api.js').AskModel} model */
+  const startOf = model => model.id !== picked.model && model.thinking.includes(chatDefault.thinking) ? chatDefault.thinking : model.default;
   /**
    * @param {string} id
    * @param {string} level
@@ -1366,18 +1364,71 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
   /** @type {string[]} */
   let toolsDrawn = [];
   let picturesDrawn = '';
-  tools.addEventListener('ck-fmenu-closed', () => drawPick());
+  tools.addEventListener('ck-fmenu-closed', () => {
+    otherTyped = '';
+    drawPick();
+  });
+
+  const finder = modelFinder(() => showFound());
+
+  function findNow() {
+    if (!menu) return null;
+    const found = finder.find(findFor(menu.more), otherTyped);
+    const answer = found?.answer ?? null;
+    return { placeholder: answer?.placeholder ?? '', found: answer ?? { rows: [], local: null }, none: answer?.none ?? found?.failed ?? '' };
+  }
+
+  function showFound() {
+    const now = findNow();
+    const shown = tools.querySelector('.ck-pick__found');
+    const find = /** @type {HTMLInputElement | null} */ (tools.querySelector('[data-ask-find]'));
+    if (!now || !shown || !find) return;
+    find.placeholder = now.placeholder;
+    shown.innerHTML = askFound(now.found, picked.model, now.none);
+  }
+
+  const focusFind = () => requestAnimationFrame(() => {
+    const find = /** @type {HTMLInputElement | null} */ (tools.querySelector('[data-ask-find]'));
+    if (find && !find.closest('[hidden]')) find.focus({ preventScroll: true });
+  });
+  tools.addEventListener('click', event => {
+    if (/** @type {Element} */ (event.target).closest('[data-ck-page="other"]')) focusFind();
+  });
+  tools.addEventListener('keydown', event => {
+    const target = /** @type {Element} */ (event.target);
+    if (target.matches('[data-ask-find]')) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        /** @type {HTMLElement | null} */ (tools.querySelector('.ck-pick__found .ck-fmenu__item:not([aria-disabled="true"])'))?.click();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        /** @type {HTMLElement | null} */ (tools.querySelector('.ck-pick .ck-fmenu__btn'))?.click();
+      }
+      return;
+    }
+    if ((event.key === 'Enter' || event.key === 'ArrowRight') && tools.querySelector('.ck-pick .is-lit[data-ck-page="other"]')) focusFind();
+  });
+  tools.addEventListener('input', event => {
+    const target = /** @type {Element} */ (event.target);
+    if (!(target instanceof HTMLInputElement) || !target.matches('[data-ask-find]')) return;
+    otherTyped = target.value;
+    showFound();
+  });
 
   function drawPick() {
-    const model = modelOf(picked.model);
-    pickDrawn = model ? askPick({
-      model: model.name, level: levelWords(picked.thinking || model.default),
-      levels: model.thinking.map(level => ({ value: level, label: levelWords(level) })),
-      thinking: picked.thinking || model.default, models: modelSections(models), chosen: model.id,
+    const asks = modelOf(picked.model);
+    const model = asks ?? models.find(each => each.id === chatDefault.shown);
+    const thinking = model ? picked.thinking || startOf(model) : '';
+    const named = model?.name ?? chatDefault.choose;
+    pickDrawn = named ? askPick({
+      model: named, level: levelWords(thinking),
+      levels: model ? model.thinking.map(level => ({ value: level, label: levelWords(level) })) : [],
+      thinking, menu: menu ?? { rows: [], local: null }, chosen: asks?.id ?? '',
       reset: Boolean(picked.model || picked.thinking),
       voice: voice ? { words: voice.words, caution: voice.caution, choices: host ? voice.choices.map(choice => ({ value: choice.value,
         words: choice.words, chosen: choice.value === voice?.value || (voice?.value === 'default' && choice.words === voice.words) })) : [] } : null,
-    }) + levelMenu() : '';
+      find: findNow(),
+    }) + (model?.hides ? levelMenu() : '') : '';
     drawParts();
   }
 
@@ -1430,8 +1481,7 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
 
   const offersPhotos = () => limits !== null;
   function photosOff() {
-    const model = modelOf(picked.model);
-    return model && !model.photos ? `${model.name} can’t see photos.` : '';
+    return modelOf(picked.model)?.photos_off ?? '';
   }
 
   function drawParts() {
@@ -1490,15 +1540,14 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
       const ready = await fetchAskReady(pickOf());
       if (mine !== readyRead) return;
       heard = true;
-      status = ready.login === 'ready' ? 'ready' : 'login';
-      confirmed = status === 'ready';
       said = ready.said ?? '';
+      act = ready.act ?? '';
       unsaved = ready.unsaved_in_ms === 0;
       clearTimeout(recheck);
       if (typeof ready.unsaved_in_ms === 'number' && ready.unsaved_in_ms > 0) recheck = setTimeout(() => void readReady(), ready.unsaved_in_ms);
-      group = ready.group ?? '';
       models = Array.isArray(ready.models) ? ready.models : [];
-      fallback = ready.default?.model ?? '';
+      menu = ready.menu ?? null;
+      chatDefault = ready.default;
       starters = Array.isArray(ready.starters) ? ready.starters : [];
       limits = ready.limits;
       voice = ready.voice;
@@ -1507,6 +1556,8 @@ export const mountAsk = (container, context, host = null, feedback = null) => {
         picked = { model: '', thinking: '' };
         keepPicked(picked);
       }
+      status = modelOf(picked.model)?.state === 'ready' ? 'ready' : 'unready';
+      confirmed = status === 'ready';
       drawPick();
       homeAnswers();
     } catch (error) {

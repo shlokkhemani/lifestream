@@ -1,6 +1,6 @@
 // @ts-check
 import { hostState, SENSES } from './onboarding-home.mjs';
-import { ASK_FILES } from './ask-ready.mjs';
+import { askReady } from './ask-ready.mjs';
 
 /** @typedef {{ url: string, method?: string, status?: number, json?: unknown, hold?: boolean, refuse?: boolean, lines?: unknown[], open?: boolean }} Stub */
 /**
@@ -110,10 +110,11 @@ export const mac = (more = {}) => hostState({ granted: GRANTED, more: { setup: {
   ...more } });
 
 const ago = (/** @type {number} */ days, hours = 0) => Date.now() - days * 86_400_000 - hours * 3_600_000;
-const JSON_ASK_READY = { ...ASK_FILES, login: 'ready', model: 'synthetic-terra', name: 'Synthetic Terra', thinking: 'high', group: 'ChatGPT',
-  default: { model: 'synthetic-terra' },
-  models: [{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['low', 'medium', 'high'], default: 'high', group: 'ChatGPT', photos: true },
-    { id: 'synthetic-luna', name: 'Synthetic Luna', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT', photos: true }] };
+const JSON_ASK_READY = askReady([{ id: 'synthetic-terra', name: 'Synthetic Terra', thinking: ['low', 'medium', 'high'], default: 'high', group: 'ChatGPT' },
+  { id: 'synthetic-luna', name: 'Synthetic Luna', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT' },
+  { id: 'runner:macbook-pro-0001/qwen', name: 'Synthetic Qwen', thinking: [], default: '', group: 'This Mac', input: ['text'], leaves: null },
+  { id: 'claude/synthetic-opus', name: 'Synthetic Opus', thinking: ['low', 'high'], default: 'low', group: 'Claude',
+    leaves: 'Anthropic', state: 'unavailable' }]);
 
 import { chatScreens } from './all-screens-chat.mjs';
 import { peopleScreens } from './all-screens-people.mjs';

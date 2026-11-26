@@ -16,7 +16,7 @@ import { mintPrincipal } from "./principals.js";
 import { checkoutProgram } from "./programs.js";
 import { askHome } from "./socket.js";
 import { editSettings, TEST_UNIT, testSocket } from "./test/folder.js";
-import { artifact, FAKE_OFFER, FAKES, makeRoot, readHome, readLedger, removeRoot, TICK_MS, until } from "./test/harness-root.js";
+import { artifact, FAKE_OFFER, FAKE_ROUTE, FAKES, makeRoot, readHome, readLedger, removeRoot, TICK_MS, until } from "./test/harness-root.js";
 import { ship } from "./test/harness-deliveries.js";
 import { doorHere } from "./test/harness-door.js";
 import { REPO } from "./test/support.js";
@@ -41,7 +41,7 @@ describe("a hiding model chosen before its file is there", () => {
   it("sends meanwhile hidden by the rules and People's names, naming no model, and Chat is answered; once the model is ready the next ask uses it and names it", async () => {
     const root = makeRoot("lifestream-model-late-", { sources: { [SOURCE]: "fake-rows" }, cap: 4, fake: { models: [FAKE_OFFER], leaves: RECEIVER }, settings: { "families.notes": { text: "1" } } });
     roots.push(root);
-    editSettings(root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "privacy.detector": RUNNER });
+    editSettings(root, { [`model.runners.${RUNNER}.files`]: ["privacy-filter"], "model.defaults.hiding": `runner:${RUNNER}/privacy-filter` });
     mintPrincipal(openHomeFolder(root), { unit: "chat-reader", scopes: ["read"], token: READER, now_ms: Date.now() });
     const log = join(root, "received.jsonl");
     const received = (): string[] => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((line) => (JSON.parse(line) as { input: string }).input) : []);
@@ -75,7 +75,7 @@ describe("a hiding model chosen before its file is there", () => {
       const privacy = await ask("GET", "/v1/privacy");
       expect(privacy.body).toMatchObject({ ready: true, line: null, detector: { runner: RUNNER, state: "absent" } });
       const chat = await ask("POST", "/v1/hide-details", {
-        table: "chat:c1", to: "codex:gpt-6-luna", what: "text", epoch: privacy.body.epoch, texts: [[{ text: "Did Ada Example meet Quorvel Example?", free: true }]],
+        table: "chat:c1", to: FAKE_ROUTE, what: "text", epoch: privacy.body.epoch, texts: [[{ text: "Did Ada Example meet Quorvel Example?", free: true }]],
       });
       expect(chat).toMatchObject({ status: 200, body: { level: "all", texts: ["Did [[Person 1]] meet Quorvel Example?"] } });
       const rows = (await ask("GET", "/v1/outbound")).body.rows as { what: string; detector: string | null }[];

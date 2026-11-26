@@ -76,7 +76,11 @@ test('P1, P2: every member of every proof stream drawn by its control, with the 
         continue;
       }
       const end = /** @type {any} */ (/** @type {PanelRow} */ (row).end);
-      if (member.control === 'menu') assert.equal(end.menu.choices.length, member.steps?.length, where);
+      if (member.control === 'menu') {
+        const menu = member.menu;
+        assert.equal(end.menu.choices.length, menu ? [menu.default, ...menu.rows, ...menu.local?.rows ?? [], menu.more, menu.off].filter(Boolean).length : member.steps?.length ?? 0, where);
+        if (menu) assert.deepEqual(end.menu.choices.find((/** @type {any} */ choice) => choice.more)?.do, { page: `model:${member.key}` }, `${where}: More opens the find`);
+      }
       if (member.kind === 'start') {
         assert.deepEqual([end.menu.choices.map((/** @type {any} */ choice) => choice.words), end.menu.date?.connector, end.menu.date?.member],
           [['All time'], connector.id, member.key], `${where}: All time, or a day`);

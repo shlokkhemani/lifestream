@@ -9,7 +9,6 @@ import { kept } from './programs.mjs';
 
 /**
  * @typedef {import('./programs.mjs').At} At
- * @typedef {{ value: string, displayName: string, resolvedModel?: string, supportedEffortLevels?: string[] }} ClaudeModel
  * @typedef {{ loggedIn: boolean, email: string | null, plan: string | null }} ClaudeStatus
  * @typedef {{ status: 'done', text: string, model: string | null, usage: { input: number, output: number, cache_read: number } } | { status: 'stopped' } | { status: 'failed', auth: boolean, limited: boolean, until_ms: number | null, exited: boolean, detail: string }} TurnEnd
  * @typedef {{ text: (delta: string) => void, message: () => void }} Hearing
@@ -19,7 +18,6 @@ const QUIET = ['-p', '--input-format', 'stream-json', '--output-format', 'stream
   '--strict-mcp-config', '--setting-sources', '', '--no-session-persistence', '--permission-mode', 'dontAsk'];
 const KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN'];
 const STATUS_MS = 5_000;
-const MODELS_MS = 60 * 60_000;
 const ASK_MS = 30_000;
 const END_MS = 3_000;
 const LOOK_MS = 25;
@@ -91,8 +89,6 @@ export function openClaude({ at, machine, log, now = Date.now }) {
   /** @type {Set<() => void>} */
   const conversations = new Set();
   let closed = false;
-  /** @type {Set<() => void>} */
-  const signedIn = new Set();
 
   /**
    * @param {import('node:child_process').ChildProcess} process_
@@ -178,36 +174,8 @@ export function openClaude({ at, machine, log, now = Date.now }) {
     for (const retire of conversations) retire();
   };
 
-  const models = kept(MODELS_MS, () => /** @type {Promise<ClaudeModel[]>} */ (new Promise((done, fail) => {
-    const process_ = started(QUIET);
-    const id = randomBytes(6).toString('hex');
-    const late = setTimeout(() => {
-      fail(new ClaudeError('Claude Code did not list its models.'));
-      void ending(process_);
-    }, ASK_MS);
-    late.unref();
-    process_.once('error', () => fail(new ClaudeError('Claude Code did not start.')));
-    process_.once('exit', () => fail(new ClaudeError('Claude Code ended before it listed its models.')));
-    linesOf(/** @type {import('node:stream').Readable} */ (process_.stdout), line => {
-      if (line.type !== 'control_response' || line.response?.request_id !== id) return;
-      clearTimeout(late);
-      const listed = line.response?.response?.models;
-      if (Array.isArray(listed) && listed.every(each => typeof each?.value === 'string')) done(listed);
-      else fail(new ClaudeError('Claude Code answered with no list of its models.'));
-      void ending(process_);
-    });
-    process_.stdin?.write(`${JSON.stringify({ type: 'control_request', request_id: id, request: { subtype: 'initialize' } })}\n`);
-  })), now);
-
   return {
     status: status.read,
-
-    /** @param {() => void} listener */
-    onSignedIn(listener) {
-      signedIn.add(listener);
-    },
-
-    models: models.read,
 
     /** @param {{ address: (url: string) => void, ended: (signedIn: boolean) => void }} hearing */
     signIn({ address, ended }) {
@@ -244,7 +212,6 @@ export function openClaude({ at, machine, log, now = Date.now }) {
         status.forget();
         if (succeeded) {
           endConversations();
-          for (const listener of signedIn) listener();
         }
         ended(succeeded);
       };

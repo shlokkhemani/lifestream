@@ -441,6 +441,7 @@ struct StreamSheetStack: View {
                 ConnectorPage(connector: connector, report: report, unit: shipper.unit, home: home)
             }
         case .processing(let id, let member): StreamProcessingPage(id: id, member: member, home: home)
+        case .model(let id, let member): StreamModelPage(id: id, member: member, home: home)
         case .status: StatusView()
         case .statusDetails: StatusDetails()
         #if !APP_STORE
@@ -541,6 +542,7 @@ enum ConnectorsRoute: Hashable {
     case importKind(String)
     case connector(String)
     case processing(String, String)
+    case model(String, String)
     case status
     case statusDetails
     #if !APP_STORE

@@ -116,8 +116,7 @@ final class ReportTests: XCTestCase {
 enum Strict {
     static let absent: [ObjectIdentifier: Set<String>] = [
         ObjectIdentifier(HomeLink.Act.self): ["need", "of", "ids", "member", "unit", "grant", "url", "kind", "text"],
-        ObjectIdentifier(HomeLink.Connector.Member.self): ["min", "max", "secret", "held", "folder", "items", "add", "placeholder", "waiting", "only", "route"],
-        ObjectIdentifier(HomeLink.Connector.Member.Step.self): ["runner"],
+        ObjectIdentifier(HomeLink.Connector.Member.self): ["min", "max", "secret", "held", "folder", "items", "add", "placeholder", "waiting", "only", "route", "menu"],
         ObjectIdentifier(HomeLink.Connector.Route.self): ["about"],
         ObjectIdentifier(HomeLink.Import.self): ["root", "lists", "which"],
         ObjectIdentifier(HomeLink.Import.Step.self): ["title", "open"],

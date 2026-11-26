@@ -157,15 +157,13 @@ function decode(name, values) {
 const fixture = async name => JSON.parse(await readFile(join(FIXTURES, name), 'utf8'));
 
 test('R1: the types name every member the report carries, and the report carries every member they name', async () => {
-  const { wrong, never } = decode('StreamsReport', [await fixture('report.json'), await fixture('proof-report.json')]);
+  const { position: _position, today: _today, ...page } = await fixture('pages/connectors.full.json');
+  const { wrong, never } = decode('StreamsReport', [await fixture('report.json'), await fixture('proof-report.json'), page]);
   assert.deepEqual(wrong, [], 'every value the fixture carries is of the kind the types say');
   assert.deepEqual(never, [], 'every member the types name is carried somewhere in the fixture');
 });
 
-test('R1: the models read and an item\'s Made, as the home writes them, are read whole by the types', async () => {
-  const models = decode('ModelsRead', [await fixture('models.json')]);
-  assert.deepEqual(models.wrong, [], 'every value of the models read is of the kind the types say');
-  assert.deepEqual(models.never, [], 'every member the types name is carried');
+test('R1: an item\'s Made, as the home writes it, is read whole by the types', async () => {
   const made = decode('Made', Object.values(await fixture('made.json')));
   assert.deepEqual(made.wrong, [], 'every item\'s Made is of the kind the types say');
   assert.deepEqual(made.never, [], 'every member of Made is carried');

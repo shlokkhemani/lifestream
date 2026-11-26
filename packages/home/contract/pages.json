@@ -21003,6 +21003,823 @@
         ],
         "additionalProperties": false
       }
+    },
+    "models": {
+      "route": "/v1/page/models",
+      "moves": [
+        "streams"
+      ],
+      "today": false,
+      "device": false,
+      "settled": null,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "pattern": "^\\d+:\\d+$",
+            "description": "a position, seq:at_ms"
+          },
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "a day, YYYY-MM-DD"
+          },
+          "uses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "use": {
+                  "enum": [
+                    "pictures",
+                    "audio",
+                    "text",
+                    "chat",
+                    "search",
+                    "hiding"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "line": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "words": {
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "thinking": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "words": {
+                          "type": "string"
+                        },
+                        "levels": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "chosen": {
+                                "type": "boolean"
+                              },
+                              "suggested": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "name",
+                              "chosen",
+                              "suggested"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "minItems": 1
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "words",
+                        "levels"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "menu": {
+                  "type": "object",
+                  "properties": {
+                    "default": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "account": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "chosen": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "name",
+                            "account",
+                            "chosen"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "account": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "chosen": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "name",
+                          "account",
+                          "chosen"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "local": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "rows": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "account": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "chosen": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "value",
+                                  "name",
+                                  "account",
+                                  "chosen"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "minItems": 1
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "rows"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "more": {
+                      "type": "object",
+                      "properties": {
+                        "words": {
+                          "type": "string"
+                        },
+                        "use": {
+                          "enum": [
+                            "pictures",
+                            "audio",
+                            "text",
+                            "chat",
+                            "search",
+                            "hiding"
+                          ]
+                        },
+                        "work": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "words",
+                        "use",
+                        "work"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "off": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "account": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "chosen": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "name",
+                            "account",
+                            "chosen"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "default",
+                    "rows",
+                    "local",
+                    "more",
+                    "off"
+                  ],
+                  "additionalProperties": false
+                },
+                "places": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "place": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "line": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "ready": {
+                        "type": "boolean"
+                      },
+                      "leaves": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "place",
+                      "value",
+                      "line",
+                      "ready",
+                      "leaves"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "use",
+                "label",
+                "line",
+                "words",
+                "value",
+                "thinking",
+                "menu",
+                "places"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 6,
+            "maxItems": 6
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "signed": {
+                      "type": "boolean"
+                    },
+                    "kind": {
+                      "enum": [
+                        "plan"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "line",
+                    "signed",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "held": {
+                      "type": "boolean"
+                    },
+                    "kind": {
+                      "enum": [
+                        "key"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "line",
+                    "held",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "place": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "about": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "enum": [
+                              "absent",
+                              "fetching",
+                              "ready",
+                              "failed"
+                            ]
+                          },
+                          "line": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "suggested": {
+                            "type": "boolean"
+                          },
+                          "fits": {
+                            "type": "boolean"
+                          },
+                          "acts": {
+                            "type": "array",
+                            "items": {
+                              "enum": [
+                                "fetch",
+                                "remove",
+                                "cancel"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "about",
+                          "size",
+                          "state",
+                          "line",
+                          "suggested",
+                          "fits",
+                          "acts"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "found": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string"
+                          },
+                          "from": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "size",
+                          "from"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "battery": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "on": {
+                              "type": "boolean"
+                            },
+                            "line": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "on",
+                            "line"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paused": {
+                      "type": "boolean"
+                    },
+                    "kind": {
+                      "enum": [
+                        "runner"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "unit",
+                    "place",
+                    "name",
+                    "line",
+                    "files",
+                    "found",
+                    "battery",
+                    "paused",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "line": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "kind": {
+                      "enum": [
+                        "address"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url",
+                    "line",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind"
+              }
+            }
+          }
+        },
+        "required": [
+          "position",
+          "today",
+          "uses",
+          "connections"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "modelsFind": {
+      "route": "/v1/page/models/find",
+      "moves": [
+        "streams"
+      ],
+      "today": false,
+      "device": false,
+      "settled": null,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "string",
+            "pattern": "^\\d+:\\d+$",
+            "description": "a position, seq:at_ms"
+          },
+          "today": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "a day, YYYY-MM-DD"
+          },
+          "placeholder": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "account": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "chosen": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "value",
+                "name",
+                "account",
+                "chosen"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 20
+          },
+          "local": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "account": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "chosen": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "name",
+                        "account",
+                        "chosen"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "label",
+                  "rows"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "none": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "position",
+          "today",
+          "placeholder",
+          "rows",
+          "local",
+          "none"
+        ],
+        "additionalProperties": false
+      }
     }
   }
 }

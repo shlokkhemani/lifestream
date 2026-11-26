@@ -11,58 +11,34 @@ import { part } from './settings-pages.js';
 
 /** @typedef {{ record: IndexState, screen: IndexState & ScreenState }} SearchState */
 
-/** @typedef {{ meaning: 'off' | `runner-${string}`, model: string, power: 'plugged-idle', words_indexed_through: string | null, bytes: number, vectors_bytes: number, queued: number, waits: string | null, waits_line: string | null, embedded: number, named: number, skipped: number }} ScreenState */
+/** @typedef {{ words: string, line: string | null, chosen: boolean }} Picked */
 
-export const MEANING_MODEL = { id: 'embeddinggemma-2-q8-512', name: 'EmbeddingGemma 2', size: '303 MB' };
+/** @typedef {{ power: 'plugged-idle', words_indexed_through: string | null, bytes: number, vectors_bytes: number, queued: number, waits: string | null, waits_line: string | null, embedded: number, named: number, skipped: number }} ScreenState */
 
-export const MEANING_POWER = { id: /** @type {const} */ ('plugged-idle'), words: 'Only when plugged in and idle' };
+export const MEANING_POWER = { key: /** @type {const} */ ('search.meaning.power'), id: /** @type {const} */ ('plugged-idle'),
+  words: 'Only when plugged in and idle' };
 
 export const MEANING_LINE = 'Finds moments on your screen by what they were about, not only by their words. Word search works either way.';
-
-export const MEANING_EXAMPLE = 'Ask for “that article about sleep I read last week” and find it, even when those words were never on the screen.';
-
-export const MEANING_COST = `A ${MEANING_MODEL.size} model, and about 3 minutes of Mac time per day of screen, only when this Mac is plugged in and idle. Nothing leaves this Mac.`;
 
 /** @param {HostAct} act @returns {Do} */
 const asking = act => ({ host: act });
 
-/**
- * @param {MeaningWrite} settings
- * @returns {HostAct}
- */
-const writing = settings => ({ act: 'home-setting', settings });
-
-/**
- * @param {boolean} on
- * @param {string | null} runner
- * @returns {HostAct | null}
- */
-export function meaningAct(on, runner) {
-  if (!on) return writing({ 'search.meaning': 'off' });
-  return runner ? writing({ 'search.meaning': /** @type {`runner-${string}`} */ (runner) }) : null;
-}
-
-export const MEANING_BUSY = homeSettingKey('search.meaning');
-
-/** @param {ScreenState} state */
-export const meaningOn = state => state.meaning !== 'off';
-
 /** @param {number} bytes */
 const sizeWords = bytes => freeWords(bytes).replace(/ free$/u, '');
 
+export const MEANING_BUSY = homeSettingKey(MEANING_POWER.key);
 
 /**
- * @param {'search.meaning.model' | 'search.meaning.power'} key
- * @param {string} label
- * @param {{ value: string, words: string, note: string }} only
  * @param {boolean} acts
  * @returns {End}
  */
-function oneChoice(key, label, only, acts) {
-  if (!acts) return { words: only.words };
-  return { menu: { id: `settings.${key}`, busy: homeSettingKey(key), label, words: only.words, find: '', date: null,
-    choices: [{ words: only.words, note: only.note, chosen: true, default: true,
-      do: asking(writing(/** @type {MeaningWrite} */ ({ [key]: only.value }))) }] } };
+function powerChoice(acts) {
+  const { words } = MEANING_POWER;
+  if (!acts) return { words };
+  /** @type {MeaningWrite} */
+  const settings = { [MEANING_POWER.key]: MEANING_POWER.id };
+  return { menu: { id: `settings.${MEANING_POWER.key}`, busy: MEANING_BUSY, label: 'When it runs', words, find: '', date: null,
+    choices: [{ words, note: '', chosen: true, default: true, do: asking({ act: 'home-setting', settings }) }] } };
 }
 
 /** @param {ScreenState} state */
@@ -93,27 +69,16 @@ function reachedRow(state) {
 }
 
 /**
- * @param {{ state: ScreenState | null, failed: boolean, acts: boolean, runner: string | null }} read
+ * @param {{ state: ScreenState | null, failed: boolean, acts: boolean, model: Picked | null, choose: Do }} read
  * @returns {{ parts: DetailPart[], reading: boolean }}
  */
-export function meaningParts({ state, failed, acts, runner }) {
+export function meaningParts({ state, failed, acts, model, choose }) {
   if (!state) return { parts: [], reading: !failed };
-  const on = meaningOn(state);
-  const turn = acts ? meaningAct(!on, runner) : null;
-  const ask = 'meaning-off';
-  const asksFirst = turn !== null && on && state.vectors_bytes > 0;
+  const on = model?.chosen === true;
   const settings = part({ rows: [
-    rowOf('Search by meaning', { line: MEANING_LINE,
-      end: turn ? { toggle: { on, label: 'Search by meaning', do: asksFirst ? { ask } : asking(turn) } } : { words: on ? 'On' : 'Off' },
-      confirm: asksFirst ? { ask, question: 'Turn off meaning search?',
-        detail: `What it kept (${sizeWords(state.vectors_bytes)}) is deleted. Word search stays as it is. Turned on again, it reads your screen from the newest day back.`,
-        yes: { label: 'Turn off', tone: 'warning', variant: 'primary', do: asking(turn) },
-        no: { label: 'Cancel', variant: 'plain', do: { ask: '' } } } : null }),
-    rowOf('Model', { tag: 'Runs on this Mac only', line: `${MEANING_MODEL.size} download. Screen text is never sent to a cloud model for this.`,
-      end: oneChoice('search.meaning.model', 'Model', { value: MEANING_MODEL.id, words: MEANING_MODEL.name,
-        note: `${MEANING_MODEL.size} · runs on this Mac only` }, acts) }),
-    rowOf('When it runs', { line: 'So it never slows you down or spends your battery.',
-      end: oneChoice('search.meaning.power', 'When it runs', { value: MEANING_POWER.id, words: MEANING_POWER.words, note: '' }, acts) }),
+    rowOf('Model', { tag: 'Runs on a Mac only', line: model?.line ?? MEANING_LINE,
+      end: { words: model?.words ?? 'Off', acts: acts ? [{ label: on ? 'Change' : 'Choose', variant: 'secondary', do: choose }] : [] } }),
+    rowOf('When it runs', { line: 'So it never slows you down or spends your battery.', end: powerChoice(acts) }),
   ] });
   if (!on) return { parts: [settings], reading: false };
   /** @type {PanelRow[]} */

@@ -19,8 +19,8 @@ The rest of this page gives each case: who receives it, when, and how to stop it
 | What leaves | Who receives it | When | Personal details hidden | To stop it |
 |---|---|---|---|---|
 | Items a connector's AI work reads: photos, emails, voice notes, long messages from AI chats, your screen | OpenAI for your ChatGPT plan, Anthropic for your Claude plan, or OpenRouter and the model's maker for your OpenRouter key | As each item arrives, once a model is ready | Yes, but not voice notes | Set the work's **Model** to **Off**, or to a model on your Mac |
-| Your Chat questions, and what Chat reads to answer them | The same companies: Chat always uses one | Each question | Yes, at Chat's level | Sign out of both plans, and remove the OpenRouter key |
-| Your voice in Chat, with **Scribe v2** | OpenRouter and ElevenLabs | Each voice message | No: sound can't be hidden | Pick **Parakeet** for **Voice** in Chat's model menu |
+| Your Chat questions, and what Chat reads to answer them | The company behind Chat's model; nobody for a model your Mac runs | Each question | Yes, at Chat's level | Choose a model your Mac runs for Chat |
+| Your voice in Chat, with a speech model off your Mac, such as **Scribe v2** | The model's company, such as OpenRouter and ElevenLabs | Each voice message | No: sound can't be hidden | Pick a model on your Mac for **Voice** in Chat's model menu, such as **Parakeet** |
 | What an agent reads | The company that runs the agent, such as Anthropic for Claude | Each read | Details yes, names no, unless you change **Hides** | Disconnect the agent |
 | An agent's requests from the internet | Tailscale, which carries them | Each request | Same as the row above | On the **Agents** page, click **Turn off** |
 | Where a place is, and the words you type for its name | Google | Only once you add a Google key | No | Add no Google key |
@@ -29,7 +29,7 @@ The rest of this page gives each case: who receives it, when, and how to stop it
 | A page a link points to | That website | When Chat opens a link in your question or in what it reads | No | Leave the link out |
 | Your sign-in, and requests for your own data | The connector's company, such as Google for Gmail | Each time the connector reads | Not needed: it is your account | Disconnect the connector |
 | An update check | Lifestream's update server, `get.lifestreamprotocol.org` | Every hour | Holds only your internet address and the app's version | No setting |
-| Downloads | npm for Codex and Claude Code; GitHub, Ollama and Hugging Face for models on your Mac | When you click **Connect** beside a plan, or **Download** beside a model | Nothing of yours is sent | Do not click them |
+| Downloads | npm for Codex and Claude Code; GitHub, Ollama and Hugging Face for models on your Mac | When you click **Connect** beside a plan, or **Download** beside a model, or pick a model on your Mac that isn't downloaded yet | Nothing of yours is sent | Do not click them |
 
 Your iPhone sends what it records only to Lifestream, over your Wi-Fi or
 [through Tailscale](./reach-from-anywhere.md). The Chrome extension sends what it reads only to the
@@ -72,24 +72,26 @@ Who receives an item depends on the model that reads it:
 |---|---|
 | Your ChatGPT plan | OpenAI |
 | Your Claude plan | Anthropic |
-| A model through your OpenRouter key | OpenRouter, and the company that makes the model: Google for **Gemini 3.8 Flash**, OpenAI for **GPT-6 Luna**, ElevenLabs for **Scribe v2** |
-| A model under **On this Mac** | Nobody. It runs on your Mac. |
-| A model under **On** *another computer's name* | That computer, which runs the model for Lifestream. |
-| **Custom server** | The computer at its address. Nobody, if that address is this Mac. |
+| A model through your OpenRouter key | OpenRouter, and the company that makes the model, such as Google for **Gemini 3.8 Flash**, OpenAI for **GPT-6 Luna** and ElevenLabs for **Scribe v2** |
+| A model on this Mac's runner | Nobody. It runs on your Mac. |
+| A model on another computer's runner | That computer, which runs the model for Lifestream. |
+| A model at a **Custom address** | The computer at its address. Nobody, if that address is this Mac. |
 
-Each model menu says the same in a note beside each model: **Sent to** a company, or **Stays on**
-your computer. Lifestream runs the programs your plans need, Codex and Claude Code, with their
+In each model menu, the models that run on your own machines, on a runner or at your custom
+address, are under **Local**; every other model sends what it reads to a company. Lifestream runs the programs your plans need, Codex and Claude Code, with their
 analytics and update checks turned off. **Search by meaning** runs on your own computer and sends
 nothing to a company.
 
-Until a model is ready, no item goes to a model. The first model you make ready becomes the default
-for each kind of work it can do, and every connector setting starts at **Default**. So if you
-connect your ChatGPT or Claude plan during setup, your photos, your emails, long AI-chat messages,
-and the text on your screen with what you typed start going to OpenAI or Anthropic as soon as the
-plan is connected. Each connector sends its items from 30 days before you added it onwards.
+Until a model is ready, no item goes to a model. Every connector setting starts at **Default**,
+which follows the use's model in **Settings** › **AI models**. **Text** takes the first model that
+is ready for it. So if you connect your ChatGPT or Claude plan during setup, your emails, long
+AI-chat messages, and the text on your screen with what you typed start going to OpenAI or
+Anthropic as soon as the plan is connected. **Photos** and **Voice notes** stay **Off** until you
+pick a model, as the setup screen **Make your pictures and audio searchable** asks. Each connector
+sends its items from 30 days before you added it onwards.
 
-A later setup screen, **What should a model read?**, shows these settings for each connector a
-model reads, so you can turn one off. What went before you change a setting stays sent.
+To turn one off, set its use to **Off** in **Settings** › **AI models**, or a connector's job to
+**Off** in its window. What went before you change a setting stays sent.
 
 **Describe now** or **Transcribe now** on one photo or voice note sends that item to the model the
 button names, even when the connector's setting is **Off**.
@@ -112,8 +114,9 @@ seen can still leave. You choose how much is hidden in two places:
 
 - **Settings** › **Privacy** › **Hide personal details** sets it for everything. **Hide what
   Lifestream knows** is the default: it replaces numbers, addresses, links, passwords and the names
-  in People. **Hide with a hiding model** also downloads a model of about 1.6 GB that finds names
-  Lifestream has never seen, English first. **Don't hide** sends each item as it is.
+  in People. **Don't hide** sends each item as it is. A hiding model, picked for **Hiding details**
+  in **Settings** › **AI models**, also finds names Lifestream has never seen, English first. It
+  runs on your Mac, and downloads when you pick it.
 - In a connector's window, click a job under **AI**. **Personal details** sets that job alone:
   **Hide all**, **Keep names**, **Don't hide**, or **Default**, which follows **Settings** ›
   **Privacy**.
@@ -124,20 +127,22 @@ an item, to see **What was sent**, as the model got it.
 
 ## What Chat sends
 
-Chat always uses a model at a company: your ChatGPT plan, your Claude plan, or a model through your
-OpenRouter key. No model on your Mac can answer Chat. Each question sends the model your question,
-the conversation so far, and everything Chat reads to answer it. Chat hides personal details in all
-of it. The chip beside the model, under the box, shows how much: a new conversation takes the
-**Chat** setting in **Settings** › **Privacy**. To stop Chat sending anything, open **Settings** › **AI models**, click **Sign out**
-beside each plan and **Remove** beside the key.
+Chat uses the model chosen for it: your ChatGPT plan, your Claude plan, a model through your
+OpenRouter key, or a model at a custom address, such as one your Mac runs. Each question sends the
+model your question, the conversation so far, and everything Chat reads to answer it. For a model at
+a company, Chat hides personal details in all of it; a model your Mac runs gets it as written, since
+nothing leaves. The chip beside the model, under the box, shows how much: a new conversation takes the
+**Chat** setting in **Settings** › **Privacy**. To stop Chat sending anything, choose a model your Mac runs for **Chat** in
+**Settings** › **AI models**.
 
 Each photo goes as a new picture, without its time, place or camera details. Faces are covered, and
 a person you named in People is tagged, so the answer can still name them. Chat tells the model when
 and where a photo was taken, with the place hidden. Small or handwritten text Lifestream can't read
 stays in the photo.
 
-A voice note you send in Chat can't be hidden. With **Parakeet**, it never leaves your Mac. With
-**Scribe v2**, its sound goes as it is to OpenRouter, which passes it to ElevenLabs. If Chat's chip
+A voice note you send in Chat can't be hidden. With a model on your Mac, such as **Parakeet**, it
+never leaves your Mac. With a model off your Mac, such as **Scribe v2**, its sound goes as it is to
+that model's company: OpenRouter, which passes it to ElevenLabs. If Chat's chip
 is set to hide anything, **Voice** in Chat's model menu shows a warning mark, since your voice is
 not hidden. Your words, once written out, are hidden like typed words. Your photos and voice notes are kept in Lifestream with the
 conversation.

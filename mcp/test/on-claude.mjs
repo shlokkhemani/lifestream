@@ -1,6 +1,7 @@
 // @ts-check
 import { after, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -25,17 +26,20 @@ export const onClaude = name => {
   });
 };
 
+const ASKS_OWN = ['ask', 'mcp', 'subscriptions', 'scratch'];
+
 /**
  * @param {string} machine
  * @param {RegExp} pattern
- * @param {string[]} [passed]
+ * @param {string[]} [places]
  */
-export const holding = async (machine, pattern, passed = ['claude', 'codex']) => {
+export const holding = async (machine, pattern, places = ASKS_OWN) => {
   const found = [];
-  for (const entry of await readdir(machine, { recursive: true, withFileTypes: true })) {
-    const path = join(entry.parentPath, entry.name);
-    if (!entry.isFile() || passed.some(own => path.startsWith(`${join(machine, own)}/`))) continue;
-    if (pattern.test(await readFile(path, 'utf8'))) found.push(path);
+  for (const place of places.map(each => join(machine, each)).filter(existsSync)) {
+    for (const entry of await readdir(place, { recursive: true, withFileTypes: true })) {
+      const path = join(entry.parentPath, entry.name);
+      if (entry.isFile() && pattern.test(await readFile(path, 'utf8'))) found.push(path);
+    }
   }
   return found;
 };

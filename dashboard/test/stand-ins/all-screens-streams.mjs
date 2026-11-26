@@ -23,11 +23,13 @@ export function streamsScreens() {
   const vault = (/** @type {string} */ state) => ({ vault: { state, saved_ms: null } });
   const login = (/** @type {any} */ more) => ({ ask_login: askLogin(more) });
   const SUB = (/** @type {string} */ name, /** @type {string} */ title, /** @type {any} */ state) => S(name, title, dialog('settings/models'),
-    { host: host(state), stub: [...base, { url: 'api/models', json: MODELS_BARE }] });
+    { host: host(state), stub: [...base, { url: 'api/page/models', json: MODELS_BARE }] });
   const FILE = (/** @type {string} */ name, /** @type {string} */ title, /** @type {any} */ models) => S(name, title, dialog('settings/models'),
-    { host: host(login({})), stub: [...base, { url: 'api/models', json: models }], run: `await S.until('.ck-dialog'); await S.sleep(500);` });
-  const qwen = (/** @type {string} */ state, /** @type {string | null} */ line) => ({ ...MODELS_BARE, runners: MODELS_BARE.runners.map(runner => ({ ...runner,
-    files: runner.files.map((file, at) => at !== 0 ? file : { ...file, state, line }) })) });
+    { host: host(login({})), stub: [...base, { url: 'api/page/models', json: models }], run: `await S.until('.ck-dialog'); await S.sleep(500);` });
+  const qwen = (/** @type {'absent' | 'fetching' | 'ready' | 'failed'} */ state, /** @type {string | null} */ line) => ({ ...MODELS_BARE,
+    connections: MODELS_BARE.connections.map(each => each.kind !== 'runner' ? each
+      : { ...each, files: each.files.map((file, at) => at !== 0 ? file : { ...file, state, line,
+        acts: /** @type {('fetch' | 'remove' | 'cancel')[]} */ ([state === 'ready' ? 'remove' : state === 'fetching' ? 'cancel' : 'fetch']) }) }) });
   const CODE = subscription('signing_in', { attempt: 'login-1', code: 'QX4F-7KD2', url: 'https://auth.example.com/device' });
   const ANTHROPIC = subscription('signing_in', { attempt: '0f3a9c2e7b1d4a60', url: 'https://claude.example.com/oauth/authorize' });
   const PAIRING = { pairing: { link: 'lifestream://pair?code=ABCD2345', code: 'ABCD2345', qr: PAIR_QR, why: null, match: '4F7K', expires_ms: LATER }, phone_app: { link: 'https://testflight.example.com/join/AAAA0000', qr: PAIR_QR } };

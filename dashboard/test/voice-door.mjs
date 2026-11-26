@@ -3,6 +3,7 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createServer, request as forward } from 'node:http';
+import { askReady } from './stand-ins/ask-ready.mjs';
 import { pageHarness } from './stand-ins/page-harness.mjs';
 
 const JOURNEY = /** @type {{ lines: any[], conversation: { chat: string, title: string, messages: any[] } }} */ (
@@ -26,9 +27,7 @@ async function journeyFront(home) {
     /** @param {unknown} body */
     const send = body => void response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     if (path === '/v1/ask') {
-      return send({ login: 'ready', model: 'faux-1', name: 'Faux', group: 'OpenRouter', thinking: 'high',
-        models: [{ id: 'faux-1', name: 'Faux', thinking: ['high'], default: 'high', group: 'OpenRouter', photos: false }],
-        default: { model: 'faux-1' }, starters: [], limits: { photos: 10, photo_bytes: 26_214_400, voice_ms: 600_000 },
+      return send({ ...askReady([{ id: 'faux-1', name: 'Faux', thinking: ['high'], default: 'high', group: 'OpenRouter', input: ['text'] }]),
         voice: { ready: false, words: 'Parakeet · this Mac', line: null, caution: null, value: 'default', choices: [] } });
     }
     if (path === '/v1/ask/chats') return send({ chats: [{ chat: CHAT, title: JOURNEY.conversation.title, first_ms: 1, last_ms: 2, messages: 2 }] });

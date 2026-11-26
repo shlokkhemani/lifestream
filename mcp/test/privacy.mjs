@@ -12,7 +12,7 @@ import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCal
 import { createHandler } from '../server.mjs';
 import { HIDE_NOT_READY_WORDS } from '../lib/hiding.mjs';
 import { UNREAD_ACCESS } from '../lib/tools.mjs';
-import { PEOPLE_YOU, minted, youDoor } from './asking.mjs';
+import { PEOPLE_YOU, minted, rowReady, youDoor } from './asking.mjs';
 import { until } from './until.mjs';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -22,7 +22,7 @@ const SEEDED = ['Person A', 'Person B', 'Person C', '15550000001', '15550000002'
 
 /** @type {import('node:child_process').ChildProcessByStdio<import('node:stream').Writable, import('node:stream').Readable, null>} */
 let child;
-/** @type {{ url: string, tokens: { reader: string, agent: string }, now_ms: number, ask: { machine: string, source: string } }} */
+/** @type {{ url: string, tokens: { reader: string, agent: string }, now_ms: number, ask: { machine: string, source: string }, chat: { cloud: string, local: string, small: string } }} */
 let home;
 /** @type {((line: any) => void)[]} */
 const waiting = [];
@@ -151,11 +151,8 @@ before(async () => {
     });
   });
   await command('key', { value: 'sk-or-v1-synthetic' });
-  await until('the models read saying the key is held', async () => {
-    const read = /** @type {any} */ (await (await fetch(`${home.url}/v1/models`, { headers: { authorization: `Bearer ${home.tokens.reader}` } })).json());
-    return read.openrouter?.connected === true;
-  });
-  main =createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined });
+  await rowReady(home, home.chat.cloud, true);
+  main = createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined });
   bare = await listen(createHandler({ door: home.url, log: () => undefined }));
 });
 
@@ -347,7 +344,7 @@ test('Chat\'s leak test: under `all` the model is sent no seeded detail across a
     for (const step of done.message.steps ?? []) assert.doesNotMatch(step.words, /\[\[/u, step.words);
     const chat = done.message.chat;
 
-    const again = createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined });
+    const again = createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined });
     const fresh = await listen(again);
     await until('the conversation in the home, as the restarted server reads it', async () => {
       const read = await fetch(`${fresh}/ask/chats/${chat}`, { headers: { authorization: `Bearer ${home.tokens.reader}` } });
@@ -390,7 +387,7 @@ test('hiding as main has it: a turn\'s hide sends its question\'s pieces with no
     });
   });
   try {
-    const first = await listen(createHandler({ door, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined }));
+    const first = await listen(createHandler({ door, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined }));
     faux.setResponses([() => fauxAssistantMessage(fauxText('[[Person 1]] is around.')), () => fauxAssistantMessage('Around')]);
     const asked = await fetch(`${first}/ask`, { method: 'POST', headers: { authorization: `Bearer ${home.tokens.reader}`, 'content-type': 'application/json' },
       body: JSON.stringify({ submission: minted(), question: 'Is Person B around?' }) });
@@ -402,7 +399,7 @@ test('hiding as main has it: a turn\'s hide sends its question\'s pieces with no
     assert.ok(turn !== undefined, JSON.stringify(hides));
     assert.deepEqual(turn.texts[0], [{ text: 'Is Person B around?', free: true }], 'the question\'s pieces as main sends them');
 
-    const fresh = await listen(createHandler({ door, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined }));
+    const fresh = await listen(createHandler({ door, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined }));
     await until('the conversation in the home, as the restarted server reads it', async () => {
       const read = await fetch(`${fresh}/ask/chats/${chat}`, { headers: { authorization: `Bearer ${home.tokens.reader}` } });
       return read.status === 200 && /** @type {any} */ (await read.json()).messages?.length === 2;
@@ -460,13 +457,67 @@ test('the steps line under `all`: a follow-up in a fresh context reads the calls
       sent.push(JSON.stringify(context));
       return fauxAssistantMessage(fauxText('Yes.'));
     }]);
-    const second = await ask({ question: 'And when?', chat: done.message.chat, thinking: 'low' });
+    const second = await ask({ question: 'And when?', chat: done.message.chat, model: home.chat.cloud, thinking: 'low' });
     assert.ok(second.some(event => event.type === 'done'), JSON.stringify(second));
     assert.equal(sent.length, 1);
     for (const each of sent) assert.deepEqual(leaked(each), [], around(each));
     const quoted = JSON.stringify(named).slice(1, -1);
     const line = new RegExp(String.raw`\[Steps of this answer:\\nsearch_people \{name: \\"${quoted.replace(/[[\]]/gu, '\\$&')}\\"\} → r\d+[^\\]*\\nsearch \{query: lighthouse, person: \[\\"${quoted.replace(/[[\]]/gu, '\\$&')}\\"\]\}`, 'u');
-    assert.match(sent[0] ?? '', line);
+    assert.match(sent[0] ?? '', line, /\[Steps of this answer:\\n.{0,400}/u.exec(sent[0] ?? '')?.[0] ?? 'no steps line: the follow-up went on in its live context');
+  } finally {
+    await command('privacy', { chat: null });
+    await command('privacy', { chat: 'none' });
+  }
+});
+
+test('a local model under `all`: its turns are sent as written and keep one live session, the conversation\'s level kept; a move to a model that leaves starts another, the earlier turns hidden too', async () => {
+  await command('privacy', { chat: 'all' });
+  try {
+    /** @type {any[]} */
+    const sent = [];
+    const ask = (/** @type {Record<string, unknown>} */ body) => fetch(`${url}/ask`, { method: 'POST', headers: { authorization: `Bearer ${home.tokens.reader}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ submission: minted(), ...body }) }).then(async response => (await response.text()).split('\n').filter(line => line !== '').map(line => JSON.parse(line)));
+    const doneOf = (/** @type {any[]} */ events) => events.find(event => event.type === 'done')?.message;
+    const asText = (/** @type {any} */ context) => JSON.stringify(context.messages.filter((/** @type {any} */ message) => message.role !== 'system'));
+    faux.setResponses([
+      context => {
+        sent.push(context);
+        return fauxAssistantMessage([fauxToolCall('search', { query: 'lighthouse' })], { stopReason: 'toolUse' });
+      },
+      context => {
+        sent.push(context);
+        return fauxAssistantMessage(fauxText('Person A did [r1].'));
+      },
+      fauxAssistantMessage('Tickets'),
+    ]);
+    const first = await ask({ question: 'Did Person A get the lighthouse tickets?', model: home.chat.local });
+    assert.equal(doneOf(first)?.end, 'done', JSON.stringify(first));
+    const { chat } = doneOf(first);
+    assert.equal(sent.length, 2);
+    for (const each of sent) assert.ok(leaked(asText(each)).includes('Person A'), 'a model that stays is sent the real words');
+    assert.doesNotMatch(asText(sent[1]), /\[\[Person /u);
+
+    sent.length = 0;
+    faux.setResponses([context => {
+      sent.push(context);
+      return fauxAssistantMessage(fauxText('On Sunday, Person A.'));
+    }]);
+    const second = await ask({ question: 'When did Person A go?', chat, model: home.chat.local });
+    assert.equal(doneOf(second)?.end, 'done', JSON.stringify(second));
+    assert.ok(sent[0].messages.some((/** @type {any} */ message) => message.role === 'toolResult'), 'the live session goes on: the first turn\'s search is in it');
+    assert.ok(leaked(asText(sent[0])).includes('Person A'));
+
+    sent.length = 0;
+    faux.setResponses([context => {
+      sent.push(context);
+      return fauxAssistantMessage(fauxText('Yes.'));
+    }]);
+    const third = await ask({ question: 'And was it Sunday?', chat, model: home.chat.cloud });
+    assert.equal(doneOf(third)?.end, 'done', JSON.stringify(third));
+    assert.equal(sent.length, 1);
+    assert.ok(!sent[0].messages.some((/** @type {any} */ message) => message.role === 'toolResult'), 'a new session, rebuilt from the kept turns');
+    assert.deepEqual(leaked(asText(sent[0])), [], around(asText(sent[0])));
+    assert.match(asText(sent[0]), /\[\[Person [0-9]+\]\]/u, 'the earlier turns hidden at the conversation\'s level');
   } finally {
     await command('privacy', { chat: null });
     await command('privacy', { chat: 'none' });
@@ -599,7 +650,7 @@ test('claim, keep, begin: a question\'s level is kept before its turn begins, so
   const was = main;
   /** @type {Record<string, unknown>[]} */
   const said = [];
-  const asking = createHandler({ door, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: line => void said.push(line) });
+  const asking = createHandler({ door, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: line => void said.push(line) });
   main = asking;
   const waits = () => said.filter(line => line.ask === 'waits for a question to begin').length;
   const reader = { authorization: `Bearer ${home.tokens.reader}`, 'content-type': 'application/json' };
@@ -798,7 +849,7 @@ test('claim, keep, begin: a question\'s level is kept before its turn begins, so
 });
 
 test('the turn runs at the level kept: A, no pick, pinned `none` and held before its claim; B picks `all` and is answered; A claims, its keep answers `all`, and its hides and its `chat` are at `all`', async () => {
-  const ask = createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined });
+  const ask = createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined });
   /** @type {(() => void)[]} */
   const held = [];
   let holding = false;
@@ -882,7 +933,7 @@ test('Ask\'s line naming the person, leaking or repeating a name: the names plai
   /** @type {{ me: any, refused?: [number, string] | null }} */
   const served = { me: { ...PEOPLE_YOU.me, id: real.id, also_called: [...PEOPLE_YOU.me.also_called, { name: 'Bear', from: 'Contacts' }] } };
   const door = await youDoor(home.url, served);
-  const at = await listen(createHandler({ door: door.url, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined }));
+  const at = await listen(createHandler({ door: door.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined }));
   const turn = async () => {
     /** @type {string[]} */
     const sent = [];
@@ -948,7 +999,7 @@ test('the catalog in Ask\'s prompt is built once a conversation and a level: a f
     });
   });
   const was = main;
-  main = createHandler({ door, ask: { models: fauxModels, otherwise: fauxModel, machine: home.ask.machine, now: homeClock }, log: () => undefined });
+  main = createHandler({ door, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: home.ask.machine, now: homeClock }, log: () => undefined });
   const through = (/** @type {Record<string, unknown>} */ body) => fetch(`${home.url}/v1/ask`, {
     method: 'POST', headers: { authorization: `Bearer ${home.tokens.reader}`, 'content-type': 'application/json' }, body: JSON.stringify({ submission: minted(), ...body }),
   }).then(async response => (await response.text()).split('\n').filter(line => line !== '').map(line => JSON.parse(line)));
@@ -962,7 +1013,7 @@ test('the catalog in Ask\'s prompt is built once a conversation and a level: a f
       fauxAssistantMessage('Yes.'), fauxAssistantMessage('Other'), fauxAssistantMessage('Yes.')]);
     const { chat } = doneOf(await through({ question: 'What does the record hold?' }));
     assert.equal(built.length, 1);
-    doneOf(await through({ question: 'And now?', chat, thinking: 'low' }));
+    doneOf(await through({ question: 'And now?', chat, model: home.chat.cloud, thinking: 'low' }));
     assert.equal(built.length, 1, `a fresh context of the same conversation and level, its pass another: ${new Set(built).size} passes`);
     doneOf(await through({ question: 'And hidden?', chat, level: 'all' }));
     assert.equal(built.length, 2);

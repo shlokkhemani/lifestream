@@ -4,8 +4,9 @@ import { shortDay } from '../../lib/words.js';
 import { duration } from './duration.js';
 import { showCopied } from './copy-value.js';
 import { inPlaceLine } from './states.js';
-import { floatList } from './float-list.js';
+import { floatList, floatRows } from './float-list.js';
 import { icon } from './icon.js';
+import { menuLines } from '../../lib/model-menu.js';
 import { bar, lines, shape } from './skeleton.js';
 import { signalShape } from './signal.js';
 import { picture as renderPicture } from './picture.js';
@@ -95,24 +96,45 @@ export const composerAttach = ({ attrs = {}, active, off = '' } = {}) => {
     }) + '</div>';
 };
 
-/** @param {{ model: string, level: string, levels: { value: string, label: string }[], thinking: string, models: { group: string, choices: { id: string, name: string }[] }[], chosen: string, reset?: boolean, voice?: { words: string, caution: string | null, choices: { value: string, words: string, chosen: boolean }[] } | null, attrs?: Attributes, active?: number, page?: 'models' | 'voice' }} pick */
-export function askPick({ model, level, levels, thinking, models, chosen, reset = false, voice = null, attrs = {}, active, page }) {
-  const sections = models.filter(section => section.choices.length);
+/** @typedef {import('../../lib/model-menu.js').MenuParts} AskMenu */
+/** @typedef {{ placeholder: string, found: AskMenu, none: string }} AskFind */
+
+/**
+ * @param {AskMenu} found
+ * @param {string} chosen
+ * @param {string} none
+ * @param {boolean} [shown]
+ */
+export const askFound = (found, chosen, none, shown = true) => floatRows({ role: 'menu', lit: null, items: menuLines(found).flatMap((line, at) => 'more' in line ? [] : [
+  ...line.head ? [{ head: line.head, attrs: { 'data-ck-page-of': 'other', hidden: !shown } }] : [],
+  { name: line.row.name, tag: line.row.account ?? '', chosen: line.row.value === chosen,
+    attrs: { id: `ck-pick-found-${at}`, 'data-value': `model:${line.row.value}`, 'data-ck-page-of': 'other', class: 'ck-fmenu__item', hidden: !shown } },
+]) }) + (none ? `<p${attributes({ class: 'ck-flist__none mac-subhead', 'data-ck-page-of': 'other', hidden: !shown })}>${esc(none)}</p>` : '');
+
+/**
+ * @param {import('../../lib/model-menu.js').MenuLine} line
+ * @param {string} chosen
+ * @returns {import('./float-list.js').FloatItem[]}
+ */
+const modelItems = (line, chosen) => 'more' in line
+  ? [{ name: line.more, parted: false, attrs: { 'data-value': 'other', 'data-ck-page': 'other', 'data-ck-page-of': 'models', class: 'ck-flist__more' } }]
+  : [...line.head ? [{ head: line.head, attrs: { 'data-ck-page-of': 'models' } }] : [],
+    { name: line.row.name, tag: line.row.account ?? '', chosen: line.row.value === chosen, parted: line.parted,
+      attrs: { 'data-value': `model:${line.row.value}`, 'data-ck-page-of': 'models' } }];
+
+/** @param {{ model: string, level: string, levels: { value: string, label: string }[], thinking: string, menu: AskMenu, chosen: string, reset?: boolean, voice?: { words: string, caution: string | null, choices: { value: string, words: string, chosen: boolean }[] } | null, find?: AskFind | null, attrs?: Attributes, active?: number, page?: 'models' | 'voice' | 'other' }} pick */
+export function askPick({ model, level, levels, thinking, menu, chosen, reset = false, voice = null, find = null, attrs = {}, active, page }) {
+  const more = find ? menu.more ?? null : null;
   /** @type {import('./float-list.js').FloatItem[]} */
   const items = [
-    { head: 'Thinking', attrs: { 'data-ck-page-of': '' } },
+    ...levels.length ? [{ head: 'Thinking', attrs: { 'data-ck-page-of': '' } }] : [],
     ...levels.map((each, at) => ({ name: each.label, chosen: each.value === thinking, parted: at === levels.length - 1,
       attrs: { 'data-value': `thinking:${each.value}`, 'data-ck-page-of': '' } })),
-    { name: 'Model', tag: model, lead: '', attrs: { 'data-value': 'models', 'data-ck-page': 'models', 'data-ck-page-of': '', class: 'ck-pick__more' } },
+    { name: 'Model', tag: model, lead: '', attrs: { 'data-value': 'models', 'data-ck-page': 'models', 'data-ck-page-of': '', class: 'ck-flist__more' } },
     ...voice ? [{ name: 'Voice', tag: voice.words, lead: voice.caution ? signalShape('caution') : '', disabled: !voice.choices.length,
-      attrs: { 'data-value': 'voice', 'data-ck-page': 'voice', 'data-ck-page-of': '', class: 'ck-pick__more', title: voice.caution } }] : [],
+      attrs: { 'data-value': 'voice', 'data-ck-page': 'voice', 'data-ck-page-of': '', class: 'ck-flist__more', title: voice.caution } }] : [],
     ...reset ? [{ name: 'Reset to default', attrs: { 'data-value': 'reset', 'data-ck-page-of': '' } }] : [],
-    ...sections.flatMap((section, at) => [
-      { head: sections.length > 1 ? section.group || 'Model' : 'Model', attrs: { 'data-ck-page-of': 'models' } },
-      ...section.choices.map((choice, row) => ({ name: choice.name, chosen: choice.id === chosen,
-        parted: row === section.choices.length - 1 && at < sections.length - 1,
-        attrs: { 'data-value': `model:${choice.id}`, 'data-ck-page-of': 'models' } })),
-    ]),
+    ...menuLines({ ...menu, more }).flatMap(line => modelItems(line, chosen)),
     ...voice?.choices.length ? [{ head: 'Voice notes', attrs: { 'data-ck-page-of': 'voice' } },
       ...voice.choices.map(choice => ({ name: choice.words, chosen: choice.chosen, note: choice.chosen && voice.caution ? voice.caution : undefined,
         attrs: { 'data-value': `voice:${choice.value}`, 'data-ck-page-of': 'voice' } }))] : [],
@@ -123,15 +145,20 @@ export function askPick({ model, level, levels, thinking, models, chosen, reset 
     return 'head' in item ? { ...item, attrs } : { ...item, attrs: { id: `ck-pick-${at}`, ...attrs,
       class: `ck-fmenu__item${attrs.class ? ` ${attrs.class}` : ''}` } };
   });
-  return chipMenu({ kind: 'ck-pick', words: `${model} · ${level}`, name: 'Model and thinking',
-    label: `Model and thinking: ${model}, ${level}`, items, attrs, active });
+  const away = page !== 'other';
+  const after = find && more ? `<div${attributes({ class: 'ck-pick__other', 'data-ck-page-of': 'other', hidden: away })}>`
+    + `<input${attributes({ class: 'ck-pick__find mac-body', type: 'search', placeholder: find.placeholder, 'aria-label': more.words,
+      autocomplete: 'off', spellcheck: 'false', 'data-ask-find': '' })}></div>`
+    + `<div${attributes({ class: 'ck-pick__found', 'data-ck-page-of': 'other', hidden: away })}>${askFound(find.found, chosen, find.none, !away)}</div>` : '';
+  return chipMenu({ kind: 'ck-pick', words: level ? `${model} · ${level}` : model, name: 'Model and thinking',
+    label: level ? `Model and thinking: ${model}, ${level}` : `Model and thinking: ${model}`, items, attrs, active, after });
 }
 
 /**
  * @param {{ kind: string, words: string, glyph?: string, name: string, label: string,
- *   items: import('./float-list.js').FloatItem[], waiting?: boolean, attrs?: Attributes, active?: number }} chip
+ *   items: import('./float-list.js').FloatItem[], waiting?: boolean, attrs?: Attributes, active?: number, after?: string }} chip
  */
-const chipMenu = ({ kind, words, glyph = '', name, label, items, waiting = false, attrs = {}, active }) => {
+const chipMenu = ({ kind, words, glyph = '', name, label, items, waiting = false, attrs = {}, active, after = '' }) => {
   const open = active !== undefined;
   return `<div${attributes({ class: `ck-fmenu ck-fmenu--start ${kind}${open ? '' : ' ck-fmenu--float'}`, ...attrs })}>`
     + `<button${attributes({ type: 'button', class: 'ck-fmenu__btn ck-pick__chip mac-headline', disabled: waiting,
@@ -140,7 +167,7 @@ const chipMenu = ({ kind, words, glyph = '', name, label, items, waiting = false
     + (glyph ? icon(glyph, { size: 'sm' }) : '')
     + `<span class="ck-pick__words">${esc(words)}</span>${icon('expand', { size: 'xs', className: 'ck-fmenu__caret' })}</button>`
     + floatList({ label: name, role: 'menu', className: 'ck-fmenu__panel', lit: open ? active : null,
-      attrs: { id: `${kind}-menu`, hidden: !open }, items }) + '</div>';
+      attrs: { id: `${kind}-menu`, hidden: !open }, items, after }) + '</div>';
 };
 
 export const ASK_LEVELS = /** @type {const} */ ([

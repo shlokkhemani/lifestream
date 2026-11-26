@@ -2,8 +2,9 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Connector } from "@lifestreamprotocol/connect";
+import { USE_IDS } from "@lifestreamprotocol/model";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { blockOf, checkMember, connectorSettings, effectiveOf, planned, plannedBlock, settingsPath } from "./settings.js";
+import { blockOf, checkMember, chosenFor, connectorSettings, effectiveOf, planned, plannedBlock, settingsPath } from "./settings.js";
 
 const NOTES = {
   id: "notes-start", product: "apple-notes", name: "Notes", vendor: "apple", type: "notes", records: "Synthetic notes.", noun: ["note", "notes"],
@@ -41,6 +42,30 @@ describe("the home's start", () => {
     expect(() => planned(root, { "history.start": "2999-01-01" })).toThrow(/^history\.start is after today \(\d{4}-\d{2}-\d{2}\): a start is a day already begun$/u);
     expect(() => planned(root, { "history.start": "lately" })).toThrow("history.start is all or a day (2026-05-19)");
     expect(readFileSync(settingsPath(root), "utf8")).toBe(before);
+  });
+});
+
+describe("the model chosen for each use", () => {
+  it("is one default per use, each a model id or Off, read by chosenFor alone, with the thinking level Chat's default runs at", () => {
+    const none = effectiveOf(HELD, "settings.json").settings;
+    expect(Object.fromEntries(USE_IDS.map((use) => [use, chosenFor(none, use)]))).toEqual({ pictures: null, audio: null, text: null, chat: null, search: null, hiding: null });
+    expect(none.thinking).toEqual({ chat: null });
+    const ids = {
+      pictures: "claude:claude-haiku-5-5", audio: "openrouter:elevenlabs/scribe-v2", text: "runner:runner-macbook-pro-0001/qwen3.5-4b",
+      chat: "claude:claude-opus-5-5", search: "runner:runner-macbook-pro-0001/embeddinggemma-2-q8-512", hiding: "runner:runner-macbook-pro-0001/privacy-filter",
+    };
+    const held = effectiveOf({ ...HELD, ...Object.fromEntries(USE_IDS.map((use) => [`model.defaults.${use}`, ids[use]])), "model.thinking.chat": "medium" }, "settings.json").settings;
+    expect(Object.fromEntries(USE_IDS.map((use) => [use, chosenFor(held, use)]))).toEqual(ids);
+    expect(held.thinking).toEqual({ chat: "medium" });
+    const works = { defaults: { pictures: null, audio: ids.audio, text: null } };
+    expect(chosenFor(works, "audio")).toBe(ids.audio);
+  });
+
+  it("refuses a default that is no model id, a use there is none of, a thinking level that is no word, and the old cloud voice block", () => {
+    expect(() => effectiveOf({ ...HELD, "model.defaults.chat": "Opus" }, "settings.json")).toThrow("model.defaults.chat is a model id (<connection>:<model>) or null");
+    expect(() => planned(folder(), { "model.defaults.sound": "fake:fake-model" })).toThrow("model.defaults.sound");
+    expect(() => effectiveOf({ ...HELD, "model.thinking.chat": "Very High" }, "settings.json")).toThrow("model.thinking.chat is a thinking level or null");
+    expect(() => effectiveOf({ ...HELD, "model.transports.openrouter-voice.concurrency": 2 }, "settings.json")).toThrow("no transport is named openrouter-voice");
   });
 });
 

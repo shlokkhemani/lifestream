@@ -23,7 +23,8 @@ import { cameraNamed, type DeviceKind } from "./devices.js";
 import { newest, type Feed } from "./feed.js";
 import { freshSourcesOf } from "./freshness.js";
 import { photoNamed, photoOfRecord, preparedFile, readPhoto, type PreparedFile } from "./photo.js";
-import { modelsRead } from "./models-read.js";
+import { modelsAt, modelsRead } from "./models-read.js";
+import { modelsFindHandler, modelsHandler, type ModelsReads } from "./page-models.js";
 import { storedModels } from "./models.js";
 import { NOTHING_MADE, openMade, type MadeInput } from "./made.js";
 import type { Made } from "./streams-report.js";
@@ -58,7 +59,7 @@ import { searchFileOf, type RecordRead } from "./search-index.js";
 import { PAGE_ROWS } from "./search-scan.js";
 import { refsLeaving } from "./way-out.js";
 import { GUARDED } from "./work.js";
-import { recordPartOf, screenAnswerOf, searchAnswerOf, searchAskedOf, type Lent } from "./search-route.js";
+import { meaningModel, recordPartOf, screenAnswerOf, searchAnswerOf, searchAskedOf, type Lent } from "./search-route.js";
 import { kindsOf } from "./search-kinds.js";
 import { kindsAnswer, kindsPage, kindsParams } from "./kinds-contract.js";
 import { answerOf, argsOf, either, REFS_CHARS, REFS_MOST, ROUTES, type Citation, type ContractPath, type Of, type ReadParams, type Shape } from "./search-contract.js";
@@ -643,7 +644,7 @@ export function openReads(input: {
     const record = asked.lists.includes("record") || asked.lists.includes("goto") ? recordPartOf(asked, call, lends) : undefined;
     const started = performance.now();
     const screen = asked.lists.includes("screen") ? await screenAnswerOf(asked, call, {
-      search: settings().search, file: screenFileOf(files(ask.held.machine).search), ...(ask.held.meaning === undefined ? {} : { meaning: ask.held.meaning }),
+      meaningModel: meaningModel(settings()), file: screenFileOf(files(ask.held.machine).search), ...(ask.held.meaning === undefined ? {} : { meaning: ask.held.meaning }),
       ...(lends === undefined ? {} : { lent: lends }), ...(record?.copies === undefined ? {} : { copies: record.copies }),
     }) : undefined;
     if (screen !== undefined) call.log.screen_ms = Math.round(performance.now() - started);
@@ -1122,14 +1123,22 @@ export function openReads(input: {
     },
   };
 
+  const modelsHeld: ModelsReads = {
+    read(ask) {
+      const now = settings();
+      const { position, stored, paused } = raw((db) => db.transaction(() => {
+        const at = newest(db);
+        return { position: `${at.seq}:${at.at_ms}`, stored: storedModels(readTables(db).meta), paused: pauses(db) };
+      })());
+      return { position, inputs: { stored, settings: now, pauses: paused, now_ms: ask.now_ms, day: now.day } };
+    },
+  };
+
   const modelsRoute: ReplyRoute = (ask) => {
-    new Query(ask.url, []);
-    const now = settings();
-    const { position, stored, paused } = raw((db) => db.transaction(() => {
-      const at = newest(db);
-      return { position: `${at.seq}:${at.at_ms}`, stored: storedModels(readTables(db).meta), paused: pauses(db) };
-    })());
-    return ok(JSON.stringify({ position, ...modelsRead(stored, now.model, now.defaults, { pauses: paused, runners: now.runners, now_ms: ask.now_ms, day: now.day }) }));
+    const chat = new Query(ask.url, ["chat"]).text("chat");
+    const { position, inputs } = modelsHeld.read(ask);
+    const { settings: now } = inputs;
+    return ok(JSON.stringify({ position, ...modelsRead(inputs.stored, { ...modelsAt(now), ...chat === undefined ? {} : { chat } }) }));
   };
 
   const storageReads: StorageReads = {
@@ -1170,7 +1179,7 @@ export function openReads(input: {
     const { position, report } = reported((db, ledger) => readProcessing(readTables(db), ledger?.rates(ask.now_ms) ?? null, {
       connectors: [connector], families: registry.families, blocks: now.connectors, defaults: now.defaults, runners: now.runners, day: now.day, now_ms: ask.now_ms, typed: value,
       histories: readHistories(db, { folder, now_ms: ask.now_ms, settings: now, connectors: registry.connectors, families: registry.families, ledger: null, stated: ask.held.stated, refused: ask.held.refused }),
-      privacy: now.privacy, home: now.unit,
+      privacy: now.privacy,
     }).get(id)!.typed);
     return ok(JSON.stringify({ position, value, note: report }));
   };
@@ -1496,6 +1505,15 @@ export function openReads(input: {
     settings: settingsHandler(settingsReads),
     settingsPage: settingsPageHandler(settingsReads),
     storage: storageHandler(storageReads),
+    models: modelsHandler(modelsHeld),
+    modelsFind: modelsFindHandler({
+      ...modelsHeld,
+      work: (id) => {
+        const at = id.lastIndexOf("/");
+        const work = input.registry?.connectors.find((each) => each.id === id.slice(0, at))?.processing?.[id.slice(at + 1)];
+        return work === undefined ? undefined : { id, kind: work.kind, text_chars: work.text_chars ?? null };
+      },
+    }),
   }, () => settings().day);
 
   const screen = screenReads({

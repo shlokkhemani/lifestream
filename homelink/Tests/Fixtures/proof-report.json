@@ -384,41 +384,38 @@
           "label": "Photo descriptions",
           "about": "A model describes the photos in your chats, so they read as text in your days and in search.",
           "value": "default",
-          "words": "Fake model · This computer",
+          "words": "Default · Fake model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "Fake model"
+              "name": "Default · Fake model",
+              "account": null,
+              "chosen": true
             },
-            {
-              "value": "codex:gpt-6-luna",
-              "words": "GPT-6 Luna",
-              "note": "ChatGPT isn't set up on this Mac yet"
+            "rows": [
+              {
+                "value": "fake:fake-model",
+                "name": "Fake model",
+                "account": null,
+                "chosen": false
+              }
+            ],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "example-chat/photos"
             },
-            {
-              "value": "claude:claude-haiku-5-5",
-              "words": "Claude Haiku 5.5",
-              "note": "Claude isn't set up on this Mac yet"
-            },
-            {
-              "value": "openrouter:google/gemini-3.8-flash",
-              "words": "Gemini 3.8 Flash",
-              "note": "Add the key for OpenRouter"
-            },
-            {
-              "value": "fake:fake-model",
-              "words": "Fake model",
-              "note": "Stays on this computer"
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",
@@ -430,36 +427,38 @@
           "label": "Voice note transcripts",
           "about": "A model transcribes your voice notes.",
           "value": "default",
-          "words": "Fake model · This computer",
+          "words": "Default · Fake model",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "Fake model"
+              "name": "Default · Fake model",
+              "account": null,
+              "chosen": true
             },
-            {
-              "value": "openrouter:google/gemini-3.8-flash",
-              "words": "Gemini 3.8 Flash",
-              "note": "Add the key for OpenRouter"
+            "rows": [
+              {
+                "value": "fake:fake-model",
+                "name": "Fake model",
+                "account": null,
+                "chosen": false
+              }
+            ],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "audio",
+              "work": "example-chat/voice"
             },
-            {
-              "value": "openrouter-voice:elevenlabs/scribe-v2",
-              "words": "Scribe v2",
-              "note": "Add the key for OpenRouter"
-            },
-            {
-              "value": "fake:fake-model",
-              "words": "Fake model",
-              "note": "Stays on this computer"
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "fake:fake-model",
           "panel": null,
           "control": "menu",

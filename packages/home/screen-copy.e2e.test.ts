@@ -32,15 +32,15 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function copiesOver(detector: PrivacySettings["detector"], find: Detector["find"]) {
+function copiesOver(chosen: boolean, find: Detector["find"]) {
   const root = mkdtempSync(join(tmpdir(), "home-screen-copy-"));
   roots.push(root);
   const ledger: Ledger = openLedger(openHomeFolder(root), { mode: "migrate" });
-  const settings: PrivacySettings = { ...readPrivacySettings({}), detector };
+  const settings: PrivacySettings = readPrivacySettings({});
   const hider = openHider({
     people: () => NAMES, settings: () => settings,
     pictures: { read: () => Promise.reject(new Error("no pictures here")), make: () => Promise.reject(new Error("no pictures here")) },
-    detector: { find, state: () => ({ state: "ready", model: MODEL }) },
+    detector: { find, state: () => (chosen ? { state: "ready", model: MODEL } : { state: "off" }) },
     marks: { id: "", epoch: "", read: () => new Map(), write: () => false, dropOthers: async () => 0, forget: () => 0, close: () => undefined },
   });
   const copies = openCopies({ ledger, hider: () => hider, clock: () => 1_000 });
@@ -50,7 +50,7 @@ function copiesOver(detector: PrivacySettings["detector"], find: Detector["find"
 describe("a screen part of 500,000 characters", () => {
   it("with no hiding model, is hidden by the rules and the names alone: no find is placed, nothing waits, and no detail is left plain", async () => {
     let finds = 0;
-    const { ledger, copies } = copiesOver("off", () => {
+    const { ledger, copies } = copiesOver(false, () => {
       finds++;
       return Promise.reject(new Error("the detector is off"));
     });
@@ -76,7 +76,7 @@ describe("a screen part of 500,000 characters", () => {
     };
     const distinct = new Set(passagesOf(PART).map((passage) => PART.slice(passage.start, passage.end))).size;
     let tried = 0;
-    const { ledger, copies } = copiesOver("runner-macbook-pro-0001", (passages) =>
+    const { ledger, copies } = copiesOver(true, (passages) =>
       (++tried === 3 ? Promise.reject(new DetectorError("TIMEOUT", "the hiding model did not answer within 300 s")) : answer(passages)));
     try {
       const fallen = await copies.make(asked());

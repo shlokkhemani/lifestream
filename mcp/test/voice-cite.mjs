@@ -78,7 +78,7 @@ before(async () => {
   await new Promise(done => /** @type {import('node:http').Server} */ (server).listen(0, '127.0.0.1', () => done(undefined)));
   await startHome(`http://127.0.0.1:${/** @type {import('node:net').AddressInfo} */ (server.address()).port}`, { LIFESTREAM_MCP_MEDIA: '1', LIFESTREAM_MCP_VOICE: '1' });
   await keyed('sk-or-v1-synthetic');
-  serve = createHandler({ door: home.url, ask: { models, otherwise: { provider: faux.getModel().provider, modelId: faux.getModel().id }, machine: home.ask.machine, now: () => home.now_ms }, log: () => undefined });
+  serve = createHandler({ door: home.url, ask: { reach: () => ({ models, model: { provider: faux.getModel().provider, modelId: faux.getModel().id } }), machine: home.ask.machine, now: () => home.now_ms }, log: () => undefined });
 });
 
 after(async () => {

@@ -1,7 +1,8 @@
 // @ts-check
 import { esc } from './lib/html.js';
 import { applyGeometry } from './ui/geometry.js';
-import { storageModel, storageMarkup } from './ui/connectors/settings-storage.js';
+import { storageMarkup } from './ui/connectors/settings-storage.js';
+import { sizeWords } from './lib/words.js';
 import { REPORT } from './kit-gallery-report.js';
 import {
   addRow, button, icon, menuButton, progressLine, sectionLabel, segmented, settingRow, settingsSection, settingTile,
@@ -112,7 +113,7 @@ const PAGES = [
         rows: shown.paused.map(pause => row(pause.title, pause.line, act('Resume', 'plain'))) }),
     ] },
     { id: 'storage', label: 'Storage', icon: 'drive', body: () => [
-      storageMarkup(storageModel(STORAGE_YEAR, { report: REPORT, today: REPORT.day })),
+      storageMarkup(STORAGE_YEAR, false),
       settingsSection({ heading: 'Location', rows: [
         row('Folder', '/Volumes/External/lifestream-home', act('Show in Finder')),
         row('Space kept free', 'Under this, Lifestream keeps taking what is new; history and imports wait.', settingValue('5 GB')),
@@ -398,49 +399,148 @@ function sizesOf(grows, days) {
   });
 }
 
+/** @typedef {import('./pages.js').Pages['storage']} StorageAnswer */
+/** @typedef {import('./pages.js').PhrasePart} PhrasePart */
+
+const TONES = /** @type {const} */ (['s1', 's2', 's3', 's4', 's5']);
+/** @param {string} text @returns {PhrasePart} */
+const said = text => ({ kind: 'words', words: text });
+/** @param {string} day @returns {PhrasePart} */
+const onDay = day => ({ kind: 'time', time: { kind: 'day', day } });
+/** @param {string} id */
+const connectorName = id => REPORT.connectors.find(each => each.id === id)?.name ?? id;
+/** @param {number[]} sizes */
+const last = sizes => sizes.at(-1) ?? 0;
+
 /**
  * @param {Grows[]} streams
  * @param {Grows} own
  * @param {number} days
  * @param {number} other
  * @param {number} readings
- * @returns {import('./types.js').StorageRead}
+ * @param {{ counting?: 'map' | 'counting', counted?: number }} [options]
+ * @returns {StorageAnswer}
  */
-function countedRead(streams, own, days, other, readings) {
-  const sized = streams.map(grows => ({ id: grows.id, bytes: sizesOf(grows, days), day: grows.day }))
-    .sort((a, b) => (b.bytes.at(-1) ?? 0) - (a.bytes.at(-1) ?? 0));
-  const ownSizes = sizesOf(own, days);
-  const week = (/** @type {number[]} */ sizes) => (sizes.at(-1) ?? 0) - (sizes.at(-8) ?? 0);
-  const homeBytes = sized.reduce((sum, stream) => sum + (stream.bytes.at(-1) ?? 0), ownSizes.at(-1) ?? 0);
+function storageAnswer(streams, own, days, other, readings, { counting, counted = 1 } = {}) {
+  const grown = streams.map(grows => ({ id: grows.id, bytes: sizesOf(grows, days) })).sort((a, b) => last(b.bytes) - last(a.bytes));
+  const grownOwn = sizesOf(own, days);
+  const wholeBytes = grown.reduce((sum, stream) => sum + last(stream.bytes), last(grownOwn));
+  const scale = counting ? counted / wholeBytes : 1;
+  const sized = grown.map(stream => ({ id: stream.id, bytes: stream.bytes.map(bytes => Math.round(bytes * scale)) }));
+  const ownSizes = grownOwn.map(bytes => Math.round(bytes * scale));
+  const week = (/** @type {number[]} */ sizes) => last(sizes) - (sizes.at(-8) ?? 0);
+  const homeBytes = sized.reduce((sum, stream) => sum + last(stream.bytes), last(ownSizes));
   const total = 1000 * GB;
-  const free = total - homeBytes - other * GB;
+  const free = total - wholeBytes - other * GB;
+  const used = total - free;
+  const share = (/** @type {number} */ bytes) => bytes / total * 100;
   const perDay = Math.round((streams.reduce((sum, grows) => sum + grows.day, 0) + own.day) * GB);
+  const ranked = sized.slice(0, 5);
   const rest = sized.slice(5);
+  const restBytes = rest.reduce((sum, stream) => sum + last(stream.bytes), 0);
+  const first = daysBack(days);
+  const freePart = { id: '', name: 'Free', tone: /** @type {const} */ ('free'), share: share(free), size: sizeWords(free) };
+  const frame = { position: '1:0', today: STORAGE_TODAY, title: 'Storage', growth: 'Growth', used: 'What uses the space', fewer: 'Show fewer',
+    disk: `${sizeWords(free)} free of ${sizeWords(total)} on T9`,
+    keep: { label: 'Space kept free', line: 'Under this, Lifestream keeps taking what is new; history and imports wait.', size: sizeWords(5 * GB) } };
+  const left = Math.floor((free - 5 * GB) / perDay);
+  const sentence = readings < 7 ? [said(`Lifestream has been measuring for ${readings} days. How fast it grows shows here after a week.`)]
+    : [said(`T9 fills by about ${sizeWords(perDay)} a day. At this rate it is full around `), onDay(daysBack(-left)), said('.')];
+  if (counting === 'map') {
+    return { ...frame, counted: false, figure: 'Counting…', after: '', sentence, chart: null, uses: [], more: null,
+      bar: { label: `T9: used ${sizeWords(used)}, counting, ${sizeWords(free)} free`, left: '',
+        parts: [{ id: '', name: 'Not yet counted', tone: 'uncounted', share: share(used), size: sizeWords(used) }, freePart],
+        key: [{ id: '', name: 'Not yet counted', tone: 'uncounted' }] } };
+  }
+  const parts = [
+    ...ranked.map((stream, at) => ({ id: stream.id, name: connectorName(stream.id), tone: TONES[at], share: share(last(stream.bytes)),
+      size: sizeWords(last(stream.bytes)) })),
+    ...rest.length ? [{ id: 'other', name: 'Other connectors', tone: /** @type {const} */ ('other'), share: share(restBytes),
+      size: sizeWords(restBytes) }] : [],
+    { id: 'own', name: 'Index and AI', tone: /** @type {const} */ ('own'), share: share(last(ownSizes)), size: sizeWords(last(ownSizes)) },
+  ];
+  const outside = used - homeBytes;
+  const elsewhere = counting ? /** @type {const} */ ('uncounted') : /** @type {const} */ ('disk');
+  const whole = Math.max(1, homeBytes);
+  /** @param {number[]} sizes @returns {PhrasePart[] | null} */
+  const weekOf = sizes => counting ? null : week(sizes) < 1e6 ? [said('Not growing')]
+    : days < 7 ? [said(`+${sizeWords(week(sizes))} since `), onDay(first)] : [said(`+${sizeWords(week(sizes))} this week`)];
+  /**
+   * @param {{ id: string, bytes: number[] }} stream
+   * @param {import('./pages.js').StorageTone} tone
+   * @param {string} part
+   * @param {boolean} folded
+   */
+  const use = (stream, tone, part, folded) => ({ id: stream.id, part, name: connectorName(stream.id), tone, size: sizeWords(last(stream.bytes)),
+    share: last(stream.bytes) / whole * 100, line: weekOf(stream.bytes), opens: stream.id, folded });
   return {
-    disk: { name: 'T9', total_bytes: total, free_bytes: free, keep_bytes: 5 * GB, coming_bytes: 0 },
-    counting: null,
-    home: { bytes: homeBytes, streams: sized.map(stream => ({ connector: stream.id, bytes: stream.bytes.at(-1) ?? 0, week_bytes: week(stream.bytes) })),
-      own: { bytes: ownSizes.at(-1) ?? 0, week_bytes: week(ownSizes) } },
-    series: { first_day: daysBack(days), parts: [
-      ...sized.slice(0, 5).map(stream => ({ part: stream.id, bytes: stream.bytes })),
-      ...rest.length ? [{ part: 'other', bytes: ownSizes.map((_, at) => rest.reduce((sum, stream) => sum + (stream.bytes[at] ?? 0), 0)) }] : [],
-      { part: 'own', bytes: ownSizes },
-    ] },
-    growth: { readings, bytes_a_day: perDay, days_left: Math.floor((free - 5 * GB) / perDay) },
+    ...frame, counted: !counting, sentence,
+    figure: counting ? 'Counting…' : sizeWords(homeBytes), after: counting ? `${sizeWords(homeBytes)} so far` : 'Lifestream',
+    bar: {
+      label: counting ? `T9: counted so far ${sizeWords(homeBytes)}, not yet counted ${sizeWords(outside)}, ${sizeWords(free)} free`
+        : `T9: Lifestream ${sizeWords(homeBytes)}, other files ${sizeWords(outside)}, ${sizeWords(free)} free`,
+      parts: [...parts, { id: '', name: counting ? 'Not yet counted' : 'Other files on T9', tone: elsewhere, share: share(outside),
+        size: sizeWords(outside) }, freePart],
+      key: [...parts.map(({ id, name, tone }) => ({ id, name, tone })), { id: '', name: counting ? 'Not yet counted' : 'Other files', tone: elsewhere }],
+      left: counting ? 'About 4 minutes left' : '',
+    },
+    uses: [
+      ...ranked.map((stream, at) => use(stream, TONES[at], stream.id, false)),
+      ...rest.map(stream => use(stream, 'other', 'other', true)),
+      { id: 'own', part: 'own', name: 'Index and AI', tone: 'own', size: sizeWords(last(ownSizes)), share: last(ownSizes) / whole * 100,
+        line: [said('Search, summaries and model answers')], opens: null, folded: false },
+    ],
+    more: rest.length ? `Show ${rest.length} more connectors` : null,
+    chart: counting ? null : {
+      label: [said('Lifestream’s size since '), onDay(first)], first,
+      parts: [
+        ...ranked.map((stream, at) => ({ id: stream.id, name: connectorName(stream.id), tone: TONES[at], bytes: stream.bytes })),
+        ...rest.length ? [{ id: 'other', name: 'Other connectors', tone: /** @type {const} */ ('other'),
+          bytes: ownSizes.map((_, at) => rest.reduce((sum, stream) => sum + (stream.bytes[at] ?? 0), 0)) }] : [],
+        { id: 'own', name: 'Index and AI', tone: /** @type {const} */ ('own'), bytes: ownSizes },
+      ],
+      rate: readings < 7 ? null : perDay,
+      room: { bytes: homeBytes + free - 5 * GB, name: 'T9 full' },
+    },
   };
 }
 
-export const STORAGE_YEAR = countedRead(YEAR_STREAMS, YEAR_OWN, 150, 214, 30);
-export const STORAGE_NEW = countedRead(NEW_STREAMS, NEW_OWN, 3, 402, 3);
+export const STORAGE_YEAR = storageAnswer(YEAR_STREAMS, YEAR_OWN, 150, 214, 30);
+export const STORAGE_NEW = storageAnswer(NEW_STREAMS, NEW_OWN, 3, 402, 3);
+export const STORAGE_COUNTING = storageAnswer(YEAR_STREAMS, YEAR_OWN, 150, 214, 30, { counting: 'counting', counted: 212 * GB });
+export const STORAGE_MAP = storageAnswer(YEAR_STREAMS, YEAR_OWN, 150, 214, 30, { counting: 'map' });
 
-export const STORAGE_COUNTING = (() => {
-  const whole = STORAGE_YEAR.home.bytes;
-  const share = 212 * GB / whole;
-  const streams = STORAGE_YEAR.home.streams.map(stream => ({ connector: stream.connector, bytes: Math.round(stream.bytes * share), week_bytes: null }));
-  const own = Math.round(STORAGE_YEAR.home.own.bytes * share);
-  return { ...STORAGE_YEAR, counting: { map: false, left_ms: 4 * 60_000 }, series: null,
-    home: { bytes: streams.reduce((sum, stream) => sum + stream.bytes, own), streams, own: { bytes: own, week_bytes: null } } };
-})();
+/** @typedef {import('./pages.js').Pages['settingsPage']} SettingsPage */
 
-export const STORAGE_MAP = { ...STORAGE_COUNTING, counting: { map: true, left_ms: null },
-  home: { bytes: 0, streams: [], own: { bytes: 0, week_bytes: null } } };
+/** @param {string} words @param {string} line @param {string} id @param {string} label @returns {import('./pages.js').SettingsRow} */
+const valueRow = (words, line, id, label) => ({ id, label, line, end: { kind: 'value', value: [said(words)], signal: null } });
+
+/** @type {SettingsPage} */
+const TIME_PAGE = { position: '1:0', today: STORAGE_TODAY, id: 'time', title: 'Day and time', line: null, parts: [{ label: null, line: null, rows: [
+  valueRow('Asia/Kolkata · GMT+5:30', 'Days, times and the Timeline follow this zone.', 'zone', 'Time zone'),
+  { id: 'day-start', label: 'A day starts at', line: 'Anything before this counts as the night before, so a late night stays one day.',
+    end: { kind: 'value', value: [{ kind: 'time', time: { kind: 'clock', at_ms: Date.parse(`${STORAGE_TODAY}T04:00:00+05:30`) } }], signal: null } },
+] }] };
+
+/** @type {SettingsPage} */
+const ADVANCED_PAGE = { position: '1:0', today: STORAGE_TODAY, id: 'advanced', title: 'Advanced', line: null, parts: [
+  { label: null, line: null, rows: [
+    { id: 'model-cap', label: 'Model calls at once', line: 'The most model calls Lifestream makes at the same time.',
+      end: { kind: 'choice', key: 'model.cap', choices: [1, 2, 4, 8, 16, 32].map(value => ({ words: String(value), value, chosen: value === 8,
+        default: value === 8 })) } },
+    valueRow('Automatic · 6', 'How many jobs Lifestream runs side by side, each on a thread of its own.', 'helpers', 'Background work'),
+    valueRow('69 GB', 'A device’s single upload above this is refused.', 'max-bundle', 'Largest upload'),
+  ] },
+  { label: 'Network', line: null, rows: [
+    valueRow('4680', 'Where apps and agents on this Mac and on Tailscale reach Lifestream.', 'port', 'Port'),
+    valueRow('4682', 'Where your iPhone reaches Lifestream on the same Wi-Fi.', 'lan-port', 'Local network port'),
+  ] },
+] };
+
+/** @type {import('./ui/connectors/settings.js').SettingsReads} */
+export const SETTINGS_ANSWERS = {
+  live: { position: '1:0', today: STORAGE_TODAY, you: null, devices: [], removed: '0 removed',
+    values: [{ id: 'mac', label: 'Macs', value: null, signal: null }, { id: 'iphone', label: null, value: null,
+      signal: REPORT.devices.some(each => each.kind === 'phone' && !each.retired && each.health.state === 'needs-you') ? 'needs-you' : null }] },
+  pages: { time: { read: TIME_PAGE, drawn: null }, advanced: { read: ADVANCED_PAGE, drawn: null } },
+};

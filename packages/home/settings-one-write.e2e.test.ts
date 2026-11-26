@@ -27,14 +27,14 @@ const privacyOf = (root: string) => Object.fromEntries(Object.entries(personal(r
 describe("several settings in one write", () => {
   it("W1, W2: writes every member together, null as the key's default, or none of them when one is refused", () => {
     const root = folder();
-    const shown = changeAll(root, { "privacy.level": "all", "privacy.detector": RUNNER });
-    expect(shown.map(({ key, value }) => [key, value])).toEqual([["privacy.level", "all"], ["privacy.detector", RUNNER]]);
-    expect(effective(root).settings.privacy).toMatchObject({ level: "all", detector: RUNNER });
-    changeAll(root, { "privacy.level": "all", "privacy.detector": null });
+    const shown = changeAll(root, { "privacy.level": "all", "privacy.links": "path" });
+    expect(shown.map(({ key, value }) => [key, value])).toEqual([["privacy.level", "all"], ["privacy.links", "path"]]);
+    expect(effective(root).settings.privacy).toMatchObject({ level: "all", links: "path" });
+    changeAll(root, { "privacy.level": "all", "privacy.links": null });
     expect(privacyOf(root)).toEqual({ "privacy.level": "all" });
-    expect(effective(root).settings.privacy.detector).toBe("off");
+    expect(effective(root).settings.privacy.links).toBe("tokens");
     const before = personal(root);
-    expect(() => changeAll(root, { "privacy.level": "none", "privacy.detector": 7 })).toThrow(SettingsError);
+    expect(() => changeAll(root, { "privacy.level": "none", "privacy.links": 7 })).toThrow(SettingsError);
     expect(() => changeAll(root, { "privacy.level": "none", "privacy.nothing": null })).toThrow(/privacy.nothing is not a setting/u);
     expect(() => changeAll(root, {})).toThrow(SettingsError);
     expect(personal(root)).toEqual(before);
@@ -45,34 +45,29 @@ describe("several settings in one write", () => {
     let told = 0;
     const out: string[] = [];
     const ctx = { folder: openHomeFolder(root), settingsChanged: () => { told += 1; }, out: (line: string) => out.push(line) } as unknown as VerbContext;
-    const answer = await settings(ctx, ["set", JSON.stringify({ "privacy.level": "none", "privacy.detector": RUNNER })]) as { changed: { key: string }[] };
-    expect(answer.changed.map((each) => each.key)).toEqual(["privacy.level", "privacy.detector"]);
-    expect(privacyOf(root)).toEqual({ "privacy.level": "none", "privacy.detector": RUNNER });
+    const answer = await settings(ctx, ["set", JSON.stringify({ "privacy.level": "none", "privacy.links": "path" })]) as { changed: { key: string }[] };
+    expect(answer.changed.map((each) => each.key)).toEqual(["privacy.level", "privacy.links"]);
+    expect(privacyOf(root)).toEqual({ "privacy.level": "none", "privacy.links": "path" });
     expect(told).toBe(1);
     expect(out).toHaveLength(2);
     const before = personal(root);
     await expect(settings(ctx, ["set", JSON.stringify({ "privacy.level": "all", "connectors.gmail": {} })])).rejects.toThrow(/lifestream connectors set/u);
     await expect(settings(ctx, ["set", JSON.stringify({ "privacy.level": "all", "model.defaults.text": null })])).rejects.toThrow(/lifestream models default/u);
     await expect(settings(ctx, ["set", "privacy.level"])).rejects.toThrow(/one JSON object/u);
-    await expect(settings(ctx, ["set", JSON.stringify({ "privacy.level": "all", "privacy.detector": 7 })])).rejects.toMatchObject({ status: 422, code: "SETTING_REFUSED", words: "privacy.detector is off or a runner, runner-<unit>" });
+    await expect(settings(ctx, ["set", JSON.stringify({ "privacy.level": "all", "privacy.links": 7 })])).rejects.toMatchObject({ status: 422, code: "SETTING_REFUSED", words: "privacy.links is tokens, path or none" });
     expect(personal(root)).toEqual(before);
     expect(told).toBe(1);
   });
 
-  it("W4: search by meaning's settings: off, EmbeddingGemma 2 and plugged-in-and-idle by default, a runner and a model file id taken, anything else refused, run at once", async () => {
+  it("W4: search by meaning's one setting: plugged-in-and-idle by default, anything else refused; its model is a default, and the keys that named it are no settings", () => {
     const root = folder();
-    expect(effective(root).settings.search).toEqual({ meaning: "off", model: "embeddinggemma-2-q8-512", power: "plugged-idle" });
-    const out: string[] = [];
-    const ctx = { folder: openHomeFolder(root), settingsChanged: () => undefined, out: (line: string) => out.push(line) } as unknown as VerbContext;
-    await settings(ctx, ["set", JSON.stringify({ "search.meaning": RUNNER, "search.meaning.model": "another-model-1" })]);
-    expect(effective(root).settings.search).toEqual({ meaning: RUNNER, model: "another-model-1", power: "plugged-idle" });
-    expect(out.every((line) => line.includes("it runs at once"))).toBe(true);
+    expect(effective(root).settings.search).toEqual({ power: "plugged-idle" });
     const before = personal(root);
-    for (const [key, value] of [["search.meaning", "macbook-pro-0001"], ["search.meaning", "on"], ["search.meaning.model", "Not An Id"], ["search.meaning.power", "always"]] as const) {
+    for (const [key, value] of [["search.meaning", RUNNER], ["search.meaning.model", "another-model-1"], ["privacy.detector", RUNNER], ["search.meaning.power", "always"]] as const) {
       expect(() => changeAll(root, { [key]: value })).toThrow(SettingsError);
     }
     expect(personal(root)).toEqual(before);
-    changeAll(root, { "search.meaning": null });
-    expect(effective(root).settings.search.meaning).toBe("off");
+    changeAll(root, { "search.meaning.power": null });
+    expect(effective(root).settings.search).toEqual({ power: "plugged-idle" });
   });
 });

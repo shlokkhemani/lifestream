@@ -2,6 +2,7 @@
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import AGENTS from '../../homelink/Tests/Fixtures/agents/door/list.json' with { type: 'json' };
+import { askModel } from '../test/stand-ins/ask-ready.mjs';
 import { FULL_DAY } from '../test/stand-ins/full-life.mjs';
 import { CHATGPT_SIGNED_IN } from '../test/stand-ins/onboarding-home.mjs';
 
@@ -19,9 +20,9 @@ export const DEMO_PEOPLE = {
 };
 
 export const DEMO_MODELS = [
-  { id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra', thinking: ['low', 'medium', 'high'], default: 'high', group: 'ChatGPT', photos: true },
-  { id: 'gpt-6-luna', name: 'GPT-6 Luna', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT', photos: true },
-];
+  { id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra', thinking: ['low', 'medium', 'high'], default: 'high', group: 'ChatGPT', where: 'Sent to OpenAI' },
+  { id: 'gpt-6-luna', name: 'GPT-6 Luna', thinking: ['low', 'high'], default: 'high', group: 'ChatGPT', where: 'Sent to OpenAI' },
+].map(askModel);
 
 export const DEMO_NOW = Date.UTC(2026, 10, 19, 18, 40);
 
@@ -190,7 +191,7 @@ const moved = (body, by) => {
 const asked = body => {
   if (!body || typeof body !== 'object' || !Array.isArray(body.models)) return body;
   const [first] = DEMO_MODELS;
-  return { ...body, model: first.id, name: first.name, thinking: first.default, group: first.group, default: { model: first.id }, models: DEMO_MODELS };
+  return { ...body, default: { model: first.id, thinking: first.default, shown: first.id }, models: DEMO_MODELS };
 };
 
 /** @param {any} body */

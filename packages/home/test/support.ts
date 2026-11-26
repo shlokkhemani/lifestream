@@ -10,6 +10,7 @@ import Database from "better-sqlite3";
 import { homeSchema, openHomeFolder, type Tx } from "@lifestreamprotocol/core";
 import { openLedger } from "@lifestreamprotocol/model";
 import { releaseFloors, type DeviceKind } from "../devices.js";
+import { MODELS_META, type ModelRoute } from "../models.js";
 import { mintPrincipal, type Scope } from "../principals.js";
 import { checkoutProgram } from "../programs.js";
 import { VAULT_FD } from "../vault.js";
@@ -254,6 +255,16 @@ export function makeHome(principals: Readonly<Record<string, { scopes: Scope[]; 
     ids[name] = minted.principal.id;
   });
   return { root, tokens, ids };
+}
+
+export const LUNA_ROUTE: ModelRoute = {
+  id: "codex:gpt-6-luna", transport: "codex", model: "gpt-6-luna", name: "GPT-6 Luna", input: ["text", "image"], output: "text", tools: true, context_tokens: null, thinking: [],
+  chat: "program", suggested: [], offered: true, runner: null, leaves: "OpenAI", where: "Sent to OpenAI", cost: "plan",
+  request: { effort: "low", sampling: null, timeout_ms: 120_000 }, state: "ready", line: null,
+};
+
+export function holdModels(db: Database.Database, routes: readonly ModelRoute[]): void {
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(MODELS_META, JSON.stringify({ routes, runners: [], connections: {} }));
 }
 
 export function makeHomeDb(path: string): Database.Database {

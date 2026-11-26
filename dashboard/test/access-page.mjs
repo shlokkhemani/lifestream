@@ -13,7 +13,6 @@ import { openChrome } from '../tools/chrome.mjs';
 import { HOST_STATE, REPORT } from '../public/kit-gallery-report.js';
 import { STORAGE_YEAR } from '../public/kit-gallery-settings.js';
 import { SETTINGS } from '../public/ui/connectors/settings.js';
-import { moreWords } from '../public/ui/connectors/settings-storage.js';
 import { hostScript } from './stand-ins/onboarding-home.mjs';
 import { until } from './until.mjs';
 
@@ -83,7 +82,7 @@ before(async () => {
     for await (const chunk of request) text += chunk;
     const url = new URL(request.url ?? '/', 'http://door');
     const body = text ? JSON.parse(text) : null;
-    if (url.pathname === '/v1/storage') return void response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(STORAGE_YEAR));
+    if (url.pathname === '/v1/page/storage') return void response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(STORAGE_YEAR));
     if (url.pathname === '/v1/connectors') return void response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ position: '1:0', ...REPORT }));
     const contract = url.pathname.startsWith('/v1/agents') ? answerOf(request.method ?? '', url, body) : null;
     if (url.pathname.startsWith('/v1/agents')) seen.door.push({ method: request.method, path: `${url.pathname}${url.search}`, body });
@@ -392,9 +391,9 @@ test('P7 in the window: a reader\'s Earlier and Storage\'s Show more, each reach
     return asked.pathname === `/v1/agents/${READER.id}/history` && asked.searchParams.get('before') === FILES.history.answer.next.before;
   }), 'Earlier asked with its cursor');
 
-  const streams = STORAGE_YEAR.home.streams.length;
+  const streams = STORAGE_YEAR.uses.length - 1;
   await page.evaluate(`window.location.hash = '#view=connectors&dialog=${SETTINGS}/storage'`);
-  await page.until(`document.querySelector('.cn-storage__more')?.textContent.trim() === ${JSON.stringify(moreWords(streams - 5))}
+  await page.until(`document.querySelector('.cn-storage__more')?.textContent.trim() === ${JSON.stringify(STORAGE_YEAR.more)}
     && ${counted('.cn-storage .ck-urow')} === 6`, 'Storage’s five largest and Index and AI, the rest behind Show more');
   await click('.cn-storage__more');
   await page.until(`${counted('.cn-storage .ck-urow')} === ${streams + 1}

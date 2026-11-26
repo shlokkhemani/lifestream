@@ -20,6 +20,7 @@ const PEOPLE_ROUTE = '/v1/people';
 const PERSONS_KEPT = 256;
 const PAGES_KEPT = 256;
 export const MAC_DEVICE = 'mac/1';
+const SETTINGS_PAGES = new Set(['settings', 'settingsPage', 'storage']);
 const OWNER_CONNECTORS = { places: 'places-home', devices: 'devices-home', people: 'people-home' };
 const STAY_PARAMETERS = ['latitude', 'longitude', 'from_ms', 'to_ms'];
 const WHERE_PARAMETERS = ['at', 'from', 'to', 'grain'];
@@ -245,7 +246,7 @@ export function lifeReader(door, { now = Date.now } = {}) {
     const key = `${name}?${new URLSearchParams(params)}`;
     const before = pages.get(key);
     const read = await reach().text(entry.route, before?.etag, { ...params, ...settled ? { settled: '1' } : {} }, signal,
-      entry.device && params.unit ? MAC_DEVICE : undefined);
+      entry.device && (params.unit || SETTINGS_PAGES.has(name)) ? MAC_DEVICE : undefined);
     /** @type {{ etag: string | undefined, answer: { position: string } }} */
     let landed;
     const confirmed = read.status === 304 && before !== undefined;

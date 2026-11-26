@@ -6,6 +6,7 @@ import type Database from "better-sqlite3";
 import { civilDay, dayBounds, isSqliteError, type DaySettings, type HomeFolder, type StoreKind } from "@lifestreamprotocol/core";
 import { documentLike, keyOf, plainLine, proseChars } from "./screen-keys.js";
 import type { Against, Unmarked } from "./search-index.js";
+import type { MeaningModel } from "./search-route.js";
 import { failpoint } from "./failpoint.js";
 import { changeVectorModel, compactVectors, createVectorTables, landVectors, purgeVectors, sweepVectorFiles, type VectorAsked, type VectorReply } from "./screen-vectors.js";
 
@@ -37,8 +38,8 @@ export interface ScreenOptions {
   settings?: string;
 }
 
-export function meaningSettingsOf(search: { meaning: string; model: string; power: string }): string {
-  return JSON.stringify([search.meaning, search.model, search.power]);
+export function meaningSettingsOf(chosen: MeaningModel | null): string {
+  return JSON.stringify(chosen === null ? ["off"] : [chosen.unit, chosen.file, chosen.power]);
 }
 
 export interface Applied {

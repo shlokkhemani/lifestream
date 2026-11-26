@@ -6,7 +6,7 @@ import { icon } from './icon.js';
 
 /** @typedef {import('../../lib/html.js').Attributes} Attributes */
 
-/** @typedef {{ value: string, words: string, note?: string, chosen: boolean, default: boolean, disabled?: boolean, parted?: boolean }} MenuChoice */
+/** @typedef {{ value: string, words: string, note?: string, tag?: string, head?: string, more?: boolean, chosen: boolean, default: boolean, disabled?: boolean, parted?: boolean }} MenuChoice */
 
 /**
  * @param {object} menu
@@ -33,6 +33,14 @@ export function menuButton({ id, label, words, choices, attrs = {}, busy = false
       'aria-label': date.label, ...date.attrs })}></label>`
     + `<div${attributes({ class: 'ck-fmenu__said', 'data-said-of': key })}>${date.said ?? ''}</div>` : '';
   const { class: own = '', ...rest } = attrs;
+  /** @type {import('./float-list.js').FloatItem[]} */
+  const items = choices.flatMap((choice, index) => [
+    ...choice.head ? [{ head: choice.head }] : [],
+    {
+      name: choice.words, note: choice.note, tag: choice.tag || (choice.default ? 'Default' : ''), chosen: choice.chosen, disabled: choice.disabled, parted: choice.parted,
+      attrs: { id: `${key}-${index}`, 'data-value': choice.value, class: `ck-fmenu__item${choice.more ? ' ck-flist__more' : ''}` },
+    },
+  ]);
   const look = face ? face.className : 'ck-menubtn mac-body';
   const shown = face ? face.markup + (busy ? spinner() : '')
     : `<span class="ck-menubtn__words">${esc(words)}</span>`
@@ -46,11 +54,8 @@ export function menuButton({ id, label, words, choices, attrs = {}, busy = false
       'aria-activedescendant': open ? `${key}-${active}` : null,
     })}>${shown}</button>`
     + floatList({
-      label, role: 'menu', className: 'ck-fmenu__panel', lit: open ? active : null, before: findField, after: dateRow,
-      attrs: { id: `${key}-menu`, hidden: !open },
-      items: choices.map((choice, index) => ({
-        name: choice.words, note: choice.note, tag: choice.default ? 'Default' : '', chosen: choice.chosen, disabled: choice.disabled, parted: choice.parted,
-        attrs: { id: `${key}-${index}`, 'data-value': choice.value, class: 'ck-fmenu__item' },
-      })),
+      label, role: 'menu', className: 'ck-fmenu__panel', before: findField, after: dateRow,
+      lit: open ? items.findIndex(item => 'attrs' in item && item.attrs?.id === `${key}-${active}`) : null,
+      attrs: { id: `${key}-menu`, hidden: !open }, items,
     }) + '</div>';
 }

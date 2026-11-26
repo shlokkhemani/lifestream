@@ -2,19 +2,25 @@ import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   BEAT_MS, CALL_BYTES, CALL_SILENT_MS, CHAT_LINE, endedOf, EXCHANGE_BYTES, EXCHANGE_SILENT_MS, FIND_HANDED, FIND_LINES, FIND_PASSAGES, isPlaced, isResult, isStated, POLL_MS, PRESENCE_MS, RUNNER_CALLS,
-  RUNNER_EXCHANGE, runnerInfo, RUNNERS, type CallLine, type FindLine, type RunnerCall, type RunnerEnded, type RunnerError, type RunnerHanded, type RunnerBelow, type RunnerInfo, type RunnersListed, type RunnerListing, type RunnerPlaced, type RunnerResult,
+  readRouteId, RUNNER_EXCHANGE, RUNNER_TRANSPORT, runnerInfo, RUNNERS, type CallLine, type FindLine, type RunnerCall, type RunnerEnded, type RunnerError, type RunnerHanded, type RunnerBelow, type RunnerInfo, type RunnersListed, type RunnerListing, type RunnerPlaced, type RunnerResult,
 } from "@lifestreamprotocol/model";
+import type { JsonObject } from "@lifestreamprotocol/core";
+import { WORK_MEMBER } from "./models.js";
 import { answerHeld, jsonOf, openPeers, type Hand, type Peer, type PeerWire } from "./peers.js";
 import { Refusal, refuse } from "./refusal.js";
 
 
 export function wantedOn(
-  settings: { runners: Readonly<Record<string, { files?: readonly string[] }>>; privacy: { detector: string }; search: { meaning: string; model: string } },
+  settings: { runners: Readonly<Record<string, { files?: readonly string[] }>>; defaults: Readonly<Record<string, string | null>>; connectors: Readonly<Record<string, JsonObject>> },
   runner: Pick<RunnerInfo, "unit" | "files">,
 ): string[] {
-  const hiding = settings.privacy.detector === runner.unit ? runner.files.filter((file) => file.detector !== undefined).map((file) => file.id) : [];
-  const meaning = settings.search.meaning === runner.unit && runner.files.some((file) => file.id === settings.search.model) ? [settings.search.model] : [];
-  return [...new Set([...settings.runners[runner.unit]?.files ?? [], ...hiding, ...meaning])];
+  const picks = [...Object.values(settings.defaults), ...Object.values(settings.connectors).flatMap((block) =>
+    Object.entries(block).flatMap(([member, value]) => (member.startsWith(WORK_MEMBER) && typeof value === "string" ? [value] : [])))];
+  const named = picks.flatMap((id) => {
+    const route = id === null ? null : readRouteId(id);
+    return route?.transport === RUNNER_TRANSPORT && route.runner === runner.unit && runner.files.some((file) => file.id === route.model) ? [route.model] : [];
+  });
+  return [...new Set([...settings.runners[runner.unit]?.files ?? [], ...named])];
 }
 
 export interface RunnersOptions {

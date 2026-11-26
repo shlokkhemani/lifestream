@@ -18,38 +18,31 @@
   ],
   "voice": {
     "ready": true,
-    "words": "Parakeet · your Mac",
+    "words": "Parakeet",
     "line": null,
     "caution": null,
     "value": "default",
     "choices": [
-      { "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b", "words": "Parakeet · your Mac", "sent": false },
-      { "value": "openrouter-voice:elevenlabs/scribe-v2", "words": "Scribe v2 · Sent as it is", "sent": true }
+      { "value": "openrouter:elevenlabs/scribe-v2", "words": "Scribe v2", "sent": true },
+      { "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b", "words": "Parakeet", "sent": false }
     ]
   },
   "limits": { "photos": 10, "photo_bytes": 26214400, "voice_ms": 600000 },
   "voices": {
-    "not ready, on the Mac": {
-      "ready": false, "words": "No model yet", "line": "Voice notes need Parakeet: download it in Settings › AI models.", "caution": null,
-      "value": "default", "choices": []
-    },
-    "not ready, on a phone": {
-      "ready": false, "words": "No model yet", "line": "Voice notes need Parakeet on your Mac: download it in Lifestream's Settings › AI models.", "caution": null,
+    "not ready": {
+      "ready": false, "words": "No model yet", "line": "Choose a model for Voice notes", "caution": null,
       "value": "default", "choices": []
     },
     "sent as it is, under Hide all": {
-      "ready": true, "words": "Scribe v2 · Sent as it is", "line": null, "caution": "Voice notes go to OpenRouter as they are: sound can't be hidden.",
+      "ready": true, "words": "Scribe v2", "line": null, "caution": "Voice notes go to OpenRouter as they are: sound can't be hidden.",
       "value": "default",
       "choices": [
-        { "value": "openrouter-voice:elevenlabs/scribe-v2", "words": "Scribe v2 · Sent as it is", "sent": true }
+        { "value": "openrouter:elevenlabs/scribe-v2", "words": "Scribe v2", "sent": true }
       ]
     },
-    "Parakeet's runner away, on a phone": {
-      "ready": true, "words": "Parakeet · your Mac", "line": null, "caution": null,
-      "value": "default",
-      "choices": [
-        { "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b", "words": "Parakeet · your Mac", "sent": false }
-      ]
+    "Parakeet's runner away": {
+      "ready": true, "words": "Default · Parakeet", "line": null, "caution": null,
+      "value": "default", "choices": []
     }
   }
 }

@@ -1,11 +1,14 @@
 // @ts-check
 /** @import { HostAct, HostReply } from '../../lib/host.js' */
-/** @import { ModelKind, ModelsRead, StreamsReport } from '../../types.js' */
+/** @import { StreamsReport } from '../../types.js' */
+/** @import { ModelConnection, Models, ModelUseId } from '../../pages.js' */
 import { settingKey } from './view.js';
 
-/** @typedef {{ report: StreamsReport | null, models: ModelsRead | null, hiding: string | null }} Reads */
+export const OFF = 'none';
 
-/** @typedef {{ kind: 'file', runner: string, id: string } | { kind: 'pause', runner: string } | { kind: 'battery', runner: string } | { kind: 'default', of: ModelKind } | { kind: 'address' } | { kind: 'openrouter' }} Thing */
+/** @typedef {{ report: StreamsReport | null, models: Models | null, hiding: string | null }} Reads */
+
+/** @typedef {{ kind: 'file', runner: string, id: string } | { kind: 'pause', runner: string } | { kind: 'battery', runner: string } | { kind: 'default', of: ModelUseId } | { kind: 'address' } | { kind: 'openrouter' }} Thing */
 
 /** @typedef {{ key: string, source: 'report', connector: string, member: string, before: StreamsReport | null, landed: string | null }} Settling */
 
@@ -21,11 +24,11 @@ const canonical = value => JSON.stringify(value, (_key, each) => each && typeof 
  */
 function thingOf(act) {
   if (act.act === 'models') {
-    if (act.do === 'default') return { thing: { kind: 'default', of: act.kind }, sent: canonical(act.route) };
+    if (act.do === 'default') return { thing: { kind: 'default', of: act.use }, sent: canonical(act.model === OFF ? null : act.model) };
     if (act.do === 'file') return { thing: { kind: 'file', runner: act.runner, id: act.id }, sent: canonical(act.to === 'fetch' ? 'fetching' : 'absent') };
     if (act.do === 'runner') return { thing: { kind: 'pause', runner: act.runner }, sent: canonical(act.to === 'pause') };
     if (act.do === 'battery') return { thing: { kind: 'battery', runner: act.runner }, sent: canonical(act.to === 'save') };
-    return { thing: { kind: 'address' }, sent: canonical('none' in act ? null : { model: act.model, url: act.url }) };
+    return { thing: { kind: 'address' }, sent: canonical('none' in act ? null : act.url) };
   }
   if (act.act === 'seal' && 'secret' in act && act.secret === 'openrouter') return { thing: { kind: 'openrouter' }, sent: canonical(act.value !== null) };
   return null;
@@ -54,11 +57,12 @@ const isHidingFile = (act, hiding) => act.act === 'models' && act.do === 'file' 
  * @param {string | null} hiding
  */
 export const movesPrivacy = (act, hiding) => (act.act === 'home-setting'
-  && ('settings' in act ? Object.keys(act.settings) : [act.key]).some(key => key.startsWith('privacy.'))) || isHidingFile(act, hiding);
+  && ('settings' in act ? Object.keys(act.settings) : [act.key]).some(key => key.startsWith('privacy.'))) || isHidingFile(act, hiding)
+  || (act.act === 'models' && act.do === 'default' && act.use === 'hiding');
 
 /** @param {HostAct} act */
-export const movesMeaning = act => act.act === 'home-setting' && 'settings' in act
-  && Object.keys(act.settings).some(key => key.startsWith('search.meaning'));
+export const movesMeaning = act => (act.act === 'home-setting' && 'settings' in act
+  && Object.keys(act.settings).some(key => key.startsWith('search.meaning'))) || (act.act === 'models' && act.do === 'default' && act.use === 'search');
 
 /** @param {string} key */
 export function homeSettingKey(key) { return `home-setting:${key}`; }
@@ -80,13 +84,15 @@ export const actKey = (act, holds = null) => holds ? settingKey(holds.connector,
  */
 function valueAt(thing, { models }) {
   if (!models) return undefined;
-  if (thing.kind === 'openrouter') return canonical(models.openrouter.connected);
-  if (thing.kind === 'address') return canonical(models.address && { model: models.address.model, url: models.address.url });
-  if (thing.kind === 'default') return canonical(models.defaults[thing.of]?.value ?? null);
-  const held = models.runners.find(each => each.unit === thing.runner);
-  if (thing.kind === 'pause') return canonical(Boolean(held?.paused));
+  const { connections } = models;
+  if (thing.kind === 'openrouter') return canonical(connections.some(each => each.kind === 'key' && each.held));
+  if (thing.kind === 'address') return canonical(connections.find(each => each.kind === 'address')?.url ?? null);
+  if (thing.kind === 'default') return canonical(models.uses.find(each => each.use === thing.of)?.value ?? null);
+  const held = connections.find(/** @returns {each is Extract<ModelConnection, { kind: 'runner' }>} */ each => each.kind === 'runner'
+    && each.unit === thing.runner);
+  if (thing.kind === 'pause') return canonical(held?.paused ?? false);
   if (thing.kind === 'battery') return canonical(held?.battery?.on ?? null);
-  return canonical(held && held.line === null ? held.files.find(each => each.id === thing.id)?.state ?? 'absent' : 'away');
+  return canonical(held && (held.paused || held.line === null) ? held.files.find(each => each.id === thing.id)?.state ?? 'absent' : 'away');
 }
 
 /** @param {StreamsReport | null} report @param {string} connector @param {string} member */

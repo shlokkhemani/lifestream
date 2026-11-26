@@ -16,12 +16,12 @@ before(async () => {
 });
 after(() => page.close());
 
-const storageRead = () => opened.chrome.evaluate(`(window.ownFetch ?? fetch)('api/storage').then(answer => answer.json())`);
+const storageRead = () => opened.chrome.evaluate(`(window.ownFetch ?? fetch)('api/page/storage').then(answer => answer.json())`);
 const COUNTED = `(() => {
   const reads = window.storageReads = { asked: 0, answered: 0 };
   const own = window.ownFetch = window.fetch;
   window.fetch = (...args) => {
-    if (!String(args[0]).startsWith('api/storage')) return own(...args);
+    if (!String(args[0]).startsWith('api/page/storage')) return own(...args);
     reads.asked += 1;
     return own(...args).finally(() => { reads.answered += 1; });
   };
@@ -44,8 +44,7 @@ describe('storage-page', () => {
     await chrome.until(`document.querySelector('.cn-storage__figure')?.textContent.startsWith('Counting…')
       && document.querySelector('.ck-disk__key')?.textContent.includes('Not yet counted')`, 'the counting page drawn');
     const counting = await storageRead();
-    assert.ok(counting.counting, 'the home counts');
-    assert.equal('position' in counting, false, 'the position dropped');
+    assert.equal(counting.counted, false, 'the home counts');
     assert.equal(await page.count('.cn-storage .ck-area'), 0, 'no chart while counting');
     await page.shot('counting', `document.querySelector('.cn-storage__figure')?.textContent.startsWith('Counting…')`);
 
@@ -64,11 +63,12 @@ describe('storage-page', () => {
     await chrome.until(`!document.querySelector('.cn-storage.is-dimmed')`, 'the pointer gone, nothing lit');
     const read = await storageRead();
     seen.read = read;
-    assert.equal(read.counting, null);
+    assert.equal(read.counted, true);
     for (const [connector, truth] of Object.entries(recount)) {
-      const stream = read.home.streams.find((/** @type {{ connector: string }} */ each) => each.connector === connector);
-      assert.equal(stream?.bytes, truth.text + truth.files, `${connector}: its text and files`);
-      assert.equal((await rowSize(connector)).replace(/\s/gu, ' '), sizeWords(truth.text + truth.files).replace(/\s/gu, ' '), `${connector}'s row`);
+      const use = read.uses.find((/** @type {{ id: string }} */ each) => each.id === connector);
+      const words = sizeWords(truth.text + truth.files).replace(/\s/gu, ' ');
+      assert.equal(use?.size.replace(/\s/gu, ' '), words, `${connector}: its text and files`);
+      assert.equal((await rowSize(connector)).replace(/\s/gu, ' '), words, `${connector}'s row`);
     }
     await page.shot('counted', `document.querySelector('.cn-storage .ck-area') && !document.querySelector('.ck-disk__key')?.textContent.includes('Not yet counted')`);
 
@@ -84,14 +84,15 @@ describe('storage-page', () => {
 
     const asked = await settled();
     assert.ok(asked, 'Storage read as it came back');
-    const whatsapp = (/** @type {{ home: { streams: { connector: string, bytes: number }[] } }} */ answer) => answer.home.streams
-      .find(each => each.connector === 'whatsapp')?.bytes ?? 0;
+    const whatsapp = (/** @type {{ uses: { id: string, share: number, size: string }[] }} */ answer) => answer.uses
+      .find(each => each.id === 'whatsapp') ?? { share: 0, size: '' };
     const held = whatsapp(read);
     await page.command('message', { key: '15550000001@s.whatsapp.net:S1', at: Date.now(), text: `synthetic ${'words '.repeat(8000)}` });
     await chrome.until(`window.storageReads.asked > ${asked}`, 'Storage read on the feed\'s word that the home stored a message');
     const now = await storageRead();
-    assert.ok(whatsapp(now) > held, 'the message counted into WhatsApp');
-    const words = sizeWords(whatsapp(now)).replace(/\s/gu, ' ');
+    const onDisk = (/** @type {{ bar: { parts: { id: string, share: number }[] } }} */ answer) => answer.bar.parts.find(each => each.id === 'whatsapp')?.share ?? 0;
+    assert.ok(onDisk(now) > onDisk(read), 'the message counted into WhatsApp');
+    const words = whatsapp(now).size.replace(/\s/gu, ' ');
     await chrome.until(`document.querySelector('.ck-urow[data-part="whatsapp"] .ck-urow__size')?.textContent.replace(/\\s/gu, ' ') === ${JSON.stringify(words)}`,
       'WhatsApp\'s row at what it holds now');
   });

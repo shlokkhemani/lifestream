@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { declarations, vendorOf } from "@lifestreamprotocol/connect";
-import { HOME_STORE, openHandedFolder, openHome, openHomeFolder, tryLock, trySharedLock, type Keys, type Program } from "@lifestreamprotocol/core";
+import { HOME_STORE, openHandedFolder, openHome, openHomeFolder, tryLock, trySharedLock, type HomeFolder, type Keys, type Program } from "@lifestreamprotocol/core";
 import { callsLock, ledgerFileOf, openLedger } from "@lifestreamprotocol/model";
 import { startHome, type Home } from "./home.js";
 import { runCli } from "./cli.js";
@@ -27,12 +27,15 @@ import { ship } from "./test/harness-deliveries.js";
 import { FAKE_OFFER, FAKE_ROUTE, FAKES, LOOK_MS, makeRoot, TICK_MS, until } from "./test/harness-root.js";
 import { testSocket, writeFolder } from "./test/folder.js";
 import { statusOf } from "./test/harness-status.js";
+import { RUNNER, SCRIBE, todaysStores, TODAYS_SETTINGS, voiceLeft } from "./test/todays-shape.js";
+import { selfCheckHere } from "./release.js";
+import { personal } from "./settings.js";
 
 const SOURCE = "apple-notes:local:mac-0001";
 const PLAIN_HEADER = Buffer.from("SQLite format 3\0", "latin1");
 const LABELS = ["store:home", "store:ledger", "store:custody", "store:prepared", "store:search", "store:screen", "files", "names", "ask-pending"] as const;
 const SOCKET_VERBS = [
-  "generation", "vault", "vault-check", "vault-init", "vault-new", "vault-confirm", "vault-recovery", "vault-discard", "vault-slot", "unlock", "recover", "sealed", "seal", "chat-voice", "ask-key", "model-reach",
+  "generation", "vault", "vault-check", "vault-init", "vault-new", "vault-confirm", "vault-recovery", "vault-discard", "vault-slot", "unlock", "recover", "sealed", "seal", "chat-voice", "model-reach", "models-list", "models-read",
   "subscriptions", "owner-act", "places-search", "account-connect", "device-start", "device-poll", "client-start", "client-finish", "seal-field", "stations", "redeem", "opened",
   "stated", "drained", "agent", "agents-call", "account", "offers", "through", "maintenance",
   "status", "report", "outbound", "codex", "claude", "settings", "repair", "undo", "rebuild", "erase", "drop", "act", "import", "source", "device", "setup", "pair", "connect",
@@ -61,7 +64,7 @@ interface KeyedHome {
   secrets: string[];
 }
 
-async function keyedHome(): Promise<KeyedHome> {
+async function keyedHome(shape: "this release's" | "today's" = "this release's"): Promise<KeyedHome> {
   const root = join(temp("lifestream-keyed-start-"), "home");
   const id = randomUUID();
   const slot = randomBytes(32);
@@ -69,12 +72,21 @@ async function keyedHome(): Promise<KeyedHome> {
   await adopt(root, { machine: at, keyed: readHandoff(JSON.stringify({ home_id: id, slot_key: slot.toString("hex"), recovery })), fileSystem: () => "apfs", platform: "darwin" });
   writeFolder(root, {
     helpers: 2, clocks: false, "model.cap": 64, "model.defaults.pictures": FAKE_ROUTE, "model.defaults.audio": FAKE_ROUTE, "model.defaults.text": FAKE_ROUTE,
-    "model.transports.fake": { delay_ms: 100, models: [FAKE_OFFER] },
+    "model.transports.fake": { delay_ms: 100, models: [FAKE_OFFER] }, ...shape === "today's" ? TODAYS_SETTINGS : {},
   });
   const vault = new Vault({ root, machine: at.dir, home: id });
   expect(vault.start({ key: slot, why: null }, 1)).toBeNull();
   const keys = vault.keys!;
   const folder = openHomeFolder(root, { machine: at.dir, program: "home", keys });
+  const secretsOf = () => {
+    const data = Buffer.from((keys.hand() as { data: string }).data, "hex");
+    const derived = Object.values((keys.only(LABELS).hand() as { keys: Record<string, string> }).keys).map((hex) => Buffer.from(hex, "hex"));
+    return [data, ...derived, slot].flatMap((key) => [key.toString("hex"), key.toString("base64")]);
+  };
+  if (shape === "today's") {
+    todaysStores(folder);
+    return { root, id, slot, recovery, keys, secrets: secretsOf() };
+  }
   const db = openHome(folder, "migrate");
   db.commit((tx) => {
     tx.tables.sources.add({ id: SOURCE, vendor: vendorOf(declarations(), SOURCE), connector: "fake-rows", added_ms: 0 });
@@ -83,10 +95,7 @@ async function keyedHome(): Promise<KeyedHome> {
   db.close();
   mkdirSync(join(root, "replies"), { recursive: true });
   openLedger(folder, { mode: "migrate" }).close();
-  const data = Buffer.from((keys.hand() as { data: string }).data, "hex");
-  const derived = Object.values((keys.only(LABELS).hand() as { keys: Record<string, string> }).keys).map((hex) => Buffer.from(hex, "hex"));
-  const secrets = [data, ...derived, slot].flatMap((key) => [key.toString("hex"), key.toString("base64")]);
-  return { root, id, slot, recovery, keys, secrets };
+  return { root, id, slot, recovery, keys, secrets: secretsOf() };
 }
 
 interface Handed {
@@ -706,6 +715,54 @@ describe("adopting a keyed folder that exists", () => {
     expect(live).toContain(phone);
     expect(opensBy(keyed.root, keyed.keys, at.dir)).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "passes", key: "restored", revoked: [mac] })]));
   });
+});
+
+describe("a home in today's shape starts on this release with nothing lost", () => {
+  async function todaysHome(form: "plain" | "keyed"): Promise<{ root: string; folder: HomeFolder; slot?: Buffer }> {
+    if (form === "keyed") {
+      const keyed = await keyedHome("today's");
+      return { root: keyed.root, folder: openHomeFolder(keyed.root, { machine: at.dir, program: "home", keys: keyed.keys }), slot: keyed.slot };
+    }
+    const root = join(temp("lifestream-plain-today-"), "home");
+    await adopt(root, { machine: at, fileSystem: () => "apfs", platform: "darwin" });
+    writeFolder(root, { helpers: 1, clocks: false, "model.transports.fake": { delay_ms: 0, models: [FAKE_OFFER] }, ...TODAYS_SETTINGS });
+    const folder = openHomeFolder(root);
+    todaysStores(folder);
+    return { root, folder };
+  }
+
+  for (const form of ["plain", "keyed"] as const) {
+    it(`${form}: its settings are moved before they are read and written once home.db's step committed; a start stopped before that step leaves the file in today's shape, and the next start moves it`, async () => {
+      const { root, folder, slot } = await todaysHome(form);
+      expect((await selfCheckHere(root)).problems, "the release's self-check reads the settings as the start moves them").toEqual([]);
+      const stray = (sql: string) => {
+        const db = folder.store(HOME_STORE, join(root, "home.db"));
+        try {
+          db.exec(sql);
+        } finally {
+          db.close();
+        }
+      };
+      const options = { stopGraceMs: 50, tickMs: TICK_MS, lookMs: LOOK_MS, registry: FAKES, machine: at, ...slot === undefined ? {} : { slot } };
+      stray("CREATE TABLE stray_beside (a TEXT)");
+      await expect(startHome(root, { ...options, log: () => undefined })).rejects.toThrow(/stray_beside/u);
+      expect(personal(folder)).toMatchObject({ "model.transports.openrouter-voice.concurrency": 2, "search.meaning": TODAYS_SETTINGS["search.meaning"], "model.transports.address": TODAYS_SETTINGS["model.transports.address"] });
+      stray("DROP TABLE stray_beside");
+      const logs: string[] = [];
+      const home = await startHome(root, { ...options, log: (line) => logs.push(line) });
+      try {
+        expect(home.settings.defaults).toMatchObject({ audio: SCRIBE, search: `runner:${RUNNER}/embeddinggemma-2-q8-512`, hiding: `runner:${RUNNER}/privacy-filter` });
+      } finally {
+        await home.stop();
+      }
+      const held = personal(folder);
+      expect(JSON.stringify(held)).not.toContain("openrouter-voice");
+      for (const key of ["search.meaning", "search.meaning.model", "privacy.detector"]) expect(held).not.toHaveProperty([key]);
+      expect(held["model.transports.address"]).toEqual({ url: "http://127.0.0.1:1234/v1", model: "local-model", secret: "address-key", input: ["text", "image"] });
+      expect(voiceLeft(folder)).toEqual([]);
+      expect(logs.filter((line) => line.includes('"settings":"moved"'))).toHaveLength(1);
+    });
+  }
 });
 
 describe("a plain home's start", () => {

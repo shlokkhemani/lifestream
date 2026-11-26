@@ -1,14 +1,24 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { errorText, SendFailed, type ListedModel, type Transport } from "../transport.js";
-import { checkProgram, run, UNAVAILABLE, type Judging, type ProgramAt, type ProgramCheck } from "./program.js";
+import { errorText, LIST_MS, SendFailed, withListed, type ListedModel, type Transport } from "../transport.js";
+import { checkProgram, converse, run, UNAVAILABLE, type Judging, type ProgramAt, type ProgramCheck } from "./program.js";
 
 export const CLAUDE_ITEM_MODEL = "claude-haiku-5-5";
 
-const DECLARED: readonly ListedModel[] = [{
-  model: CLAUDE_ITEM_MODEL, name: "Claude Haiku 5.5", input: ["text", "image"], output: "text", tools: true, context_tokens: 200_000,
-  thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
-}];
+export const CLAUDE_CHAT_MODEL = "claude-opus-5-5";
+
+const CONTEXT_TOKENS = 200_000;
+
+const DECLARED: readonly ListedModel[] = [
+  {
+    model: CLAUDE_ITEM_MODEL, name: "Claude Haiku 5.5", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    thinking: ["low", "medium", "high"], ready: true, suggested: ["pictures", "text"],
+  },
+  {
+    model: CLAUDE_CHAT_MODEL, name: "Claude Opus 5.5", input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS,
+    thinking: ["low", "medium", "high"], ready: true, suggested: ["chat"],
+  },
+];
 
 const NOT_FOUND = "Claude Code is not on this Mac yet: it is downloaded once Claude is chosen, and is downloading if it was";
 
@@ -35,6 +45,7 @@ const CLAUDE_FLAGS = [
 
 export interface ClaudeOptions {
   claude: ProgramAt | undefined;
+  listed?: readonly ListedModel[];
 }
 
 export function claudeTransport(options: ClaudeOptions): Transport {
@@ -46,7 +57,21 @@ export function claudeTransport(options: ClaudeOptions): Transport {
     leaves: "Anthropic",
     chat: "program",
     defaults: { effort: "low", timeout_ms: 120_000, concurrency: 2 },
-    models: async () => [...DECLARED],
+    models: async () => withListed(DECLARED, options.listed ?? []),
+    async list() {
+      if (claude === undefined) throw new SendFailed("claude", NOT_FOUND, null);
+      return listedClaude(await converse("claude", claude, CLAUDE_FLAGS, {
+        env: claudeEnv(claude.home), cwd: claude.home, bound_ms: LIST_MS,
+        opening: [{ type: "control_request", request_id: LIST_REQUEST, request: { subtype: "initialize" } }],
+        heard: (message) => {
+          const response = record(message.response);
+          if (message.type !== "control_response" || response?.request_id !== LIST_REQUEST) return undefined;
+          const listed = record(response.response)?.models;
+          if (!Array.isArray(listed)) throw new Error("claude answered with no list of its models");
+          return listed;
+        },
+      }));
+    },
     async available() {
       const check = await checkClaude(claude);
       return check.state === "signed_in" ? { ok: true } : { ok: false, reason: UNAVAILABLE[check.state], detail: check.why };
@@ -80,6 +105,24 @@ export function claudeTransport(options: ClaudeOptions): Transport {
       return answered(ran, read, request.schema !== undefined, request.model);
     },
   };
+}
+
+const LIST_REQUEST = "list";
+
+export function listedClaude(listed: readonly unknown[]): ListedModel[] {
+  const rows = new Map<string, ListedModel>();
+  const standing = (each: unknown) => record(each)?.value === "default";
+  for (const each of [...listed.filter((one) => !standing(one)), ...listed.filter(standing)]) {
+    const alias = record(each);
+    const model = typeof alias?.resolvedModel === "string" && alias.resolvedModel !== "" ? alias.resolvedModel : alias?.value;
+    if (typeof model !== "string" || model === "" || rows.has(model)) continue;
+    const efforts = Array.isArray(alias?.supportedEffortLevels) ? alias.supportedEffortLevels.filter((level): level is string => typeof level === "string") : [];
+    rows.set(model, {
+      model, name: typeof alias?.displayName === "string" && alias.displayName !== "" ? alias.displayName : model,
+      input: ["text", "image"], output: "text", tools: true, context_tokens: CONTEXT_TOKENS, thinking: efforts, ready: true,
+    });
+  }
+  return [...rows.values()];
 }
 
 interface Read {

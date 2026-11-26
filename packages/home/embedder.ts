@@ -3,6 +3,7 @@ import { DriveRefused, type DriveHalf } from "./detector.js";
 import { fileLine, runnerLine } from "./models.js";
 import type { EmbedWaits } from "./screen-index.js";
 import { Refusal } from "./refusal.js";
+import type { MeaningModel } from "./search-route.js";
 
 
 export type EmbedderCode = RunnerCode | "OFF" | "TIMEOUT" | "NO_DOOR" | "REFUSED" | "BAD_ANSWER";
@@ -69,8 +70,7 @@ export function waitsOfError(error: EmbedderError): EmbedWaits | null {
 }
 
 export interface EmbedderOptions {
-  runner: () => "off" | `runner-${string}`;
-  model: () => string;
+  meaning: () => Pick<MeaningModel, "unit" | "file"> | null;
   drive: DriveHalf;
   timeout_ms?: number;
 }
@@ -81,28 +81,28 @@ export interface Embedder {
 }
 
 const TIMEOUT_MS = 2 * 60_000;
-const OFF = "Search by meaning is off: search.meaning is off.";
+const OFF = "Search by meaning is off: no model is chosen for it.";
 const text = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export function openEmbedder(options: EmbedderOptions): Embedder {
   const timeoutMs = options.timeout_ms ?? TIMEOUT_MS;
   return {
     async admits(role) {
-      const unit = options.runner();
-      if (unit === "off") return { go: false, why: "off", words: OFF };
+      const chosen = options.meaning();
+      if (chosen === null) return { go: false, why: "off", words: OFF };
       let runners: readonly RunnerListing[];
       try {
         runners = await options.drive.list();
       } catch (error) {
         return { go: false, why: "no_runner", words: `Lifestream cannot list its runners: ${text(error)}` };
       }
-      return admission(runners, unit, options.model(), role);
+      return admission(runners, chosen.unit, chosen.file, role);
     },
     async embed(texts, role, signal) {
       if (texts.length < 1 || texts.length > EMBED_TEXTS) throw new RangeError(`an embedding takes 1 to ${EMBED_TEXTS} texts, and was given ${texts.length}`);
-      const unit = options.runner();
-      if (unit === "off") throw new EmbedderError("OFF", OFF);
-      const model = options.model();
+      const chosen = options.meaning();
+      if (chosen === null) throw new EmbedderError("OFF", OFF);
+      const { unit, file: model } = chosen;
       const stop = new AbortController();
       const timer = setTimeout(() => stop.abort(new EmbedderError("TIMEOUT", `the meaning model did not answer within ${Math.round(timeoutMs / 1_000)} s`)), timeoutMs);
       const gone = () => stop.abort(new EmbedderError("INTERRUPTED", "the embedding was stopped"));

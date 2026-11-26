@@ -74,7 +74,7 @@ describe("fields in the report", () => {
     const KIND: Record<string, string> = { number: "stepper", toggle: "toggle", path: "path", list: "list", email: "email", text: "text", date: "date", zone: "zone", secret: "secret" };
     for (const { row, member } of members) {
       const at = `${row.id}.${member.key}`;
-      const expected = member.steps !== null ? "menu" : member.kind === "start" ? "date" : KIND[member.kind];
+      const expected = member.steps !== null || member.menu !== undefined ? "menu" : member.kind === "start" ? "date" : KIND[member.kind];
       expect(member.control, at).toBe(expected);
       expect(member.where, at).toEqual(member.kind === "path" ? { unit: HOME_MAC, name: HOME_MAC_NAME } : null);
     }

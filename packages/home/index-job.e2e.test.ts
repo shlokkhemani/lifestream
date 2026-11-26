@@ -89,7 +89,7 @@ describe("the index job", () => {
       folder: openHomeFolder(root),
       settings: () => {
         settings();
-        return { search: { meaning: "off", model: "test-model", power: "plugged-idle" } } as unknown as Settings;
+        return { defaults: { search: null }, search: { power: "plugged-idle" } } as unknown as Settings;
       },
       blobs: undefined as never,
       families: [], file: () => screenFile(), record: () => recordFile(), waitMs: 50,
@@ -135,7 +135,7 @@ describe("the index job", () => {
     expect(readHome(root, (db) => db.prepare("SELECT DISTINCT kind || ' ' || subject FROM runs WHERE kind IN ('index', 'search', 'screen') ORDER BY 1").pluck().all())).toEqual(["index screen", "index search"]);
     const now = await state();
     expect(now.record).toEqual({ as_of: named(record()!.seq), building: null });
-    expect(now.screen).toMatchObject({ as_of: named(screen()!.seq), building: null, meaning: "off", bytes: expect.any(Number) });
+    expect(now.screen).toMatchObject({ as_of: named(screen()!.seq), building: null, waits: null, embedded: 0, named: 0, bytes: expect.any(Number) });
   });
 
   it("takes up the files the two jobs before it wrote, writing neither when nothing is new", async () => {

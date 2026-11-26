@@ -17,7 +17,9 @@ import { copyText } from '../dom.js';
 import { applyGeometry } from '../geometry.js';
 import { onHomeChange } from '../live.js';
 import { detailMarkup } from './detail.js';
-import { detailOf, formActs, formAnswered, OPENED } from './dialog.js';
+import { detailOf, formActs, formAnswered, modelFinding, OPENED } from './dialog.js';
+import { modelFinder } from '../../lib/model-menu.js';
+import { usesFinding } from './settings-models.js';
 import { isSettings, pagesAt, SETTINGS_FIND, settingsAt } from './settings.js';
 import { agentsFrame } from '../agents/frame.js';
 import { isAgentDialog } from '../agents/detail.js';
@@ -99,9 +101,14 @@ export function streamDialogs(container, host, reports, changes, { routes, inert
   /** @type {{ here: DOMRect | null, said: Map<string, string> } | null} */
   let under = null;
 
-  const detail = () => !id ? null : isSettings(id) ? settings.detail({ id, state, opened, report })
+  const finder = modelFinder(() => draw());
+  const foundNow = () => {
+    const asked = isSettings(id) ? usesFinding(opened) : modelFinding(report, id, opened);
+    return asked ? finder.find(asked, opened.typed) : null;
+  };
+  const detail = () => !id ? null : isSettings(id) ? settings.detail({ id, state, opened: { ...opened, found: foundNow() }, report })
     : isAgentDialog(id) ? agents.detail({ id, state, opened, home: holdsHome(), now: Date.now() })
-      : detailOf(report, state, id, { ...opened, dated: dates.dated() });
+      : detailOf(report, state, id, { ...opened, dated: dates.dated(), found: foundNow() });
   const ownReading = () => isSettings(id) || isAgentDialog(id);
 
   const dates = installRangeDates(container, { draw: () => draw(), markup: () => {

@@ -2,22 +2,96 @@
 /** @import { Host, HostAct, HostState } from '../../lib/host.js' */
 /** @import { ReportReader } from '../../lib/report.js' */
 /** @import { StreamsReport } from '../../types.js' */
+/** @import { Pages } from '../../pages.js' */
+/** @import { Drawn, Retry } from '../../lib/reach.js' */
 /** @import { PageChanges } from './changes.js' */
 /** @import { Detail, Opened } from './dialog.js' */
 import { sessionOf } from '../flows/model.js';
 import { actRunner, flowFrame } from '../flows/frame.js';
 import { OPENED } from './dialog.js';
-import { fetchOutbound, fetchOutboundRow, fetchStorage } from '../../lib/api.js';
+import { fetchOutbound, fetchOutboundRow, fetchPage } from '../../lib/api.js';
+import { pageMoved, readMoves } from '../../lib/pages.js';
 import { onHomeChange } from '../live.js';
 import { pageReach } from '../../lib/reach.js';
 import { storageReads } from './settings-storage.js';
-import { isSettings, NO_PRIVACY, savedAct, settingsDetail, shownPage, TYPED } from './settings.js';
+import { ANSWERED, isSettings, NO_PRIVACY, savedAct, settingsDetail, shownPage, TYPED } from './settings.js';
 import { OUTBOUND_DAYS, outboundAt } from './settings-privacy.js';
 import { today as homeToday } from '../../lib/home-clock.js';
 import { shiftDay } from '../../lib/words.js';
 import { SUBSCRIPTIONS } from './settings-models.js';
 
 /** @typedef {{ id: string, state: HostState | null, opened: Opened, visible: boolean }} Standing */
+
+/**
+ * @template T
+ * @param {{ read: () => Promise<T>, draw: () => void, reach: ReturnType<typeof pageReach> }} parts
+ */
+export function answerRead({ read, draw, reach }) {
+  /** @type {T | null} */
+  let answer = null;
+  /** @type {Drawn | null} */
+  let drawn = null;
+  let on = false;
+  let stale = true;
+  let flying = false;
+  let again = false;
+  let notBefore = -Infinity;
+  /** @type {Retry | null} */
+  let retry = null;
+  const go = () => {
+    if (!on || Date.now() < notBefore) {
+      stale = true;
+      return;
+    }
+    if (flying) {
+      again = true;
+      return;
+    }
+    flying = true;
+    stale = false;
+    const begun = reach.begin(retry);
+    retry = null;
+    read().then(value => {
+      answer = value;
+      drawn = null;
+    }, error => {
+      drawn = reach.failed(error, begun, given => {
+        retry = given;
+        go();
+      });
+      if (drawn.kind === 'wait') {
+        notBefore = drawn.until;
+        setTimeout(() => {
+          if (stale) go();
+        }, Math.max(0, drawn.until - Date.now()));
+      }
+    }).finally(() => {
+      flying = false;
+      if (again) {
+        again = false;
+        go();
+      }
+      draw();
+    });
+  };
+  return {
+    get answer() {
+      return answer;
+    },
+    get drawn() {
+      return drawn;
+    },
+    /** @param {boolean} shown */
+    shown(shown) {
+      on = shown;
+      if (on && stale) go();
+    },
+    moved() {
+      stale = true;
+      go();
+    },
+  };
+}
 
 /** @typedef {'system' | 'light' | 'dark'} Theme */
 
@@ -60,6 +134,7 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
     runner: actRunner(host, session, { draw, reports, name: 'subscriptions' }) });
   const watching = changes.watch(draw);
   const onPrivacy = () => shownPage(at.id) === 'privacy';
+  const readsModels = () => onModels() || onPrivacy() || shownPage(at.id) === 'meaning';
   /** @type {Map<string, { list?: import('../../types.js').OutboundList, row?: import('../../types.js').OutboundOne, drawn?: import('../../lib/reach.js').Drawn } | null>} */
   const outbound = new Map();
   const reach = pageReach(host);
@@ -114,10 +189,17 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
     }
     return { days, page, row };
   };
-  const storage = storageReads({ fetch: fetchStorage, draw, seen: () => !document.hidden, reach });
+  const storage = storageReads({ fetch: () => fetchPage('storage'), draw, seen: () => !document.hidden, reach });
+  const live = answerRead({ read: () => fetchPage('settings'), draw, reach });
+  const pages = new Map(ANSWERED.map(id => [id, answerRead({ read: () => fetchPage('settingsPage', { id }), draw, reach })]));
   onHomeChange(change => {
-    if (change.storage || change.reset) storage.moved();
+    void readMoves().then(() => {
+      if (pageMoved('storage', change, storage.read?.position)) storage.moved();
+      if (pageMoved('settings', change, live.answer?.position)) live.moved();
+      for (const page of pages.values()) if (pageMoved('settingsPage', change, page.answer?.position)) page.moved();
+    });
   });
+  void readMoves();
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) storage.seen();
   });
@@ -144,9 +226,12 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
       }
       if (!onModels() && plans.id) plans.close();
       plans.tick();
-      watching.shown(onModels() && at.visible, { privacy: onPrivacy() && at.visible,
+      watching.shown(readsModels() && at.visible, { privacy: onPrivacy() && at.visible,
         screen: shownPage(at.id) === 'meaning' && at.visible });
       storage.shown(shownPage(at.id) === 'storage' && at.visible);
+      const inSettings = isSettings(at.id) && at.visible;
+      live.shown(inSettings);
+      for (const page of pages.values()) page.shown(inSettings);
       if (!(onPrivacy() && at.visible)) outbound.clear();
       return false;
     },
@@ -164,11 +249,16 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
       return settingsDetail({ report, models: changes.models.read, failed: changes.models.drawn, state, id, opened,
         subscriptions: plans.current(), theme: themeShown(), query, unread: reports.failure() !== '', privacy,
         screen: { read: changes.screen.read, drawn: changes.screen.drawn },
-        storage: { read: storage.read, drawn: storage.drawn, more } });
+        storage: { read: storage.read, drawn: storage.drawn, more },
+        answers: { live: live.answer, pages: Object.fromEntries([...pages].map(([id, page]) => [id, { read: page.answer, drawn: page.drawn }])) } });
     },
     /** @param {import('./settings.js').ReadFailed['reread']} read */
     reread(read) {
       if (read === 'storage') storage.again();
+      else if (read === 'settings') {
+        live.moved();
+        for (const page of pages.values()) if (page.drawn) page.moved();
+      }
       else if (read === 'outbound') {
         for (const [key, kept] of outbound) if (kept?.drawn) outbound.delete(key);
         draw();

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
-import { homeSchema, openHome } from "./home-db.js";
+import { homeSchema, openHome, SETTINGS_MOVE } from "./home-db.js";
 import { openHomeFolder } from "./home-folder.js";
 import { normalised, RELEASE, Schema, type Migration, type SchemaSpec } from "./schema.js";
 import { STORED_MARK } from "./stored.js";
@@ -213,7 +213,7 @@ describe("home.db's version", () => {
     expect(Object.keys(tables(before)).filter((table) => !(table in tables(after)))).toEqual(["claims", "landed", "landed_minutes"]);
     raw(path, (db) => expect(db.prepare("SELECT name FROM sqlite_schema WHERE name = 'deliveries_custody'").get()).toBeUndefined());
     expect(tables(after).meta).toEqual([
-      { key: "floor", value: "2147483647" }, { key: STORED_MARK, value: JSON.stringify({ M: 1, blocks: 0, after: null, erasures: 0, slab_ms: 0 }) },
+      { key: "floor", value: "2147483647" }, { key: SETTINGS_MOVE.key, value: "{}" }, { key: STORED_MARK, value: JSON.stringify({ M: 1, blocks: 0, after: null, erasures: 0, slab_ms: 0 }) },
       { key: "synthetic", value: "a synthetic value" },
     ]);
     expect(tables(after).polls).toEqual(tables(before).polls!.map(({ state: _s, source: _o, last_ok_ms: _l, error: _e, page_error: _p, ...clocks }) => clocks));
@@ -324,7 +324,7 @@ describe("home.db's version", () => {
     raw(path, (db) => {
       expect(db.pragma("user_version", { simple: true })).toBe(LATEST);
       expect(db.prepare("SELECT key FROM meta WHERE key <> 'floor' ORDER BY key").pluck().all()).toEqual([
-        "poll-parked:route-e", "poll-parked:route-f", "poll-parked:route-g", "poll-parked:route-h", "poll-refresh:poll-a", STORED_MARK,
+        SETTINGS_MOVE.key, "poll-parked:route-e", "poll-parked:route-f", "poll-parked:route-g", "poll-parked:route-h", "poll-refresh:poll-a", STORED_MARK,
       ]);
       expect(db.prepare("SELECT count(*) FROM polls").pluck().get()).toBe(polls.length);
       expect(db.prepare("SELECT count(*) FROM poll_cursors").pluck().get()).toBe(0);
@@ -354,7 +354,7 @@ describe("home.db's version", () => {
     openWith(path, homeSchema, "migrate");
     raw(path, (db) => {
       expect(db.pragma("user_version", { simple: true })).toBe(LATEST);
-      expect(db.prepare("SELECT key FROM meta WHERE key <> 'floor' ORDER BY key").pluck().all()).toEqual([...kept, STORED_MARK].sort());
+      expect(db.prepare("SELECT key FROM meta WHERE key <> 'floor' ORDER BY key").pluck().all()).toEqual([...kept, SETTINGS_MOVE.key, STORED_MARK].sort());
       expect(db.prepare("SELECT acquirer, source, state, start_ms FROM poll_cursors").all()).toEqual([{ acquirer: "poll-c", source: "source-c", state: '{"since_ms":5}', start_ms: null }]);
       expect(db.prepare("SELECT count(*) FROM poll_memory").pluck().get()).toBe(1);
       expect(db.prepare("SELECT source, acquirer, left, unit, start_ms, recent, last FROM backfills").all()).toEqual([
@@ -440,7 +440,7 @@ describe("home.db's version", () => {
     openWith(path, homeSchema, "migrate");
     raw(path, (db) => {
       expect(db.pragma("user_version", { simple: true })).toBe(LATEST);
-      expect(db.prepare("SELECT key FROM meta WHERE key NOT IN ('floor', ?) ORDER BY key").pluck().all(STORED_MARK)).toEqual([...kept].sort());
+      expect(db.prepare("SELECT key FROM meta WHERE key NOT IN ('floor', ?) ORDER BY key").pluck().all(STORED_MARK)).toEqual([...kept, SETTINGS_MOVE.key].sort());
     });
   });
 

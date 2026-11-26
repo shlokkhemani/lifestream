@@ -108,12 +108,14 @@ struct AskFoot: View {
     @ObservedObject private var outbox = AskBook.shared.outbox
     @State private var keyboard = false
     @State private var picking: AskPick?
+    @State private var finding = false
 
     var body: some View {
         Composer(text: $draft, state: running ? .running : book.askable ? .ready : .waiting,
                  focus: focus, pick: pick, level: level, attach: book.limits == nil ? nil : attach, pictures: pictures, record: record,
                  notice: notice, send: send, stop: stop)
         .askPickers($picking, limit: (book.limits?.photos ?? 0) - picked.count, picked: take)
+        .sheet(isPresented: $finding) { find }
         .padding(.horizontal, keyboard ? Cockpit.Space.s2 : Cockpit.Gap.edge)
         .padding(.bottom, keyboard ? Cockpit.Space.s2 : Cockpit.Space.s3)
         .task(id: conversation?.key) { await conversation?.readLevel() }
@@ -190,18 +192,46 @@ struct AskFoot: View {
     }
 
     private var pick: Composer.Pick? {
-        if let asks = book.asks, !book.models.isEmpty {
-            let book = book
+        let book = book
+        let models = book.menu.map(ModelFind.options) ?? []
+        let finding = $finding
+        let choose: @MainActor @Sendable (String) -> Void = { value in
+            if value == ModelFind.opens { finding.wrappedValue = true } else { book.choose(model: value) }
+        }
+        if let asks = book.asks, !models.isEmpty {
             let model = book.models.first { $0.id == asks.model }
             let levels: [MenuRow<String>.Option] = (model?.thinking ?? [asks.thinking]).map { MenuRow<String>.Option($0, AskWords.level($0)) }
-            let models: [MenuRow<String>.Option] = book.models.map { MenuRow<String>.Option($0.id, $0.name, group: $0.group) }
             let level = Binding<String>(get: { asks.thinking }, set: { book.choose(thinking: $0) })
-            let picked = Binding<String>(get: { asks.model }, set: { book.choose(model: $0) })
+            let picked = Binding<String>(get: { asks.model }, set: choose)
             let reset: (() -> Void)? = book.pick == nil ? nil : { book.reset() }
-            return Composer.Pick(words: asks.name + " · " + AskWords.level(asks.thinking), levels: levels, level: level,
+            let words = asks.thinking.isEmpty ? asks.name : asks.name + " · " + AskWords.level(asks.thinking)
+            return Composer.Pick(words: words, levels: levels, level: level,
                                  default: model?.default, models: models, model: picked, modelName: asks.name, voice: voice, reset: reset)
         }
-        return book.unread && !reach.lacks ? .reading("GPT-6.1 Terra · High") : nil
+        if let words = book.chooseWords, !models.isEmpty {
+            return Composer.Pick(words: words, levels: [], level: .constant(""), default: nil, models: models,
+                                 model: Binding(get: { "" }, set: choose), modelName: words, voice: voice, reset: nil)
+        }
+        return book.unread && !reach.lacks ? .reading(Self.readingWords) : nil
+    }
+
+    private static let readingWords = "Model · Thinking"
+
+    private var find: some View {
+        let book = book
+        let finding = $finding
+        return NavigationStack {
+            if let more = book.menu?.more {
+                SheetPage(more.words) {
+                    ModelFindList(more: more, chosen: book.asks?.model, busy: false) { row in
+                        book.choose(found: row)
+                        finding.wrappedValue = false
+                    }
+                }
+            }
+        }
+        .drawerRest(.large)
+        .accessibilityIdentifier("ask.models.find")
     }
 
     private var voice: Composer.Pick.Voice? {
@@ -216,7 +246,7 @@ struct AskFoot: View {
     }
 
     private var level: Composer.Level? {
-        guard pick != nil, let conversation, let level = conversation.level,
+        guard pick != nil, !book.stays, let conversation, let level = conversation.level,
               let held = AskWords.privacy.first(where: { $0.level == level }) else { return nil }
         return Composer.Level(glyph: held.glyph, words: held.words,
                               choices: AskWords.privacy.map { MenuRow<String>.Option($0.level.rawValue, $0.words) },

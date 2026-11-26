@@ -5,7 +5,6 @@ export type NamedLevel = "all" | "names" | "none";
 export interface PrivacySettings {
   level: "all" | "none";
   chat: NamedLevel;
-  detector: "off" | `runner-${string}`;
   links: Links;
   always: readonly string[];
   never: readonly string[];
@@ -23,7 +22,6 @@ export class PrivacySettingError extends Error {
 }
 
 const NAMED: readonly NamedLevel[] = ["all", "names", "none"];
-const RUNNER = /^runner-[a-z0-9][a-z0-9-]*$/u;
 const FOLLOWS = "default";
 
 const oneOf = (values: readonly string[], rule: string) => (value: Json) => (typeof value === "string" && values.includes(value) ? null : rule);
@@ -36,7 +34,6 @@ const words = (value: Json): string | null => {
 export const PRIVACY_SETTINGS: readonly PrivacySetting[] = [
   { key: "privacy.level", where: "home", default: "all", rule: oneOf(["all", "none"], "is all or none") },
   { key: "privacy.chat", where: "home", default: FOLLOWS, rule: oneOf([...NAMED, FOLLOWS], "is all, names, none or default (privacy.level)") },
-  { key: "privacy.detector", where: "home", default: "off", rule: (value) => (value === "off" || (typeof value === "string" && RUNNER.test(value)) ? null : "is off or a runner, runner-<unit>") },
   { key: "privacy.links", where: "home", default: "tokens", rule: oneOf(LINKS, `is ${LINKS.slice(0, -1).join(", ")} or ${LINKS.at(-1)}`) },
   { key: "privacy.always", where: "home", default: [], rule: words },
   { key: "privacy.never", where: "home", default: [], rule: words },
@@ -60,7 +57,6 @@ export function readPrivacySettings(held: Readonly<Record<string, Json | undefin
   return {
     level,
     chat: chat === FOLLOWS ? level : chat,
-    detector: value("privacy.detector") as PrivacySettings["detector"],
     links: value("privacy.links") as Links,
     always: value("privacy.always") as string[],
     never: value("privacy.never") as string[],

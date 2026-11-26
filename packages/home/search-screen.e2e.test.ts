@@ -25,8 +25,8 @@ const MIN = 60_000;
 const NOW = Date.parse("2026-11-14T12:00:00Z");
 const D0 = Date.parse("2026-11-10T09:00:00Z");
 const MODEL = "embeddinggemma-2-q8-512";
-const ON = { meaning: "runner-macbook-pro-0001", model: MODEL, power: "plugged-idle" } as const;
-const OFF = { ...ON, meaning: "off" } as const;
+const ON = { unit: "runner-macbook-pro-0001", file: MODEL, power: "plugged-idle" } as const;
+const OFF = null;
 const scratch = mkdtempSync(join(tmpdir(), "lifestream-search-screen-"));
 afterAll(async () => {
   await closeVectorScan();
@@ -101,7 +101,7 @@ interface Asking {
   screen: string | "none" | "busy";
   record?: SearchIndex;
   meaning?: HeldMeaning;
-  search?: ScreenOptions["search"];
+  search?: ScreenOptions["meaningModel"];
   epoch?: number;
   where?: Presence;
   lent?: Lent;
@@ -119,7 +119,7 @@ async function ask(params: Record<string, string | string[]>, how: Asking): Prom
     const on = placed(call);
     const record = asked.lists.includes("record") && how.record !== undefined ? recordPartOf(asked, on) : undefined;
     const screen = asked.lists.includes("screen") ? await screenAnswerOf(asked, on, {
-      search: how.search ?? OFF, file: typeof file === "string" ? file : "",
+      meaningModel: how.search ?? OFF, file: typeof file === "string" ? file : "",
       ...(how.meaning === undefined ? {} : { meaning: how.meaning }), ...(record?.copies === undefined ? {} : { copies: record.copies }),
       ...(how.lent === undefined ? {} : { lent: how.lent }),
     }) : undefined;

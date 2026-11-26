@@ -1658,41 +1658,48 @@
           "label": "Photo descriptions",
           "about": "A model describes the photos in your chats, so they read as text in your days and in search.",
           "value": "default",
-          "words": "Vision One · OpenRouter",
+          "words": "Default · Vision One",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "Vision One"
+              "name": "Default · Vision One",
+              "account": null,
+              "chosen": true
             },
-            {
-              "value": "openrouter:vendor-a/vision-1",
-              "words": "Vision One",
-              "note": "Sent to OpenRouter"
-            },
-            {
-              "value": "claude:plan-model-1",
-              "words": "Plan Model One",
-              "note": "Your Claude plan is used up · resets 14:00"
-            },
-            {
-              "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
-              "words": "Qwen 3.5",
-              "note": "Stays on MacBook Pro",
-              "runner": {
-                "unit": "runner-macbook-pro-0001",
-                "name": "MacBook Pro",
-                "home": true
+            "rows": [
+              {
+                "value": "openrouter:vendor-a/vision-1",
+                "name": "Vision One",
+                "account": null,
+                "chosen": false
               }
+            ],
+            "local": {
+              "label": "Local",
+              "rows": [
+                {
+                  "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+                  "name": "Qwen 3.5",
+                  "account": null,
+                  "chosen": false
+                }
+              ]
+            },
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "whatsapp/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "openrouter:vendor-a/vision-1",
           "panel": null,
           "control": "menu",
@@ -1707,43 +1714,28 @@
           "words": "Off",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "Off"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
             },
-            {
-              "value": "claude:plan-model-1",
-              "words": "Plan Model One",
-              "note": "Your Claude plan is used up · resets 14:00"
+            "rows": [],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "audio",
+              "work": "whatsapp/voice"
             },
-            {
-              "value": "runner:runner-macbook-pro-0001/parakeet-unified-en-0.6b",
-              "words": "Parakeet",
-              "note": "Downloading, 0.3 of 0.7 GB",
-              "runner": {
-                "unit": "runner-macbook-pro-0001",
-                "name": "MacBook Pro",
-                "home": true
-              }
-            },
-            {
-              "value": "runner:runner-macbook-pro-0001/nemotron-3.5-asr-0.6b",
-              "words": "Nemotron Speech",
-              "note": "Not downloaded",
-              "runner": {
-                "unit": "runner-macbook-pro-0001",
-                "name": "MacBook Pro",
-                "home": true
-              }
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": null,
           "panel": null,
           "control": "menu",
@@ -3664,28 +3656,35 @@
           "words": "No model yet",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "No model yet"
+              "name": "Default · None",
+              "account": null,
+              "chosen": true
             },
-            {
-              "value": "openrouter:vendor-a/vision-1",
-              "words": "Vision One",
-              "note": "Sent to OpenRouter"
+            "rows": [
+              {
+                "value": "openrouter:vendor-a/vision-1",
+                "name": "Vision One",
+                "account": null,
+                "chosen": false
+              }
+            ],
+            "local": null,
+            "more": {
+              "words": "More",
+              "use": "text",
+              "work": "screen/screen"
             },
-            {
-              "value": "claude:plan-model-1",
-              "words": "Plan Model One",
-              "note": "Your Claude plan is used up · resets 14:00"
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": null,
           "panel": null,
           "control": "menu",
@@ -4106,41 +4105,48 @@
           "label": "Photo descriptions",
           "about": "A model writes a short description of each photo, so you can search your photos by what is in them.",
           "value": "default",
-          "words": "Vision One · OpenRouter",
+          "words": "Default · Vision One",
           "from": "declaration",
           "default": null,
-          "steps": [
-            {
-              "value": "off",
-              "words": "Off",
-              "note": null
-            },
-            {
+          "steps": null,
+          "menu": {
+            "default": {
               "value": "default",
-              "words": "Default",
-              "note": "Vision One"
+              "name": "Default · Vision One",
+              "account": null,
+              "chosen": true
             },
-            {
-              "value": "openrouter:vendor-a/vision-1",
-              "words": "Vision One",
-              "note": "Sent to OpenRouter"
-            },
-            {
-              "value": "claude:plan-model-1",
-              "words": "Plan Model One",
-              "note": "Your Claude plan is used up · resets 14:00"
-            },
-            {
-              "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
-              "words": "Qwen 3.5",
-              "note": "Stays on MacBook Pro",
-              "runner": {
-                "unit": "runner-macbook-pro-0001",
-                "name": "MacBook Pro",
-                "home": true
+            "rows": [
+              {
+                "value": "openrouter:vendor-a/vision-1",
+                "name": "Vision One",
+                "account": null,
+                "chosen": false
               }
+            ],
+            "local": {
+              "label": "Local",
+              "rows": [
+                {
+                  "value": "runner:runner-macbook-pro-0001/qwen3.5-4b",
+                  "name": "Qwen 3.5",
+                  "account": null,
+                  "chosen": false
+                }
+              ]
+            },
+            "more": {
+              "words": "More",
+              "use": "pictures",
+              "work": "google-photos/photos"
+            },
+            "off": {
+              "value": "off",
+              "name": "Off",
+              "account": null,
+              "chosen": false
             }
-          ],
+          },
           "route": "openrouter:vendor-a/vision-1",
           "panel": null,
           "control": "menu",

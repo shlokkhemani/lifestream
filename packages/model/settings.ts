@@ -1,4 +1,4 @@
-import { WORK_KINDS } from "./uses.js";
+import type { Input } from "./transport.js";
 import type { AddressSettings } from "./transports/address.js";
 import type { FakeOptions } from "./transports/fake.js";
 
@@ -11,7 +11,6 @@ export interface TransportSettings {
   codex?: Narrowed;
   claude?: Narrowed;
   openrouter?: Narrowed;
-  "openrouter-voice"?: Narrowed;
   address?: Narrowed & AddressSettings;
   fake?: Narrowed & Omit<FakeOptions, "reply"> & { reply?: string };
 }
@@ -24,8 +23,7 @@ const MEMBERS: Record<keyof TransportSettings, readonly string[]> = {
   codex: ["concurrency"],
   claude: ["concurrency"],
   openrouter: ["concurrency"],
-  "openrouter-voice": ["concurrency"],
-  address: ["concurrency", "url", "model", "kinds", "secret"],
+  address: ["concurrency", "url", "secret", "input", "model"],
   fake: ["concurrency", "provider", "leaves", "reply", "delay_ms", "cost_usd", "cost", "fail", "status", "unavailable", "reason", "until_ms", "models", "log", "reach"],
 };
 
@@ -58,13 +56,15 @@ function checkAddress(address: Record<string, unknown>, label: string): void {
   try { url = new URL(String(address.url)); } catch { url = undefined; }
   if (typeof address.url !== "string" || url === undefined || (url.protocol !== "http:" && url.protocol !== "https:")) throw new TypeError(`${label}.url is an http or https address`);
   if (url.username !== "" || url.password !== "" || url.search !== "") throw new TypeError(`${label}.url holds no user name, password or query: a key goes in its secret`);
-  if (typeof address.model !== "string" || address.model === "") throw new TypeError(`${label}.model names the model it runs`);
-  const kinds = address.kinds;
-  if (!Array.isArray(kinds) || kinds.length === 0 || kinds.some((kind) => !(WORK_KINDS as readonly unknown[]).includes(kind))) {
-    throw new TypeError(`${label}.kinds is a list of ${WORK_KINDS.join(", ")}`);
+  if (address.model !== undefined && (typeof address.model !== "string" || address.model.trim() === "")) throw new TypeError(`${label}.model names a model the address serves`);
+  const input = address.input;
+  if (input === undefined) return;
+  if (!Array.isArray(input) || !input.includes("text") || new Set(input).size !== input.length || input.some((each) => !(ADDRESS_INPUTS as readonly unknown[]).includes(each))) {
+    throw new TypeError(`${label}.input is text, or text and image`);
   }
-  if (kinds.includes("audio")) throw new TypeError(`${label}.kinds: an address takes no audio`);
 }
+
+const ADDRESS_INPUTS: readonly Input[] = ["text", "image"];
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError(`${label} is an object`);

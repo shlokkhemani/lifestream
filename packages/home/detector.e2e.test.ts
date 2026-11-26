@@ -17,6 +17,7 @@ import { cleanup, makeHome, REPO } from "./test/support.js";
 
 const RUNNER = "runner-macbook-pro-0001";
 const DETECTOR = "privacy-filter";
+const CHOSEN = `runner:${RUNNER}/${DETECTOR}`;
 const MODEL = "qwen3.5-4b";
 const KEY = { file: "sha256:0f0f", decode: "1" };
 
@@ -48,13 +49,13 @@ const rejection = (code: DetectorCode, words: string) => expect.objectContaining
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 
 describe("the detector's client", () => {
-  it("answers its state at once from the runners' listing: off, looking, the runner unheard or away, no detector there, not downloaded, downloading, failed, ready", async () => {
-    let setting: "off" | `runner-${string}` = "off";
+  it("answers its state at once from the runners' listing: off while Hiding details has no model, looking, the runner unheard or away, no detector there, not downloaded, downloading, failed, ready", async () => {
+    let setting: string | null = null;
     const { state, drive } = played(async () => ok(""));
-    const detector = openDetector({ runner: () => setting, line: "send", drive, fresh_ms: 0 });
-    expect(detector.state()).toEqual({ state: "absent", why: "No hiding model is chosen: privacy.detector is off." });
+    const detector = openDetector({ chosen: () => setting, line: "send", drive, fresh_ms: 0 });
+    expect(detector.state()).toEqual({ state: "off" });
     expect(state.lists).toBe(0);
-    setting = RUNNER;
+    setting = CHOSEN;
     expect(detector.state()).toEqual({ state: "absent", why: "Looking for the machine that runs the hiding model" });
     const settled = () => new Promise((resolve) => setImmediate(resolve));
     const seen = async (runners: RunnerListing[]) => {
@@ -72,24 +73,30 @@ describe("the detector's client", () => {
     expect(await seen([listing([detectorFile("failed", { failure: "hash" })])])).toEqual({ state: "absent", why: "Hiding model on Synthetic Mac: The download was damaged" });
     expect(await seen([listing([detectorFile("ready")]), listing([detectorFile("absent")], { unit: "runner-mac-mini-bb01" })]))
       .toEqual({ state: "ready", model: { id: DETECTOR, ...KEY } });
+    setting = `runner:${RUNNER}/other-filter`;
+    expect(await seen([listing([detectorFile("ready")])])).toEqual({ state: "absent", why: "Synthetic Mac cannot run the hiding model" });
+    setting = "openrouter:example/marks-1";
+    expect(await seen([listing([detectorFile("ready")])])).toEqual({ state: "absent", why: "openrouter:example/marks-1 is no runner's model: Hiding details runs on a runner" });
+    setting = null;
+    expect(detector.state()).toEqual({ state: "off" });
   });
 
-  it("names the hiding model's file id from the runners' tables: the named runner's first, any runner's while off, downloaded or not, null when none lists one", () => {
+  it("names the hiding model's file id from the runners' tables: the chosen model's first, any runner's while none is chosen, downloaded or not, null when none lists one", () => {
     const { detector: _, ...plain } = detectorFile("ready");
     const model: RunnerFile = { ...plain, id: MODEL, name: "Qwen 3.5", input: ["text", "image"], output: "text", context_tokens: 4_000 };
     const other = listing([model, detectorFile("absent", { id: "other-filter" })], { unit: "runner-mac-mini-bb01" });
-    expect(hidingFile([], RUNNER)).toBeNull();
-    expect(hidingFile([listing([model])], RUNNER)).toBeNull();
-    expect(hidingFile([other, listing([model, detectorFile("absent")])], RUNNER)).toBe(DETECTOR);
-    expect(hidingFile([other, listing([model, detectorFile("fetching")])], "off")).toBe("other-filter");
-    expect(hidingFile([listing([model, detectorFile("absent")], { present: false })], "off")).toBe(DETECTOR);
+    expect(hidingFile([], CHOSEN)).toBeNull();
+    expect(hidingFile([listing([model])], CHOSEN)).toBeNull();
+    expect(hidingFile([other, listing([model, detectorFile("absent")])], CHOSEN)).toBe(DETECTOR);
+    expect(hidingFile([other, listing([model, detectorFile("fetching")])], null)).toBe("other-filter");
+    expect(hidingFile([listing([model, detectorFile("absent")], { present: false })], null)).toBe(DETECTOR);
   });
 
   it("places one find of at most 32 passages on the runner the setting names, in its line, and answers its marks under the key of the file that found them, null for a passage not read", async () => {
     const answered = { ...KEY, file: "sha256:1e1e", marks: [[{ start: 9, end: 20, type: "person" }], [], null] };
     const { state, drive } = played(async () => ok(JSON.stringify(answered)));
     state.runners = [listing([detectorFile("ready")])];
-    const detector = openDetector({ runner: () => RUNNER, line: "mark", drive });
+    const detector = openDetector({ chosen: () => CHOSEN, line: "mark", drive });
     const passages = ["Write to Ada Example today.", "Nothing here.", "A passage the runner cannot spell."];
     expect(await detector.find(passages)).toEqual({ model: { id: DETECTOR, file: "sha256:1e1e", decode: "1" }, marks: [[{ start: 9, end: 20, type: "person" }], [], null] });
     expect(state.placed).toEqual([{ runner: RUNNER, model: DETECTOR, input: JSON.stringify(passages), attachments: [], line: "mark" }]);
@@ -99,12 +106,12 @@ describe("the detector's client", () => {
 
   it("always settles: rejects with its code when off or not ready, when the call ends without an answer, when the answer is no find's for its passages, and when it outlives its time, its call cancelled", async () => {
     let answer: (placed: RunnerPlaced, signal: AbortSignal, handed: () => void) => Promise<RunnerEnded> = async () => ({ error: { code: "NO_RUNNER", runner: RUNNER } });
-    let setting: "off" | `runner-${string}` = "off";
+    let setting: string | null = null;
     const { state, drive } = played((placed, signal, handed) => answer(placed, signal, handed));
     state.runners = [listing([detectorFile("absent")])];
-    const detector = openDetector({ runner: () => setting, line: "send", drive, timeout_ms: 50 });
-    await expect(detector.find(["One."])).rejects.toEqual(rejection("OFF", "privacy.detector is off"));
-    setting = RUNNER;
+    const detector = openDetector({ chosen: () => setting, line: "send", drive, timeout_ms: 50 });
+    await expect(detector.find(["One."])).rejects.toEqual(rejection("OFF", "No model is chosen for Hiding details"));
+    setting = CHOSEN;
     await expect(detector.find(["One."])).rejects.toEqual(rejection("NOT_READY", "Hiding model on Synthetic Mac: Not downloaded"));
     state.runners = [];
     await expect(detector.find(["One."])).rejects.toEqual(rejection("NO_RUNNER", "has not been heard from"));
@@ -139,7 +146,7 @@ describe("the detector's client", () => {
       signal.addEventListener("abort", () => answer({ error: { code: "INTERRUPTED", reason: "driver_gone", runner: RUNNER } }), { once: true });
     }));
     state.runners = [listing([detectorFile("ready")])];
-    const detector = openDetector({ runner: () => RUNNER, line: "mark", drive, timeout_ms: 1_000 });
+    const detector = openDetector({ chosen: () => CHOSEN, line: "mark", drive, timeout_ms: 1_000 });
     let settled = false;
     const waiting = detector.find(["Write to Ada Example today."]).finally(() => { settled = true; });
     await turn();
@@ -170,7 +177,7 @@ describe("the detector's client", () => {
       stop.addEventListener("abort", () => answer({ error: { code: "INTERRUPTED", reason: "driver_gone", runner: RUNNER } }), { once: true });
     }));
     state.runners = [listing([detectorFile("ready")])];
-    const detector = openDetector({ runner: () => RUNNER, line: "mark", drive, timeout_ms: 1_000, wait_ms: 60_000 });
+    const detector = openDetector({ chosen: () => CHOSEN, line: "mark", drive, timeout_ms: 1_000, wait_ms: 60_000 });
     const stuck = detector.find(["One."]);
     await turn();
     vi.advanceTimersByTime(59_999);
@@ -184,7 +191,7 @@ describe("the detector's client", () => {
     let answer: () => Promise<RunnerEnded> = async () => Promise.reject(new Refusal(400, "BAD_CALL", "a find goes to a detector's file"));
     const { state, drive } = played(() => answer());
     state.runners = [listing([detectorFile("ready")])];
-    const detector = openDetector({ runner: () => RUNNER, line: "send", drive });
+    const detector = openDetector({ chosen: () => CHOSEN, line: "send", drive });
     await expect(detector.find(["One."])).rejects.toEqual(rejection("REFUSED", "400 BAD_CALL, a find goes to a detector's file"));
     const http = driveHalf("http://127.0.0.1:1", { call: () => "pass", drive: () => "pass" }, async () => new Response('{"error":"BAD_CALL"}', { status: 400 }));
     answer = () => http.place({ runner: RUNNER, model: DETECTOR, input: "[]", attachments: [], line: "send" }, new AbortController().signal, () => undefined);
@@ -203,7 +210,7 @@ describe("the detector's journey", () => {
       call: { scopes: ["call"], unit: "home" },
       find: { scopes: ["find"], unit: "privacy-bench" },
     }, roots);
-    editSettings(home.root, { [`model.runners.${RUNNER}.files`]: [MODEL], "privacy.detector": RUNNER });
+    editSettings(home.root, { [`model.runners.${RUNNER}.files`]: [MODEL], "model.defaults.hiding": CHOSEN });
     const door = await doorHere(home.root);
     onTestFinished(async () => { await door.stop(); });
     const dir = mkdtempSync(join(tmpdir(), "detector-journey-"));
@@ -220,7 +227,7 @@ describe("the detector's journey", () => {
     });
 
     const drive = driveHalf(door.url, { call: () => home.tokens.call, drive: () => home.tokens.drive });
-    const sending = openDetector({ runner: () => RUNNER, line: "send", drive, fresh_ms: 0 });
+    const sending = openDetector({ chosen: () => CHOSEN, line: "send", drive, fresh_ms: 0 });
     await until("the detector is ready on the runner", () => sending.state().state === "ready")
       .catch((error: Error) => { throw new Error(`${error.message}; the state is ${JSON.stringify(sending.state())}; the runner said ${said.join("")}`); });
     const ready = sending.state();
@@ -236,22 +243,22 @@ describe("the detector's journey", () => {
     expect((await sending.find(["Unspellable line.", "Call +15550000001."])).marks).toEqual([null, [{ start: 5, end: 17, type: "phone" }]]);
     const hider = openHider({
       people: () => ({ version: "people-1", owner: null, people: [] }),
-      settings: () => ({ level: "all", chat: "all", detector: RUNNER, links: "tokens", always: [], never: [] }),
+      settings: () => ({ level: "all", chat: "all", links: "tokens", always: [], never: [] }),
       detector: sending, pictures: { read: () => Promise.reject(new Error("no picture here")), make: () => Promise.reject(new Error("no picture here")) },
       marks: openMarks(openHomeFolder(dirname(join(dir, "marks.db"))), join(dir, "marks.db")),
     });
     const hidden = await hider.hide([[{ text: "Ada Example wrote.\n\nUnspellable line.", free: true }], [{ text: "Ada Example wrote.", free: true }]], "all", emptyTable("ask:test"));
     expect("texts" in hidden && hidden.texts).toEqual([{ cannot: "This text cannot be hidden: the hiding model cannot read a passage of it." }, "[[Person 1]] wrote."]);
 
-    const impatient = openDetector({ runner: () => RUNNER, line: "mark", drive, timeout_ms: 3_000 });
+    const impatient = openDetector({ chosen: () => CHOSEN, line: "mark", drive, timeout_ms: 3_000 });
     const held = impatient.find(["This is never answered."]);
     await until("the runner runs the find it never answers", async () => (await drive.list()).some((runner) => runner.running.length === 1));
-    const hiding = openDetector({ runner: () => RUNNER, line: "hide", drive, timeout_ms: 2_000 });
+    const hiding = openDetector({ chosen: () => CHOSEN, line: "hide", drive, timeout_ms: 2_000 });
     const waited = hiding.find(["Call +15550000001."]);
     await expect(held).rejects.toEqual(expect.objectContaining({ code: "TIMEOUT" }));
     expect((await waited).marks).toEqual([[{ start: 5, end: 17, type: "phone" }]]);
 
-    const benching = openDetector({ runner: () => RUNNER, line: "mark", drive: driveHalf(door.url, { call: () => home.tokens.find, drive: () => home.tokens.find }) });
+    const benching = openDetector({ chosen: () => CHOSEN, line: "mark", drive: driveHalf(door.url, { call: () => home.tokens.find, drive: () => home.tokens.find }) });
     expect((await benching.find(["Call +15550000001."])).marks).toEqual([[{ start: 5, end: 17, type: "phone" }]]);
     await until("the runner states the model's file", async () => (await drive.list()).some((runner) => runner.files.some((file) => file.id === MODEL)));
     const pass = { authorization: `Bearer ${home.tokens.find}`, "content-type": "application/json" };
@@ -292,7 +299,7 @@ describe("the detector's journey", () => {
       "a find on a runner never heard": { status: 200, code: "NO_RUNNER" },
     });
 
-    editSettings(home.root, { "privacy.detector": "off" });
+    editSettings(home.root, { "model.defaults.hiding": null });
     const files = async () => Object.fromEntries((await drive.list()).find((runner) => runner.unit === RUNNER)!.files.filter((file) => file.id === DETECTOR || file.id === MODEL).map((file) => [file.id, file.state]));
     await until("the runner removes the hiding model's file", async () => (await files())[DETECTOR] === "absent");
     expect(await files()).toEqual({ [DETECTOR]: "absent", [MODEL]: "ready" });

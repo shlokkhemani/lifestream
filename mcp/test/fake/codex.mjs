@@ -16,6 +16,11 @@ const json = name => {
     return null;
   }
 };
+if (process.argv[2] === 'login' && process.argv[3] === 'status') {
+  const held = json('auth.json');
+  process.stdout.write(held === null ? 'Not logged in\n' : `Logged in using ChatGPT (${held.email})\n`);
+  process.exit(held === null ? 1 : 0);
+}
 const generation = (() => {
   try {
     return readFileSync(join(fake, 'started.jsonl'), 'utf8').split('\n').filter(line => line !== '').length + 1;

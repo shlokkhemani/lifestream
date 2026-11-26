@@ -8,8 +8,9 @@ import {
   baseOf, DETAIL_TYPES, emptyTable, fold, hidesAny, isDetailType, isPlainWord, openHomeFolder, placeholderSpans,
   type DetailType, type Entry, type Level, type PlaceholderTable,
 } from "@lifestreamprotocol/core";
+import { routeId, RUNNER_TRANSPORT } from "@lifestreamprotocol/model";
 import { openHider, openMarks, type Detector, type NameTable, type Pictures, type PrivacySettings } from "@lifestreamprotocol/privacy";
-import { driveHalf, openDetector } from "../packages/home/detector.js";
+import { driveHalf, hidingFile, openDetector } from "../packages/home/detector.js";
 import { peopleFileOf, readNameTable } from "../packages/home/people.js";
 import { compileNames } from "../packages/privacy/names.js";
 
@@ -41,7 +42,7 @@ export interface WordList {
 export interface BenchInput {
   items: readonly Item[];
   names: NameTable;
-  detector: { runner: `runner-${string}`; detector: Detector } | { why: string };
+  detector: { detector: Detector } | { why: string };
   lists: readonly WordList[];
   scratch: string;
 }
@@ -92,8 +93,8 @@ const NO_PICTURES: Pictures = {
 export const NOT_USED = "the hiding model did not answer, so the texts were hidden as with no model chosen";
 
 const OFF: Detector = {
-  state: () => ({ state: "absent", why: "No hiding model is chosen: privacy.detector is off." }),
-  find: () => Promise.reject(new Error("privacy.detector is off")),
+  state: () => ({ state: "off" }),
+  find: () => Promise.reject(new Error("No model is chosen for Hiding details")),
 };
 const WORD = /[\p{L}\p{M}\p{N}]+/gu;
 const LETTERS = /^[\p{L}\p{M}]+$/u;
@@ -107,10 +108,10 @@ export async function bench(input: BenchInput): Promise<Report> {
 }
 
 async function measure(choice: (typeof CHOICES)[number], input: BenchInput): Promise<Report["choices"][number]> {
-  const chosen = choice.detector ? input.detector : { runner: "off" as const, detector: OFF };
+  const chosen = choice.detector ? input.detector : { detector: OFF };
   if ("why" in chosen) return { choice: choice.choice, why: chosen.why };
   const settings: PrivacySettings = {
-    level: hidesAny(choice.level) ? "all" : "none", chat: hidesAny(choice.level) ? "all" : "none", detector: chosen.runner, links: "tokens", always: [], never: [],
+    level: hidesAny(choice.level) ? "all" : "none", chat: hidesAny(choice.level) ? "all" : "none", links: "tokens", always: [], never: [],
   };
   const folder = mkdtempSync(join(input.scratch, "marks-"));
   const marks = openMarks(openHomeFolder(folder), join(folder, "marks.db"));
@@ -389,14 +390,17 @@ async function detectorOf(runner: string | undefined): Promise<BenchInput["detec
   if (!/^runner-[a-z0-9][a-z0-9-]*$/u.test(runner)) throw new Error(`--detector is a runner, runner-<unit>, not ${JSON.stringify(runner)}`);
   const find = process.env.LIFESTREAM_FIND_TOKEN;
   if (find === undefined) return { why: "no find pass handed (LIFESTREAM_FIND_TOKEN, from lifestream principals mint --unit <name> --scope find)" };
-  const unit = runner as `runner-${string}`;
-  const detector = openDetector({ runner: () => unit, line: "mark", drive: driveHalf(doorAt(), { call: () => find, drive: () => find }) });
+  const drive = driveHalf(doorAt(), { call: () => find, drive: () => find });
   try {
+    const file = hidingFile((await drive.list()).filter((each) => each.unit === runner), null);
+    if (file === null) return { why: `${runner} has no hiding model` };
+    const chosen = routeId({ transport: RUNNER_TRANSPORT, runner, model: file });
+    const detector = openDetector({ chosen: () => chosen, line: "mark", drive });
     await detector.find([]);
+    return { detector };
   } catch (error) {
     return { why: error instanceof Error ? error.message : String(error) };
   }
-  return { runner: unit, detector };
 }
 
 async function main(): Promise<void> {

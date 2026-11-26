@@ -142,7 +142,7 @@ async function standInDoor() {
     /** @param {number} status @param {unknown} body */
     const json = (status, body) => response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     if (path === '/v1/connectors') return json(200, { position: '1:0', ...door.report });
-    if (path === '/v1/models') return json(200, { position: '1:0', ...MODELS });
+    if (path === '/v1/page/models') return json(200, { ...MODELS, position: '1:0' });
     if (path === '/v1/feed') {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.write(': open\n\n');

@@ -19,7 +19,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { createAssistantMessageEventStream, createFauxCore, createModels, createProvider, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from '@earendil-works/pi-ai';
 import { createHandler, serve } from '../server.mjs';
 import { pendingFolder } from '../lib/ask/conversations.mjs';
-import { minted } from './asking.mjs';
+import { homeLinkFixture, minted, rowReady } from './asking.mjs';
 import { until } from './until.mjs';
 import { MAX_CHARS, NOTE } from '../lib/shape.mjs';
 import { FULL } from '../lib/tools/feedback.mjs';
@@ -39,7 +39,7 @@ const MCP_HEADERS = { 'content-type': 'application/json', accept: 'application/j
 const transcript = [];
 /** @type {import('node:child_process').ChildProcessByStdio<import('node:stream').Writable, import('node:stream').Readable, null>} */
 let child;
-/** @type {{ url: string, tokens: { reader: string, agent: string, anywhere: string, phone: string }, phone: string, now_ms: number, ask: { source: string, machine: string } }} */
+/** @type {{ url: string, tokens: { reader: string, agent: string, anywhere: string, phone: string }, phone: string, now_ms: number, ask: { source: string, machine: string }, chat: { cloud: string, local: string, small: string } }} */
 let home;
 /** @type {((line: any) => void)[]} */
 const waiting = [];
@@ -47,11 +47,11 @@ const waiting = [];
 const servers = [];
 let url = '';
 let busyUrl = '';
-const faux = fauxProvider({ models: [{ id: 'faux-1', reasoning: true }, { id: 'faux-2', name: 'Faux Two', reasoning: true }] });
+const faux = fauxProvider({ models: [{ id: 'faux-1', reasoning: true }] });
 /** @type {((stream: import('@earendil-works/pi-ai').AssistantMessageEventStream, base: any, signal: AbortSignal | undefined) => Promise<void>)[]} */
 const paced = [];
 let pacedUrl = '';
-/** @type {{ models: import('@earendil-works/pi-ai').Models, otherwise: { provider: string, modelId: string } }} */
+/** @type {{ reach: () => { models: import('@earendil-works/pi-ai').Models, model: { provider: string, modelId: string } } }} */
 let pacedAsk;
 let machine = '';
 const fauxModels = createModels();
@@ -369,8 +369,8 @@ before(async () => {
   });
   machine = home.ask.machine;
   await command('key', { value: 'sk-or-v1-synthetic' });
-  await until('the models read saying the key is held', async () => (await doorRead('/v1/models', {})).body.openrouter?.connected === true);
-  main = createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine, now: homeClock }, log: () => undefined });
+  await rowReady(home, home.chat.cloud, true);
+  main = createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine, now: homeClock }, log: () => undefined });
   const busyDoor = await listen((request, response) => {
     if (request.url === '/v1/me') return void response.writeHead(200, { 'content-type': 'application/json' }).end('{"id":"p-synthetic","kind":"agent"}');
     response.writeHead(503, { 'content-type': 'application/json', 'retry-after': '5' });
@@ -390,7 +390,7 @@ before(async () => {
   pacedModels.setProvider(createProvider({
     id: 'paced', auth: { apiKey: { name: 'Paced', resolve: async () => ({ auth: {} }) } }, models: core.models, api: { stream, streamSimple: stream },
   }));
-  pacedAsk = { models: pacedModels, otherwise: { provider: 'paced', modelId: core.models[0].id } };
+  pacedAsk = { reach: () => ({ models: pacedModels, model: { provider: 'paced', modelId: core.models[0].id } }) };
   pacedUrl = await listen(createHandler({ door: home.url, ask: { ...pacedAsk, machine, now: homeClock }, log: () => undefined }));
   agent = await connect(url, home.tokens.agent);
 });
@@ -844,7 +844,7 @@ test('Ask\'s journey and its follow-up: one turn calls the four tools as an agen
     },
     fauxAssistantMessage('Marmalade jars'),
   ]);
-  const first = await (await asking({ question: 'What did Person D say about the marmelade?', model: 'faux-2', thinking: 'low' })).rest();
+  const first = await (await asking({ question: 'What did Person D say about the marmelade?', model: home.chat.local, thinking: 'low' })).rest();
   const { chat } = first[0];
   const answered = first.find(event => event.type === 'done').message;
   assert.equal(answered.end, 'done', `${answered.error}\n${JSON.stringify(first.filter(event => event.type === 'step' || event.type === 'error')).slice(0, 4000)}`);
@@ -885,7 +885,7 @@ test('Ask\'s journey and its follow-up: one turn calls the four tools as an agen
       return fauxAssistantMessage(`All 3 on ${D_DAY} [${answer.rows[0].at(-1)}].`);
     },
   ]);
-  const second = await (await asking({ question: 'Which days?', chat, model: 'faux-2', thinking: 'medium' })).rest();
+  const second = await (await asking({ question: 'Which days?', chat, model: home.chat.local, thinking: 'medium' })).rest();
   const followed = second.find(event => event.type === 'done').message;
   assert.equal(followed.end, 'done', followed.error);
   assert.deepEqual([seen[0], seen.at(-1)], ['user: What did Person D say about the marmelade?', 'user: Which days?']);
@@ -951,7 +951,7 @@ test('a turn that answers from nothing, or hides how: the prompt holds no today 
   assert.deepEqual(Object.keys(message).sort(), ['at_ms', 'chat', 'end', 'model', 'ms', 'n', 'refs', 'role', 'steps', 'text', 'thinking', 'thought_ms', 'type'], message.error);
   assert.ok(Number.isInteger(message.thought_ms) && message.thought_ms >= freed - openedAt && message.thought_ms <= message.ms,
     `the answer's first word came after both steps ended, within the turn: ${message.thought_ms} of ${message.ms}`);
-  assert.deepEqual([message.type, message.chat, message.n, message.role, message.end, message.model], ['ask.msg', opened.chat, 2, 'assistant', 'done', 'faux-1']);
+  assert.deepEqual([message.type, message.chat, message.n, message.role, message.end, message.model], ['ask.msg', opened.chat, 2, 'assistant', 'done', home.chat.cloud]);
   const [, hit = '', line = ''] = /^Person A got two lighthouse tickets for Sunday \[(r\d+)\] \[(r\d+)\]\.$/u.exec(message.text) ?? [];
   assert.deepEqual(Object.keys(message.refs).sort(), [hit, line].sort());
   assert.deepEqual([message.refs[hit].kind, message.refs[line].kind], ['message', 'message']);
@@ -1028,68 +1028,224 @@ test('a prompt that loses the catalog where hiding is on: a new conversation at 
   }
 });
 
-test('a pick the server ignores, refuses, or names apart from what it asks: GET /ask lists every model with the thinking each takes, its own level and the default; a pick is asked as GET /ask names it, kept on the answer; a pick gone answers `gone` and the default, a level the model cannot take its own, a level alone the default\'s, never 400; a follow-up with another pick starts a fresh context', async () => {
+test('a picker the home does not name, or a pick the server moves: GET /ask lists `uses.chat.menu` from /v1/models in its order, each model as its row says; no pick runs on the home\'s default at its thinking, a level alone the default\'s; a pick starts at medium, else its first level; a pick no row holds answers `gone` and the default with one line; one not ready is refused with its line, asking no model; a follow-up with another pick starts a fresh context', async () => {
   named('ask pick');
+  const read = (await doorRead('/v1/models', {})).body;
+  /** @param {string} id */
+  const rowOf = id => read.models[id];
+  /** @param {any} row */
+  const startOf = row => (row.thinking.includes('medium') ? 'medium' : row.thinking[0] ?? '');
   /** @param {Record<string, string>} pick */
   const ready = async pick => (await getting(`/ask?${new URLSearchParams(pick)}`)).body;
   const status = await ready({});
-  const levels = ['off', 'minimal', 'low', 'medium', 'high'];
-  assert.deepEqual([status.model, status.name, status.thinking, status.group, status.said, status.gone, status.models, status.default], ['faux-1', 'faux-1', 'high', null, undefined, undefined, [
-    { id: 'faux-1', name: 'faux-1', thinking: levels, default: 'high', photos: true }, { id: 'faux-2', name: 'Faux Two', thinking: levels, default: 'high', photos: true },
-  ], { model: 'faux-1' }]);
+  const offered = [...read.uses.chat.menu.rows, ...read.uses.chat.menu.local?.rows ?? []].map((/** @type {{ value: string }} */ row) => row.value);
+  assert.deepEqual(status.menu, read.uses.chat.menu, 'the picker is the home\'s short menu');
+  assert.deepEqual(new Set(status.models.map((/** @type {any} */ model) => model.id)), new Set(offered), 'each listed model\'s behaviour comes with the menu');
+  assert.ok(offered.includes(home.chat.cloud) && offered.includes(home.chat.local) && offered.includes(home.chat.small), JSON.stringify(offered));
+  assert.ok(!offered.includes('fake:fake-model'), 'a model that takes no tools is no Chat model');
+  for (const model of status.models) {
+    const { id, name, input, thinking, leaves, state } = rowOf(model.id);
+    assert.deepEqual(model, { id, name, thinking, state, default: startOf(rowOf(model.id)), photos: input.includes('image'),
+      photos_off: input.includes('image') ? null : `${name} can't see photos.`, hides: leaves !== null }, model.id);
+  }
+  const cloud = rowOf(home.chat.cloud);
+  assert.deepEqual([read.uses.chat.value, read.uses.chat.thinking, status.default], [home.chat.cloud, 'medium', { model: home.chat.cloud, thinking: 'medium', shown: home.chat.cloud, choose: null }]);
+  assert.deepEqual([status.model, status.name, status.thinking, status.login, status.said, status.act, status.gone], [cloud.id, cloud.name, 'medium', 'ready', undefined, undefined, undefined]);
   assert.deepEqual(status.starters, []);
+  await homeLinkFixture('ask-ready-default.json', status);
   /** @type {[unknown, unknown, string[]][]} */
   const asked = [];
   /** @param {string} text */
   const noted = text => faux.setResponses([
-    (context, options, _state, model) => {
-      asked.push([model?.id, options?.reasoning, seenBy(context)]);
+    (context, options) => {
+      asked.push([options?.reasoning, null, seenBy(context)]);
       return fauxAssistantMessage(text);
     },
     fauxAssistantMessage('Title'),
   ]);
-  const gone = await ready({ model: 'gpt-nope', thinking: 'low' });
-  assert.deepEqual([gone.gone, gone.model, gone.thinking], [true, 'faux-1', 'high']);
+  const doneOf = (/** @type {any[]} */ events) => events.find(event => event.type === 'done').message;
+  const retired = 'openrouter:synthetic/retired';
+  const gone = await ready({ model: retired, thinking: 'low' });
+  assert.deepEqual([gone.gone, gone.model, gone.thinking, gone.said], [true, cloud.id, 'medium', `${retired} isn't offered now. Asking ${cloud.name}.`]);
   noted('From the default.');
-  const unknown = await (await asking({ question: 'Hello?', model: 'gpt-nope', thinking: 'low' })).rest();
-  const byDefault = unknown.find(event => event.type === 'done').message;
-  assert.deepEqual([byDefault.model, byDefault.thinking], ['faux-1', 'high']);
-  const tooHard = await ready({ model: 'faux-2', thinking: 'max' });
-  assert.deepEqual([tooHard.gone, tooHard.model, tooHard.name, tooHard.thinking], [undefined, 'faux-2', 'Faux Two', 'high']);
+  const byDefault = doneOf(await (await asking({ question: 'Hello?', model: retired, thinking: 'low' })).rest());
+  assert.deepEqual([byDefault.model, byDefault.thinking], [cloud.id, 'medium']);
+  const tooHard = await ready({ model: home.chat.local, thinking: 'max' });
+  assert.deepEqual([tooHard.gone, tooHard.model, tooHard.name, tooHard.thinking], [undefined, home.chat.local, rowOf(home.chat.local).name, 'medium']);
   noted('At its own.');
-  const own = await (await asking({ question: 'Hello?', model: 'faux-2', thinking: 'max' })).rest();
-  assert.equal(own.find(event => event.type === 'done').message.thinking, 'high');
+  assert.equal(doneOf(await (await asking({ question: 'Hello?', model: home.chat.local, thinking: 'max' })).rest()).thinking, 'medium');
+  const levelless = await ready({ model: home.chat.small });
+  assert.deepEqual([levelless.model, levelless.thinking], [home.chat.small, '']);
   const levelAlone = await ready({ thinking: 'low' });
-  assert.deepEqual([levelAlone.gone, levelAlone.model, levelAlone.thinking], [undefined, 'faux-1', 'low']);
+  assert.deepEqual([levelAlone.gone, levelAlone.model, levelAlone.thinking], [undefined, cloud.id, 'medium'], 'a level with no pick is the default\'s');
   noted('At the level alone.');
-  const alone = await (await asking({ question: 'Hello?', thinking: 'low' })).rest();
-  assert.deepEqual([alone.find(event => event.type === 'done').message.model, alone.find(event => event.type === 'done').message.thinking], ['faux-1', 'low']);
-  const picked = await ready({ model: 'faux-2', thinking: 'low' });
-  assert.deepEqual([picked.model, picked.thinking], ['faux-2', 'low']);
-  assert.deepEqual(asked.splice(0).map(([model, thinking]) => [model, thinking]), [[gone.model, gone.thinking], [tooHard.model, tooHard.thinking], [levelAlone.model, levelAlone.thinking]]);
+  const alone = doneOf(await (await asking({ question: 'Hello?', thinking: 'low' })).rest());
+  assert.deepEqual([alone.model, alone.thinking], [cloud.id, 'medium']);
+  const waiting = offered.map((/** @type {string} */ id) => rowOf(id)).find((/** @type {any} */ row) => row.state !== 'ready');
+  if (waiting !== undefined) {
+    const notReady = await ready({ model: waiting.id });
+    assert.deepEqual([notReady.model, notReady.login, notReady.said], [waiting.id, 'missing', waiting.line]);
+    const calls = faux.state.callCount;
+    const refused = await (await asking({ question: 'Anyone?', model: waiting.id })).rest();
+    assert.deepEqual(refused.map(event => [event.type, event.message]), [['error', waiting.line]], JSON.stringify(refused));
+    assert.equal(faux.state.callCount, calls, 'a model not ready is asked nothing');
+  }
+  const picked = await ready({ model: home.chat.local, thinking: 'low' });
+  assert.deepEqual([picked.model, picked.thinking], [home.chat.local, 'low']);
+  assert.deepEqual(asked.splice(0).map(([thinking]) => thinking), [gone.thinking, tooHard.thinking, levelAlone.thinking]);
   faux.setResponses([
-    (context, options, _state, model) => {
-      asked.push([model?.id, options?.reasoning, seenBy(context)]);
+    (context, options) => {
+      asked.push([options?.reasoning, null, seenBy(context)]);
       return fauxAssistantMessage([fauxToolCall('search', { query: 'lighthouse', limit: 5 })], { stopReason: 'toolUse' });
     },
     fauxAssistantMessage('Person A [r1].'),
     fauxAssistantMessage('Lighthouse'),
   ]);
-  const first = await (await asking({ question: 'Who?', model: 'faux-2', thinking: 'low' })).rest();
+  const first = await (await asking({ question: 'Who?', model: home.chat.local, thinking: 'low' })).rest();
   const { chat } = first[0];
-  const answered = first.find(event => event.type === 'done').message;
+  const answered = doneOf(first);
   assert.deepEqual([answered.model, answered.thinking], [picked.model, picked.thinking]);
   faux.setResponses([
-    (context, options, _state, model) => {
-      asked.push([model?.id, options?.reasoning, seenBy(context)]);
+    (context, options) => {
+      asked.push([options?.reasoning, null, seenBy(context)]);
       return fauxAssistantMessage('Sunday [r1].');
     },
   ]);
-  const second = await (await asking({ question: 'When?', chat, model: 'faux-2', thinking: 'medium' })).rest();
-  assert.deepEqual([second.find(event => event.type === 'done').message.thinking], ['medium']);
-  assert.deepEqual(asked, [['faux-2', 'low', ['user: Who?']], ['faux-2', 'medium', [
+  const second = await (await asking({ question: 'When?', chat, model: cloud.id, thinking: 'high' })).rest();
+  assert.deepEqual([doneOf(second).model, doneOf(second).thinking], [cloud.id, 'high']);
+  assert.deepEqual(asked, [['low', null, ['user: Who?']], ['high', null, [
     'user: Who?', 'assistant: Person A [r1].\n\n[Steps of this answer:\nsearch {query: lighthouse, limit: 5} → r1–r3 (2 found)]', 'user: When?',
   ]]]);
+});
+
+test('a shipped iPhone\'s Chat with no default: with `default.model` null the kept members are the first row of fits at its first level, `login` missing whatever its state, `said` its line or, when it is ready, that no default is chosen; the chip shows no model and says to choose; a question with no pick is refused with that line', async () => {
+  named('ask no default');
+  try {
+    await command('model', { value: null });
+    const read = (await doorRead('/v1/models', {})).body;
+    const status = (await getting('/ask')).body;
+    const first = read.models[status.models[0].id];
+    assert.equal(read.uses.chat.value, null);
+    assert.equal(first.id, read.uses.chat.fits.find((/** @type {string} */ id) => status.models.some((/** @type {any} */ model) => model.id === id)));
+    assert.deepEqual(status.default, { model: null, thinking: read.uses.chat.thinking, shown: null, choose: 'Choose a model' });
+    assert.deepEqual([status.model, status.name, status.thinking, status.login, status.said, status.act === undefined],
+      [first.id, first.name, first.thinking[0] ?? '', 'missing', first.state === 'ready' ? 'Chat has no default model: choose one from the menu.' : first.line, first.state === 'ready']);
+    await homeLinkFixture('ask-ready-no-default.json', status);
+    const calls = faux.state.callCount;
+    const refused = await (await asking({ question: 'Who answers?' })).rest();
+    assert.deepEqual(refused.map(event => event.type), ['error'], JSON.stringify(refused));
+    assert.equal(refused[0].message, first.line ?? refused[0].message);
+    assert.equal(faux.state.callCount, calls);
+  } finally {
+    await command('model', { value: home.chat.cloud });
+  }
+});
+
+/** @type {{ heard: { path: string, body: any }[], toDoor: { path: string, body: any }[], script: unknown[][], at: string } | null} */
+let localChat = null;
+
+const localChunk = (/** @type {Record<string, unknown>} */ delta, /** @type {string | null} */ finish = null) => ({
+  id: 'chatcmpl-synthetic', object: 'chat.completion.chunk', created: 0, model: 'fake-chat', choices: [{ index: 0, delta, finish_reason: finish }],
+  ...(finish === null ? {} : { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }),
+});
+const saying = (/** @type {string} */ text) => [localChunk({ role: 'assistant', content: text }), localChunk({}, 'stop')];
+const calling = (/** @type {{ name: string, args: Record<string, unknown> }[]} */ calls) => [
+  localChunk({ role: 'assistant', tool_calls: calls.map(({ name, args }, index) => ({ index, id: `call_${index + 1}`, type: 'function', function: { name, arguments: JSON.stringify(args) } })) }),
+  localChunk({}, 'tool_calls'),
+];
+
+async function localServer() {
+  if (localChat !== null) return localChat;
+  /** @type {{ path: string, body: any }[]} */
+  const heard = [];
+  /** @type {{ path: string, body: any }[]} */
+  const toDoor = [];
+  /** @type {unknown[][]} */
+  const script = [];
+  const provider = await listen(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += String(chunk);
+    heard.push({ path: String(request.url), body: JSON.parse(raw) });
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const chunk of script.shift() ?? saying('Synthetic title')) response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    response.end('data: [DONE]\n\n');
+  });
+  await command('model', { reach: `${provider}/v1/chat/completions` });
+  const door = await listen(async (request, response) => {
+    /** @type {Buffer[]} */
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = Buffer.concat(chunks);
+    if (request.method === 'POST' && request.url?.startsWith('/v1/chat') === true) toDoor.push({ path: String(request.url), body: JSON.parse(body.toString('utf8')) });
+    const { host: _host, ...headers } = request.headers;
+    const onward = httpRequest(`${home.url}${request.url}`, { method: request.method, headers }, answer => {
+      response.writeHead(answer.statusCode ?? 502, answer.headers);
+      answer.pipe(response);
+    });
+    onward.on('error', () => response.destroy());
+    onward.end(body);
+  });
+  const at = await listen(createHandler({ door, ask: { machine, now: homeClock }, log: () => undefined }));
+  localChat = { heard, toDoor, script, at };
+  return localChat;
+}
+
+test('local Chat through an address the door relays: pi posts to the door\'s /v1/chat/completions with the thinking level as a top-level `reasoning_effort`, the door sends it on to the model\'s own address under its own name, and the answer is kept with its steps', async () => {
+  named('local chat through the door');
+  const local = await localServer();
+  const [heardFrom, doorFrom] = [local.heard.length, local.toDoor.length];
+  local.script.push(calling([{ name: 'search', args: { query: 'lighthouse' } }]), saying('Person A got two lighthouse tickets for Sunday [r1].'));
+  const events = await (await asking({ question: 'Who got the lighthouse tickets?', model: home.chat.local }, { at: local.at })).rest();
+  const done = events.find(event => event.type === 'done')?.message;
+  assert.equal(done?.end, 'done', JSON.stringify(events).slice(0, 3_000));
+  assert.deepEqual([done.model, done.thinking, done.text], [home.chat.local, 'medium', 'Person A got two lighthouse tickets for Sunday [r1].']);
+  assert.deepEqual(done.steps.map((/** @type {any} */ step) => step.words), ['Searched everything for “lighthouse”: 2 found']);
+  assert.ok(done.refs.r1 !== undefined, JSON.stringify(done.refs));
+  const toDoor = local.toDoor.slice(doorFrom, doorFrom + 2);
+  assert.deepEqual(toDoor.map(each => [each.path, each.body.model, each.body.reasoning_effort, each.body.stream, 'reasoning' in each.body]),
+    [['/v1/chat/completions', home.chat.local, 'medium', true, false], ['/v1/chat/completions', home.chat.local, 'medium', true, false]]);
+  const heard = local.heard.slice(heardFrom, heardFrom + 2);
+  assert.deepEqual(heard.map(each => [each.path, each.body.model, each.body.reasoning_effort]), [['/v1/chat/completions', 'fake-chat', 'medium'], ['/v1/chat/completions', 'fake-chat', 'medium']]);
+  assert.match(JSON.stringify(heard[0]?.body.messages.at(-1)), /Who got the lighthouse tickets\?/u, 'a model that stays is sent the words as written');
+  assert.ok(heard[1]?.body.messages.some((/** @type {any} */ message) => message.role === 'tool'), 'the second step carries the search\'s answer');
+  /** @type {any} */
+  let kept = null;
+  await until('the answer kept in the home', async () => {
+    const read = await doorRead('/v1/record', { source: home.ask.source, kind: 'msg', key: `${done.chat}:0002` });
+    kept = read.status === 200 ? read.body.version.content : null;
+    return kept !== null;
+  });
+  assert.deepEqual([kept.text, kept.model, kept.steps.map((/** @type {any} */ step) => step.words)], [done.text, home.chat.local, done.steps.map((/** @type {any} */ step) => step.words)]);
+});
+
+test('a long conversation in a small window: on a model of 32,000 tokens a turn whose six earlier turns hold twelve full tool answers, two each, is sent, its whole body and its answer\'s room, under 32,000 by the count, the whole prompt and the newest turn in it, the oldest tool answers left out in one line', async () => {
+  named('ask budget');
+  const local = await localServer();
+  const reads = Array.from({ length: 12 }, (_, at) => ({ name: 'read', args: { from: `${DAY}T12:00`, to: `${DAY}T12:${String(at + 1).padStart(2, '0')}` } }));
+  local.script.push(calling(reads.slice(0, 2)), saying('Two reads.'));
+  const first = await (await asking({ question: 'What did the long message say?', model: home.chat.local }, { at: local.at })).rest();
+  const { chat } = first[0];
+  assert.equal(first.find(event => event.type === 'done')?.message.end, 'done', JSON.stringify(first).slice(0, 2_000));
+  for (let at = 2; at < reads.length; at += 2) {
+    local.script.push(calling(reads.slice(at, at + 2)), saying('Two more.'));
+    const more = await (await asking({ question: 'And the rest?', chat, model: home.chat.local }, { at: local.at })).rest();
+    assert.equal(more.find(event => event.type === 'done')?.message.end, 'done', JSON.stringify(more).slice(0, 2_000));
+  }
+  const from = local.heard.length;
+  local.script.push(saying('Done.'));
+  const last = await (await asking({ question: 'Which line was last?', chat, model: home.chat.local }, { at: local.at })).rest();
+  assert.equal(last.find(event => event.type === 'done')?.message.end, 'done', JSON.stringify(last).slice(0, 2_000));
+  const sent = local.heard[from]?.body;
+  const answers = sent.messages.filter((/** @type {any} */ message) => message.role === 'tool');
+  const textOf = (/** @type {any} */ message) => (typeof message.content === 'string' ? message.content : (message.content ?? []).map((/** @type {any} */ part) => part.text ?? '').join(''));
+  const counted = Math.ceil(JSON.stringify(sent).length / 4) + sent.max_tokens;
+  assert.ok(sent.max_tokens > 0 && counted <= 32_000, `${counted} tokens by the count, ${sent.max_tokens} of them the answer's room`);
+  assert.equal(sent.messages[0].role, 'system');
+  assert.equal(textOf(sent.messages[0]), textOf(local.heard.find(each => each.body.messages.some((/** @type {any} */ message) => /What did the long message say\?/u.test(textOf(message))))?.body.messages[0]), 'the whole prompt');
+  assert.match(textOf(sent.messages.at(-1)), /Which line was last\?/u, 'the newest turn');
+  assert.ok(answers.length > 0 && textOf(answers[0]) === 'left out to fit this model', answers.map(textOf).map((/** @type {string} */ text) => text.slice(0, 60)).join('\n'));
+  const left = answers.findIndex((/** @type {any} */ answer) => textOf(answer) !== 'left out to fit this model');
+  assert.ok(left === -1 || answers.slice(left).every((/** @type {any} */ answer) => textOf(answer) !== 'left out to fit this model'), 'the oldest left out first');
 });
 
 test('a citation the page prints raw, or a step that hides its year: a range of handles, alone or in a list, is spelled out as the handles the conversation gave, each a capsule; one that names none is dropped; a day of another year says its year', async () => {
@@ -1193,7 +1349,7 @@ test('a follow-up whose live context was told another clock: after the home star
     onward.on('error', () => response.destroy());
     request.pipe(onward);
   });
-  const at = await listen(createHandler({ door, ask: { models: fauxModels, otherwise: fauxModel, machine, now: homeClock }, log: () => undefined }));
+  const at = await listen(createHandler({ door, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine, now: homeClock }, log: () => undefined }));
   /** @type {string[]} */
   const prompts = [];
   /** @type {string[]} */
@@ -1432,7 +1588,7 @@ test('a fault of the server\'s own that reaches the model or the person: a tool 
   });
   /** @type {Record<string, unknown>[]} */
   const lines = [];
-  const at = await listen(createHandler({ door: broken, ask: { models: fauxModels, otherwise: fauxModel, machine, now: homeClock }, log: line => void lines.push(line) }));
+  const at = await listen(createHandler({ door: broken, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine, now: homeClock }, log: line => void lines.push(line) }));
   const faults = () => lines.filter(line => line.fault !== undefined)
     .map(line => [line.tool, String(line.fault).includes('JSON'), Array.isArray(line.stack) && line.stack.length > 0]);
 
@@ -1531,7 +1687,7 @@ test('a link the model smuggles through a tool: a chat named by a link is refuse
 test('a stop that waits on a read: /ask/stop ends the door read in flight at once, and the turn is kept `stopped` and delivered', async () => {
   named('ask stop a read');
   const door = await stallingDoor(path => path === '/v1/read');
-  const at = await listen(createHandler({ door: door.url, ask: { models: fauxModels, otherwise: fauxModel, machine, now: homeClock }, log: () => undefined }));
+  const at = await listen(createHandler({ door: door.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine, now: homeClock }, log: () => undefined }));
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('read', { from: '2026-09-21', detail: 'lines' })], { stopReason: 'toolUse' }),
     fauxAssistantMessage('Never asked.'),
@@ -1553,7 +1709,7 @@ test('a chat\'s messages a stretch gave, cited: each named as the door describes
   /** @type {any[]} */
   let cited = [];
   const door = await stallingDoor(() => false);
-  const at = await listen(createHandler({ door: door.url, ask: { models: fauxModels, otherwise: fauxModel, machine, now: homeClock }, log: () => undefined }));
+  const at = await listen(createHandler({ door: door.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine, now: homeClock }, log: () => undefined }));
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('read', { from: `${DAY}T08:00`, to: `${DAY}T08:10` })], { stopReason: 'toolUse' }),
     context => {
@@ -1647,7 +1803,7 @@ test('two questions of one conversation that overlap while the second reads: a q
     if (holding !== '' && request.url === `/v1/privacy/chat/${holding}`) return void held.push(onward);
     onward();
   });
-  const at = await listen(createHandler({ door, ask: { models: fauxModels, otherwise: fauxModel, machine, now: homeClock }, log: () => undefined }));
+  const at = await listen(createHandler({ door, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine, now: homeClock }, log: () => undefined }));
   const letGo = () => {
     holding = '';
     for (const go of held.splice(0)) go();
@@ -1702,7 +1858,7 @@ test('a list that loses or repeats a conversation across pages: of 21 made in a 
   named('ask list pages');
   const own = await mkdtemp(join(tmpdir(), 'lifestream-mcp-list-'));
   try {
-    const at = await listen(createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock }, log: () => undefined }));
+    const at = await listen(createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock }, log: () => undefined }));
     faux.setResponses(Array.from({ length: 21 }, (_, index) => [fauxAssistantMessage(`Synthetic answer ${index + 1}.`), fauxAssistantMessage(`Synthetic chat ${index + 1}`)]).flat());
     /** @type {string[]} */
     const made = [];
@@ -1815,7 +1971,7 @@ test('a turn the home never holds, a list that misses it, a restart that forgets
   const logged = [];
   const log = (/** @type {unknown} */ line) => void logged.push(line);
   try {
-    const first = await listen(createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock, retryMs: 100 }, log }));
+    const first = await listen(createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock, retryMs: 100 }, log }));
     /** @type {(string | null)[]} */
     let firstAsked = [];
     faux.setResponses([
@@ -1850,7 +2006,7 @@ test('a turn the home never holds, a list that misses it, a restart that forgets
     assert.deepEqual(messages[1].content.refs, cited.refs);
     assert.deepEqual(messages[1].content.steps.map((/** @type {any} */ step) => step.line), ['search {query: lighthouse} → r1–r3 (2 found)']);
 
-    const again = await listen(createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock }, log }));
+    const again = await listen(createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock }, log }));
     /** @type {unknown} */
     let listedLast;
     await until(() => `the conversation listed from the home; the last list ${JSON.stringify(listedLast)}; the server logged ${JSON.stringify(logged)}`, async () => {
@@ -1919,7 +2075,7 @@ test('a list of conversations that hides one: two conversations the home holds, 
       const { records } = (await doorRead('/v1/records', { source: home.ask.source, kind: 'chat' })).body;
       return chats.every(chat => records.some((/** @type {any} */ record) => record.key === chat && record.content.title === 'Synthetic errands this week'));
     });
-    const fresh = await listen(createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock } }));
+    const fresh = await listen(createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock } }));
     const listed = (await getting('/ask/chats', { at: fresh })).body.chats.filter((/** @type {any} */ each) => chats.includes(each.chat));
     assert.deepEqual(listed.map((/** @type {any} */ each) => [each.chat, each.title, each.messages]),
       [[chats[1], 'Synthetic errands this week', 2], [chats[0], 'Synthetic errands this week', 2]]);
@@ -1978,7 +2134,7 @@ test('a turn lost to a home down across a restart, or landed twice: each deliver
   const logged = [];
   const log = (/** @type {unknown} */ line) => void logged.push(line);
   const { at, door, puts } = await deliveringDoor(folder, 'lost');
-  const server = () => createHandler({ door: at, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock, retryMs: 25 }, log });
+  const server = () => createHandler({ door: at, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock, retryMs: 25 }, log });
   const files = () => existsSync(folder) ? readdirSync(folder).sort() : [];
   try {
     await mkdir(join(own, 'ask'));
@@ -2058,7 +2214,7 @@ test('a turn lost to a crash once it is answered: the process killed as its answ
     const chat = kept.statements[0].key;
 
     const tried = puts.length;
-    await listen(createHandler({ door: at, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock, retryMs: 25 }, log: () => undefined }));
+    await listen(createHandler({ door: at, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock, retryMs: 25 }, log: () => undefined }));
     await until('a try after the restart, nothing asked', () => puts.length > tried);
     door.mode = 'up';
     await until('the turn taken', () => files().length === 0);
@@ -2080,7 +2236,7 @@ test('a turn said to be on disk that no disk holds, or a pending folder that can
     await mkdir(folder, { recursive: true });
     await copyFile(join(home.ask.machine, 'ask', 'door-token'), join(own, 'ask', 'door-token'));
     await chmod(folder, 0o000);
-    const at = await listen(createHandler({ door: home.url, ask: { models: fauxModels, otherwise: fauxModel, machine: own, now: homeClock }, log: line => void logged.push(line) }));
+    const at = await listen(createHandler({ door: home.url, ask: { reach: () => ({ models: fauxModels, model: fauxModel }), machine: own, now: homeClock }, log: line => void logged.push(line) }));
     assert.ok(logged.some(line => JSON.stringify(line).includes('cannot be read')), JSON.stringify(logged));
     const calls = faux.state.callCount;
     const refused = await asking({ question: 'Is the harbour quiet?' }, { at });
@@ -2109,7 +2265,8 @@ test('an ask that cannot be read: no pass, a body that is not JSON, no submissio
   const SUBMISSION = '0'.repeat(32);
   const status = await fetch(`${url}/ask`, { headers: { authorization: `Bearer ${home.tokens.reader}` } });
   const ready = /** @type {any} */ (await status.json());
-  assert.deepEqual([ready.model, ready.login, ready.default, ready.models.map((/** @type {any} */ each) => each.id)], ['faux-1', 'ready', { model: 'faux-1' }, ['faux-1', 'faux-2']]);
+  assert.deepEqual([ready.model, ready.login, ready.default], [home.chat.cloud, 'ready', { model: home.chat.cloud, thinking: 'medium', shown: home.chat.cloud, choose: null }]);
+  assert.ok(ready.models.some((/** @type {any} */ each) => each.id === home.chat.local), JSON.stringify(ready.models));
   const bare = await fetch(`${url}/ask`, { method: 'POST', body: '{"question":"x"}' });
   assert.equal(bare.status, 401);
   for (const [method, path] of [['DELETE', '/ask'], ['GET', '/ask/stop'], ['DELETE', '/ask/chats'], ['POST', '/ask/chats'], ['POST', '/ask/chats/1790000000000-abcdef']]) {

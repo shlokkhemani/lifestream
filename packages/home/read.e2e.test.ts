@@ -14,7 +14,7 @@ import { ANSWER_CHARS } from "./call.js";
 import { lineRef, makeRef, readRef } from "./refs.js";
 import { answerOf, citation, type ReadAnswer, type RoutePath } from "./search-contract.js";
 import { searchFileOf } from "./search-index.js";
-import { artifact, hex, LOOK_MS, makeRoot, readHome, removeRoot, settled, TICK_MS, until } from "./test/harness-root.js";
+import { artifact, FAKE_ROUTE, hex, LOOK_MS, makeRoot, readHome, removeRoot, settled, TICK_MS, until } from "./test/harness-root.js";
 import { ship } from "./test/harness-deliveries.js";
 import { openHomeFolder } from "@lifestreamprotocol/core";
 
@@ -254,7 +254,7 @@ describe("read: refs and chats", () => {
     const as = async (token: string, route: RoutePath, args: Record<string, string | readonly string[]>): Promise<{ status: number; body: any }> => {
       const response = token === turn
         ? await fetch(`http://127.0.0.1:${door.port}${route}`, {
-          method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ args, to: "codex:synthetic-model", shown: [] }),
+          method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ args, to: FAKE_ROUTE, shown: [] }),
         })
         : await fetch(`http://127.0.0.1:${door.port}${route}?${new URLSearchParams(Object.entries(args).flatMap(([name, value]) => [value].flat().map((each): [string, string] => [name, each])))}`, { headers: { authorization: `Bearer ${token}` } });
       const body = await response.json() as Record<string, unknown>;

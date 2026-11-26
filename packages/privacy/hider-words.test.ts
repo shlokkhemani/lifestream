@@ -19,7 +19,7 @@ const PEOPLE: NameTable = {
     { who: "b-quill", is: "business", shown: "Quillbank", names: ["Quillbank"], accounts: [] },
   ],
 };
-const SETTINGS: PrivacySettings = { level: "all", chat: "all", detector: "runner-macbook-pro-0001", links: "tokens", always: [], never: [] };
+const SETTINGS: PrivacySettings = { level: "all", chat: "all", links: "tokens", always: [], never: [] };
 const NO_PICTURES: Pictures = { read: () => Promise.reject(new Error("no picture here")), make: () => Promise.reject(new Error("no picture here")) };
 
 let stores = 0;
@@ -121,7 +121,9 @@ describe("a model not used", () => {
     const used = await hider(fakeDetector({ Quorvel: "person" })).hide([[{ text: "Quorvel wrote.", free: true }]], "all", emptyTable("ask:u"));
     expect(used).toMatchObject({ texts: ["[[Person 1]] wrote."], detector: "fake-filter" });
     expect(used).not.toHaveProperty("fallback");
-    expect(await hider(fakeDetector({}), { detector: "off" }).hide([[{ text: "Quorvel wrote.", free: true }]], "all", emptyTable("ask:o"))).not.toHaveProperty("fallback");
+    const off = fakeDetector({});
+    off.set({ state: "off" });
+    expect(await hider(off).hide([[{ text: "Quorvel wrote.", free: true }]], "all", emptyTable("ask:o"))).not.toHaveProperty("fallback");
   });
 });
 

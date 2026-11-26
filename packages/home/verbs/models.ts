@@ -1,6 +1,6 @@
-import { unfit, WORK_KINDS, workNeed, type WorkKind } from "@lifestreamprotocol/model";
+import { MODEL_USES, unfit, unfitWords, USE_IDS, type UseId } from "@lifestreamprotocol/model";
 import { chooseFor } from "../made.js";
-import { modelsRead, OFF_STEP, type ModelsRead } from "../models-read.js";
+import { CHOOSE_MODEL, modelsAt, modelsRead, OFF_STEP, type ModelsRead } from "../models-read.js";
 import { itemUsesOf, readRouting, runnerPause, storedModels, type StoredModels } from "../models.js";
 import { heldRunners } from "../principals.js";
 import { refuse } from "../refusal.js";
@@ -10,31 +10,40 @@ import { fail, type VerbContext } from "./context.js";
 import { lift, stand } from "./loop.js";
 import { CLI } from "../cli-name.js";
 
-const USAGE = "models | models default <pictures|audio|text> <route|none> | models file <runner unit> <file id> fetch|remove | "
+const USAGE = `models | models default <${USE_IDS.join("|")}> <model|none> [--thinking <level>] | models file <runner unit> <file id> fetch|remove | `
   + "models runner <runner unit> pause [--reason <words>] | models runner <runner unit> resume | models battery <runner unit> save|spend | "
-  + "models address <url> <model> <kinds,comma-separated> | models address none | models process <family> <item> <prompt> <route>";
+  + "models address <url> [text|text,image] | models address none | models process <family> <item> <prompt> <route>";
 
 const PROCESS_REFUSED = "PROCESS_REFUSED";
 const NO_RUNNER = "That runner isn't connected.";
+export const CHAT_NEEDS_MODEL = "Chat always has a model: choose one to answer in Chat.";
 
 export async function models(ctx: VerbContext, args: readonly string[]) {
-  const { positionals, values } = readArgs("models", args, { reason: { type: "string" } }, USAGE, { min: 0, max: 5 });
+  const { positionals, values } = readArgs("models", args, { reason: { type: "string" }, thinking: { type: "string" } }, USAGE, { min: 0, max: 5 });
   const [action, ...rest] = positionals;
   const usage = (): never => fail(`usage: ${CLI} ${USAGE}`);
   if (values.reason !== undefined && !(action === "runner" && rest[1] === "pause")) fail("--reason states why a runner's calls pause: models runner <runner unit> pause --reason <words>");
+  if (values.thinking !== undefined && !(action === "default" && rest[0] === "chat" && rest[1] !== OFF_STEP.value)) fail("--thinking states the level Chat's model thinks at: models default chat <model> --thinking <level>");
   switch (action) {
     case undefined:
       return printed(ctx, readOf(ctx));
     case "default": {
-      const [kind, value, ...more] = rest;
-      if (kind === undefined || value === undefined || more.length > 0) return usage();
-      if (!WORK_KINDS.includes(kind as WorkKind)) fail(`models default takes a kind: ${WORK_KINDS.join(", ")}`);
+      const [use, value, ...more] = rest;
+      if (use === undefined || value === undefined || more.length > 0) return usage();
+      if (!USE_IDS.includes(use as UseId)) fail(`models default takes a use: ${USE_IDS.join(", ")}`);
+      if (use === "chat" && value === OFF_STEP.value) fail(CHAT_NEEDS_MODEL);
+      const members: Record<string, string | null> = { [`model.defaults.${use}`]: value === OFF_STEP.value ? null : value };
       if (value !== OFF_STEP.value) {
         const routes = storedOf(ctx).routes.filter((each) => each.offered);
         const route = routes.find((each) => each.id === value) ?? fail(`no model ${value}; the home reaches ${routes.map((each) => each.id).join(", ") || "none"}`);
-        if (unfit(route, workNeed({ kind: kind as WorkKind })) !== null) fail(`${route.name} does not take ${kind}`);
+        const why = unfit(route, MODEL_USES[use as UseId].need);
+        if (why !== null) fail(`${unfitWords(route.name, why)}: it can't be the ${MODEL_USES[use as UseId].label} model`);
+        if (values.thinking !== undefined) {
+          if (!route.thinking.includes(values.thinking)) fail(`${route.name} thinks at ${route.thinking.join(", ") || "no level"}, not ${values.thinking}`);
+          members[`model.thinking.${use}`] = values.thinking;
+        }
       }
-      planned(ctx.folder, { [`model.defaults.${kind}`]: value === OFF_STEP.value ? null : value }).write();
+      planned(ctx.folder, members).write();
       break;
     }
     case "file": {
@@ -47,7 +56,7 @@ export async function models(ctx: VerbContext, args: readonly string[]) {
         if (!storedOf(ctx).runners.some((each) => each.unit === unit)) await ctx.readModels?.();
         const runner = storedOf(ctx).runners.find((each) => each.unit === unit) ?? fail(NO_RUNNER);
         const file = runner.files.find((each) => each.id === id) ?? fail(`${runner.name}'s runner doesn't have ${id}.`);
-        if (file.detector !== undefined) fail(`${id} is the hiding model: it downloads while privacy.detector names this runner (${CLI} settings set privacy.detector ${unit}), and is removed when it does not.`);
+        if (file.detector !== undefined) fail(`${id} is the hiding model: it downloads while Hiding details names it (${CLI} models default hiding runner:${unit}/${id}), and is removed when it does not.`);
       }
       const next = act === "fetch" ? [...new Set([...files, id])] : files.filter((each) => each !== id);
       if (next.length === 0) reset(ctx.folder, key);
@@ -76,13 +85,13 @@ export async function models(ctx: VerbContext, args: readonly string[]) {
       break;
     }
     case "address": {
-      const [url, model, kinds, ...more] = rest;
-      if (url === "none" && model === undefined) {
+      const [url, input, ...more] = rest;
+      if (url === "none" && input === undefined) {
         reset(ctx.folder, "model.transports.address");
         break;
       }
-      if (url === undefined || model === undefined || kinds === undefined || more.length > 0) return usage();
-      planned(ctx.folder, { "model.transports.address": { url, model, kinds: kinds.split(",").map((kind) => kind.trim()).filter((kind) => kind !== "") } }).write();
+      if (url === undefined || more.length > 0) return usage();
+      planned(ctx.folder, { "model.transports.address": { url, ...(input === undefined ? {} : { input: input.split(",").map((each) => each.trim()).filter((each) => each !== "") }) } }).write();
       break;
     }
     case "process": {
@@ -119,20 +128,18 @@ export function storedOf(ctx: Pick<VerbContext, "db">): StoredModels {
 
 function readOf(ctx: VerbContext): ModelsRead {
   const { settings } = effective(ctx.folder);
-  const view = ctx.db.view();
-  try {
-    return modelsRead(storedModels(view.tables.meta), settings.model, settings.defaults, { pauses: view.tables.controls.list(), runners: settings.runners, now_ms: ctx.now(), day: settings.day });
-  } finally {
-    view.close();
-  }
+  return modelsRead(storedOf(ctx), modelsAt(settings));
 }
 
 function printed(ctx: VerbContext, read: ModelsRead): ModelsRead {
   const routes = storedOf(ctx).routes.filter((each) => each.offered);
   for (const route of routes) ctx.out(`${route.id}  ${route.name} · ${itemUsesOf(route).join(", ")} · ${route.line ?? route.where}`);
   if (routes.length === 0) ctx.out("no model the home reaches");
-  for (const kind of WORK_KINDS) ctx.out(`${kind}: ${read.defaults[kind].words}`);
-  ctx.out(`OpenRouter: ${read.openrouter.connected ? "key held" : "no key"}`);
-  if (read.address !== null) ctx.out(`address: ${read.address.words} · ${read.address.takes}`);
+  for (const use of USE_IDS) {
+    const { value, thinking } = read.uses[use];
+    const name = value === null ? use === "chat" ? CHOOSE_MODEL : OFF_STEP.words : read.models[value]?.name ?? value;
+    ctx.out(`${use}: ${name}${thinking !== null && value !== null ? ` · thinks at ${thinking}` : ""}`);
+  }
+  for (const connection of read.connections) ctx.out(`${connection.name}: ${connection.line ?? "ready"}`);
   return read;
 }

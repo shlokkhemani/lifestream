@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  askAnswer, askLevel, askPick, askQuestion, askStarters, askSteps, askTurn, composer, composerAttach, closed, icon, setIcons, thoughtFor,
+  askAnswer, askFound, askLevel, askPick, askQuestion, askStarters, askSteps, askTurn, composer, composerAttach, closed, icon, setIcons, thoughtFor,
 } from '../public/ui/kit/index.js';
 import { Marked } from 'marked';
 
@@ -37,10 +37,11 @@ test('P1: the composer draws the tools passed, the send circle last, dim until t
 const PICK = {
   model: 'Opus', level: 'Medium', thinking: 'medium',
   levels: [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }],
-  models: [{ group: 'Claude', choices: [{ id: 'claude/opus', name: 'Opus' }, { id: 'claude/sonnet', name: 'Sonnet' }] },
-    { group: 'ChatGPT', choices: [{ id: 'gpt-terra', name: 'GPT Terra' }] }],
+  menu: { default: null, rows: [{ value: 'claude/opus', name: 'Opus', account: 'Claude', chosen: true }, { value: 'openrouter/opus', name: 'Opus', account: 'OpenRouter', chosen: false }],
+    local: { label: 'Local', rows: [{ value: 'runner/qwen', name: 'Qwen 3.5', account: null, chosen: false }] }, more: { words: 'More', use: /** @type {const} */ ('chat'), work: null }, off: null },
   chosen: 'claude/opus',
 };
+const FIND = { placeholder: 'Search', none: '', found: { rows: [{ value: 'openrouter:vendor-b/model-1', name: 'Model One', account: null, chosen: false }], local: null } };
 
 /** @param {string} markup */
 const rows = markup => [...markup.matchAll(/<(div|span)([^>]*class="(ck-flist__item|ck-flist__head)[^"]*"[^>]*)>(.*?)(?=<(?:div|span)[^>]*class="ck-flist__(?:item|head)|<hr|<\/div><\/div>$)/gu)]
@@ -48,10 +49,12 @@ const rows = markup => [...markup.matchAll(/<(div|span)([^>]*class="(ck-flist__i
     kind: kind === 'ck-flist__head' ? 'head' : 'item', value: /data-value="([^"]*)"/u.exec(attrs)?.[1] ?? '',
     words: (/<span class="ck-flist__label">([^<]*)</u.exec(inner)?.[1] ?? inner.replace(/<[^>]*>/gu, '')).trim(),
     page: /data-ck-page-of="([^"]*)"/u.exec(attrs)?.[1], shown: !/\shidden/u.test(attrs),
-    checked: /aria-checked="true"/u.test(attrs),
+    checked: /aria-checked="true"/u.test(attrs), note: /class="ck-flist__note[^"]*">([^<]*)</u.exec(inner)?.[1] ?? '',
+    tag: /class="ck-flist__tag[^"]*">([^<]*)</u.exec(inner)?.[1] ?? '',
+    off: /aria-disabled="true"/u.test(attrs),
   }));
 
-test('P2: the pick chip says the model and its level; its menu is Thinking, then Model › as a page of its own, Reset while not the default', () => {
+test('P2: the pick chip says the model and its level; its menu is Thinking, then Model › as a page of its own, Reset while not the default; each model is its name, its account only beside a name held twice, local ones under Local', () => {
   const markup = askPick({ ...PICK, reset: true });
   assert.match(markup, /<span class="ck-pick__words">Opus · Medium<\/span>/u);
   const all = rows(markup);
@@ -60,16 +63,30 @@ test('P2: the pick chip says the model and its level; its menu is Thinking, then
     ['head', 'Thinking', '', false], ['item', 'Low', 'thinking:low', false], ['item', 'Medium', 'thinking:medium', true],
     ['item', 'High', 'thinking:high', false], ['item', 'Model', 'models', false], ['item', 'Reset to default', 'reset', false],
   ]);
-  assert.match(markup, /<div [^>]*class="ck-flist__item mac-body ck-fmenu__item ck-pick__more"[^>]*data-ck-page="models"|<div [^>]*data-ck-page="models"[^>]*class="ck-flist__item mac-body ck-fmenu__item ck-pick__more"/u);
+  assert.match(markup, /<div [^>]*class="ck-flist__item mac-body ck-fmenu__item ck-flist__more"[^>]*data-ck-page="models"|<div [^>]*data-ck-page="models"[^>]*class="ck-flist__item mac-body ck-fmenu__item ck-flist__more"/u);
   const models = all.filter(row => row.page === 'models');
   assert.ok(models.every(row => !row.shown), 'a model shown on the first page');
-  assert.deepEqual(models.map(row => [row.kind, row.words, row.value, row.checked]), [
-    ['head', 'Claude', '', false], ['item', 'Opus', 'model:claude/opus', true], ['item', 'Sonnet', 'model:claude/sonnet', false],
-    ['head', 'ChatGPT', '', false], ['item', 'GPT Terra', 'model:gpt-terra', false],
+  assert.deepEqual(models.map(row => [row.kind, row.words, row.value, row.checked, row.note, row.tag]), [
+    ['item', 'Opus', 'model:claude/opus', true, '', 'Claude'], ['item', 'Opus', 'model:openrouter/opus', false, '', 'OpenRouter'],
+    ['head', 'Local', '', false, '', ''], ['item', 'Qwen 3.5', 'model:runner/qwen', false, '', ''],
   ]);
   assert.doesNotMatch(askPick(PICK), /Reset to default/u);
-  const one = rows(askPick({ ...PICK, models: PICK.models.slice(0, 1), page: 'models', active: 1 }));
-  assert.deepEqual(one.filter(row => row.shown).map(row => row.words), ['Model', 'Opus', 'Sonnet']);
+  const one = rows(askPick({ ...PICK, page: 'models', active: 7 }));
+  assert.deepEqual(one.filter(row => row.shown).map(row => row.words), ['Opus', 'Opus', 'Local', 'Qwen 3.5']);
+});
+
+test('P2b: More ends Model ›, a page of its own: a field in the home\'s words, then the models the home found, each picked as a menu row is; none found, the home\'s line', () => {
+  const markup = askPick({ ...PICK, find: FIND });
+  const all = rows(markup);
+  const last = all.filter(row => row.page === 'models').at(-1);
+  assert.deepEqual([last?.words, last?.value], ['More', 'other']);
+  assert.match(markup, /data-value="other"[^>]*data-ck-page="other"|data-ck-page="other"[^>]*data-value="other"/u);
+  assert.match(markup, /<input[^>]*class="ck-pick__find mac-body"[^>]*placeholder="Search"/u);
+  assert.deepEqual(all.filter(row => row.page === 'other').map(row => [row.words, row.value, row.shown]), [['Model One', 'model:openrouter:vendor-b/model-1', false]]);
+  const opened = rows(askPick({ ...PICK, find: FIND, page: 'other', active: 0 }));
+  assert.deepEqual(opened.filter(row => row.page === 'other').map(row => row.shown), [true]);
+  assert.doesNotMatch(askPick(PICK), /data-value="other"/u);
+  assert.match(askFound({ rows: [], local: null }, '', 'No matches'), /<p[^>]*data-ck-page-of="other"[^>]*>No matches<\/p>/u);
 });
 
 test('P8: the level chip is the pick chip\'s shape, its glyph and its words; its menu Sensitive information over the three levels, the kept one checked; dimmed while an answer runs', () => {

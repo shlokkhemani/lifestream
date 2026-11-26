@@ -5,7 +5,7 @@ import { MODELS } from '../public/kit-gallery-llm.js';
 import { subscriptionOf } from '../public/lib/host.js';
 import { sessionOf } from '../public/ui/flows/model.js';
 import { backOf, heldSpan, keepSpan, keptSpan, landing, leftAs, owed, resume, SCREENS } from '../public/ui/onboarding/model.js';
-import { mediaOf, MOVING_LINE, NO_CHANGES, partsOf, rangeOf, SCRAMBLE_CAUGHT_PERCENT } from '../public/ui/onboarding/view.js';
+import { mediaPlaces, MOVING_LINE, NO_CHANGES, partsOf, rangeOf, SCRAMBLE_CAUGHT_PERCENT } from '../public/ui/onboarding/view.js';
 
 /** @typedef {import('../public/lib/host.js').HostState} HostState */
 /** @typedef {import('../public/types.js').StartCost} StartCost */
@@ -216,30 +216,34 @@ test('S10: a set up that fails after Login Items says the host’s words, with B
   assert.doesNotMatch(login.foot.note ?? '', /Waiting for you/u);
 });
 
-test('S6: images and audio: a plan offered only once connected, ChatGPT by its codex route, a model this Mac can’t hold named with why, Off first', () => {
-  const pictures = MODELS.defaults.pictures;
-  const both = { ...MODELS, defaults: { ...MODELS.defaults, pictures: { ...pictures,
-    steps: [...pictures.steps, { value: 'codex:plan-model-2', words: 'Plan model 2', note: null }] } } };
-  const choices = (/** @type {any} */ login, /** @type {any} */ models = both) => mediaOf(seenOf({ ask_login: login }), models, 'pictures').choices;
+test('S6: images and audio: the places the home names, each disabled with its line or named by its model; the chosen place, or the model picked elsewhere; Off first', () => {
+  const QWEN = 'runner:runner-macbook-pro-0001/qwen3.5-4b';
+  const PLAN = 'claude:plan-model-1';
+  const VISION = 'openrouter:vendor-a/vision-1';
+  /** @param {string | null} value @param {Partial<import('../public/pages.js').ModelPlace>} [claude] */
+  const modelsOf = (value, claude = {}) => ({ ...MODELS, uses: MODELS.uses.map(use => use.use !== 'pictures' ? use : { ...use, value,
+    line: value === QWEN ? 'Downloading, 0.3 of 4.0 GB' : null, words: value === null ? 'Off' : [...use.menu.rows, ...use.menu.local?.rows ?? []].find(each => each.value === value)?.name ?? '',
+    places: [{ place: 'On this Mac', value: QWEN, line: 'Download Qwen 3.5 4B · 4.0 GB', ready: true, leaves: false },
+      { place: 'Claude', value: PLAN, line: 'Connect Claude first', ready: false, leaves: true, ...claude }] }) });
+  const off = mediaPlaces(modelsOf(null), 'pictures');
+  assert.deepEqual(off.choices.map(each => [each.value, each.words, each.note, each.disabled]), [
+    [QWEN, 'On this Mac', 'Download Qwen 3.5 4B · 4.0 GB', false], [PLAN, 'Claude', 'Connect Claude first', true]], 'the home\'s places, in its order');
+  assert.deepEqual([off.chosen, off.words, off.off, off.line], [null, 'Off', true, '']);
+  assert.equal(mediaPlaces(modelsOf(null, { line: null, ready: true }), 'pictures').choices[1].note, 'Plan Model One', 'a ready place names its model');
+  const local = mediaPlaces(modelsOf(QWEN), 'pictures');
+  assert.deepEqual([local.chosen?.words, local.words, local.off, local.line], ['On this Mac', 'On this Mac', false, 'Downloading, 0.3 of 4.0 GB']);
+  const elsewhere = mediaPlaces(modelsOf(VISION), 'pictures');
+  assert.deepEqual([elsewhere.chosen, elsewhere.words, elsewhere.off], [null, 'Vision One', false], 'a model picked in Settings reads its name');
+  assert.deepEqual(mediaPlaces(null, 'audio'), { choices: [], chosen: null, words: 'Off', off: true, line: '' });
   const absent = { chatgpt: subscriptionOf({ state: 'absent' }), claude: subscriptionOf({ state: 'absent' }) };
-  const claude = choices(absent).find(each => each.words === 'Claude');
-  assert.equal(claude?.disabled, true);
-  assert.equal(claude?.note, 'Connect Claude first');
-  assert.equal(choices(absent).find(each => each.words === 'ChatGPT')?.note, 'Connect ChatGPT first');
-  assert.deepEqual(choices(absent).map(each => each.words), ['Claude', 'On this Mac', 'ChatGPT'], 'a plan or this Mac, nothing else');
-  const signed = { ...absent, chatgpt: subscriptionOf({ state: 'signed_in', account: 'person-a@example.com', plan: 'plus' }) };
-  assert.equal(choices(signed).find(each => each.words === 'ChatGPT')?.disabled, false);
-  assert.equal(choices(signed).find(each => each.words === 'Claude')?.disabled, true);
-  const needs = 'Describes photos and sums up text · 4 GB · Needs 16 GB of memory';
-  const small = { ...both, runners: both.runners.map(runner => ({ ...runner, files: runner.files.map(file => ({ ...file, fits: false,
-    about: file.name === 'Qwen 3.5' ? needs : file.about })) })) };
-  const local = choices(absent, small).filter(each => each.here);
-  assert.ok(local.length > 0);
-  assert.ok(local.every(each => each.disabled && each.note === `Qwen 3.5 · ${needs}`));
-  const media = partsOf('media', seenOf({ ask_login: absent }), sessionWith({ changes: { ...NO_CHANGES,
-    models: { read: MODELS, drawn: null, failed: '' } } }), null);
-  assert.match(media.body ?? '', /Describe photos and screenshots/u);
-  assert.match(media.foot.note ?? '', /Models download in the background\./u);
+  /** @param {any} models */
+  const media = models => partsOf('media', seenOf({ ask_login: absent }), sessionWith({ changes: { ...NO_CHANGES,
+    models: { read: models, drawn: null, failed: '' } } }), null);
+  const drawn = media(modelsOf(null));
+  assert.match(drawn.body ?? '', /Describe photos and screenshots/u);
+  assert.match(drawn.foot.note ?? '', /Models download in the background\./u);
+  assert.doesNotMatch(drawn.body ?? '', /Faces and personal details/u, 'nothing leaves: no covered faces');
+  assert.match(media(modelsOf(PLAN, { line: null, ready: true })).body ?? '', /Sent to Claude/u, 'a place that sends the photo shows its faces covered');
 });
 
 test('S7: the ai screen says its caught share from the one constant', () => {

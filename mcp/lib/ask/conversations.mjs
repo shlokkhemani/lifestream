@@ -828,6 +828,12 @@ function syncFolder(folder) {
 /**
  * @param {string} machine
  * @param {string} door
+ */
+export const modelsRead = (machine, door) => serverCall(machine, door, 'POST', '/v1/models/read');
+
+/**
+ * @param {string} machine
+ * @param {string} door
  * @param {'GET' | 'POST' | 'PUT' | 'DELETE'} method
  * @param {string} path
  * @param {Record<string, unknown> | Buffer} [body]

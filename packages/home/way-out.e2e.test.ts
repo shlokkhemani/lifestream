@@ -38,7 +38,7 @@ const SAM1 = "phone:+15550000004";
 const SAM2 = "phone:+15550000005";
 const ROSE = "phone:+15550000006";
 const MODEL: DetectorModel = { id: "fake-filter", file: "sha256:00", decode: "1" };
-const PRIVACY: PrivacySettings = { level: "all", chat: "all", detector: "runner-macbook-pro-0001", links: "tokens", always: [], never: [] };
+const PRIVACY: PrivacySettings = { level: "all", chat: "all", links: "tokens", always: [], never: [] };
 const NAMES: NameTable = {
   version: "people-1", owner: { who: "person:owner", shown: "Owner Example" },
   people: [
@@ -239,7 +239,7 @@ function homeOf(more: More = {}): Home {
     ...stated === undefined ? [] : [stated.family],
   ] as unknown as Family[];
   const reads = openReads({
-    folder: openHomeFolder(root), home: new HomeFile(openHomeFolder(root)), blobs: undefined as never, settings: () => ({ day: CLOCK, search: { meaning: "off", model: "none", power: "plugged-idle" } }) as Settings,
+    folder: openHomeFolder(root), home: new HomeFile(openHomeFolder(root)), blobs: undefined as never, settings: () => ({ day: CLOCK, defaults: { search: null }, search: { power: "plugged-idle" } }) as Settings,
     registry: { connectors: [], readers: [], families } as unknown as Registry,
     streams: { feed: undefined as never, serves: async () => false, card: async () => undefined, open: new ErasableStreams(), checked: (_name, read) => read() },
   });
@@ -288,7 +288,7 @@ function homeOf(more: More = {}): Home {
         return detector.find(passages);
       },
     },
-    hidingFile: () => "privacy-filter", pictures: { read: async () => ({ cannot: "no" }), make: async () => ({ cannot: "no" }) } as never, marks,
+    chosen: () => "runner:runner-macbook-pro-0001/privacy-filter", hidingFile: () => "privacy-filter", pictures: { read: async () => ({ cannot: "no" }), make: async () => ({ cannot: "no" }) } as never, marks,
     existing: async () => [],
     writer: levelled(openHomeFolder(root), {
       epoch: () => writer.epoch(), level: writer.level.bind(writer), part: (...args) => writer.part(...args), outbound: (...args) => writer.outbound(...args), list: (...args) => writer.list(...args),
@@ -301,7 +301,7 @@ function homeOf(more: More = {}): Home {
         return writer.save(...args);
       },
     }, NOW_MS),
-    progress: () => null, day: () => CLOCK, clock: () => NOW_MS, log: () => undefined, route,
+    progress: () => null, day: () => CLOCK, clock: () => NOW_MS, log: () => undefined, route, leavesOf: async () => "OpenAI",
   });
   return {
     hiding, writer, routed, gate, screenBusy, narrow, names, erase, steps, model,

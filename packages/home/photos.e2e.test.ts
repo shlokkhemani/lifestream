@@ -620,7 +620,7 @@ describe("photos from a phone, a Mac and a Takeout", () => {
       door = await serve();
       const phone11: Snap = { lid: "PHONE-11/L0/001", cloud: "CLOUD-0011", taken: at("11:20:00"), name: "IMG_0011.HEIC" };
       await phoneShip([{ kind: "asset", payload: asset(phone11) }], [], undefined, Date.now() - 3_600_000);
-      await until("a photo landed while the disk is short", () => count("SELECT count(*) FROM deliveries WHERE source = ? AND state = 'imported'", PHONE) === shipped[PHONE]);
+      await until("a photo landed while the disk is short, and its photo read", () => count("SELECT count(*) FROM deliveries WHERE source = ? AND state = 'imported'", PHONE) === shipped[PHONE] && photoWith(stored(), PHONE, "PHONE-11/") !== undefined);
       seen = await report("disk-short");
       expect([seen.answer.phone.photos, seen.answer.mac.photos, seen.answer.phone.left.wanted > 0, seen.of(PHONE, "PHONE-11/")?.records])
         .toEqual([[], [], true, [["phone", "PHONE-11/L0/001:null", 0]]]);

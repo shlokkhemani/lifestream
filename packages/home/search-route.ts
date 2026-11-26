@@ -1,4 +1,5 @@
 import { addDays, civilDay, dayBounds, type DaySettings, type RecordRef } from "@lifestreamprotocol/core";
+import { readRouteId } from "@lifestreamprotocol/model";
 import { earliest, opensAt } from "@lifestreamprotocol/privacy";
 import { handleOfId } from "@lifestreamprotocol/families";
 import { ASK_PRODUCT, type PeopleMap } from "./counting.js";
@@ -17,12 +18,24 @@ import { meaningMatches, meaningStanding, vectorOf, vectorScan, type HeldMeaning
 import { argsOf, familyOf, paramsOf, searchParams, storedFamilies, type RecordHit, type RecordList, type ScreenHit, type ScreenList, type SearchAnswer, type SearchParams } from "./search-contract.js";
 import type { RecordRead, SearchCursor } from "./search-index.js";
 import { placeFold, readQuery, RECORD_WORDS, SCREEN_WORDS, tokens, wordsIn, wordsOfTerms, type Read } from "./search-words.js";
-import type { SearchSettings } from "./settings.js";
+import { chosenFor, type Settings } from "./settings.js";
 import { notBuilding, PERSONS_MAX, personsAsked } from "./count.js";
 
 
+export interface MeaningModel {
+  unit: string;
+  file: string;
+  power: Settings["search"]["power"];
+}
+
+export function meaningModel(settings: Pick<Settings, "defaults" | "search">): MeaningModel | null {
+  const id = chosenFor(settings, "search");
+  const route = id === null ? null : readRouteId(id);
+  return route?.runner === undefined ? null : { unit: route.runner, file: route.model, power: settings.search.power };
+}
+
 export interface ScreenOptions {
-  search: SearchSettings;
+  meaningModel: MeaningModel | null;
   file: string;
   meaning?: HeldMeaning;
   lent?: Lent;
@@ -460,9 +473,9 @@ async function meaningOf(
 ): Promise<{ state: ScreenList["meaning"]; waits?: string; matches: MeaningMatch[] }> {
   const lent = context.lent?.meaning;
   if (quotedAll(lent !== undefined && "words" in lent ? lent.words : q)) return { state: "not_asked", matches: [] };
-  if (context.search.meaning === "off") return { state: "off", matches: [] };
+  if (context.meaningModel === null) return { state: "off", matches: [] };
   if (lent !== undefined && "withheld" in lent) return { state: "withheld", matches: [] };
-  const standing = meaningStanding(read.db, context.search);
+  const standing = meaningStanding(read.db, context.meaningModel);
   if (!standing.available) return { state: "waits", waits: MEANING_NOT_READY, matches: [] };
   const held = context.meaning;
   const waits = held !== undefined && "waits" in held ? held.waits : standing.waits?.line;

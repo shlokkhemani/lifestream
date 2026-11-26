@@ -130,3 +130,63 @@ function collect(child: ChildProcessWithoutNullStreams, { stdin, signal, line }:
     child.stdin.end(stdin);
   });
 }
+
+export interface Conversing<T> {
+  env: NodeJS.ProcessEnv;
+  cwd?: string;
+  bound_ms: number;
+  opening: readonly unknown[];
+  heard: (message: Record<string, unknown>, write: (message: unknown) => void) => T | undefined;
+}
+
+export function converse<T>(name: string, at: ProgramAt, args: readonly string[], conversing: Conversing<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(at.binary, args, { detached: true, stdio: ["pipe", "pipe", "pipe"], env: conversing.env, ...(conversing.cwd === undefined ? {} : { cwd: conversing.cwd }) });
+    } catch (error) {
+      reject(new Error(`${name} binary ${at.binary} cannot run: ${errorText(error)}`));
+      return;
+    }
+    let settled = false;
+    const end = (settle: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(late);
+      settle();
+      child.stdin.destroy();
+      if (child.pid !== undefined) {
+        try { process.kill(-child.pid, "SIGKILL"); } catch {
+        }
+      }
+    };
+    const late = setTimeout(() => end(() => reject(new Error(`${name} did not answer within ${conversing.bound_ms / 1000} s`))), conversing.bound_ms);
+    const write = (message: unknown) => { if (!settled) child.stdin.write(`${JSON.stringify(message)}\n`); };
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderr = `${stderr}${chunk}`.slice(-2_000); });
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      for (let newline = stdout.indexOf("\n"); newline >= 0 && !settled; newline = stdout.indexOf("\n")) {
+        const line = stdout.slice(0, newline);
+        stdout = stdout.slice(newline + 1);
+        let value: unknown;
+        try { value = JSON.parse(line); } catch { continue; }
+        if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+        try {
+          const answer = conversing.heard(value as Record<string, unknown>, write);
+          if (answer !== undefined) end(() => resolve(answer));
+        } catch (error) {
+          end(() => reject(error));
+        }
+      }
+    });
+    child.stdin.on("error", () => {
+    });
+    child.once("error", (error) => end(() => reject(new Error(`${name} binary ${at.binary} cannot run: ${errorText(error)}`))));
+    child.once("close", (code) => end(() => reject(new Error(`${name} ended before it answered (exit ${code ?? "by signal"}): ${stderr.trim()}`))));
+    for (const message of conversing.opening) write(message);
+  });
+}

@@ -290,16 +290,19 @@ struct StreamMenu: View {
     var signal: Cockpit.SignalKind?
     let separator: Bool
     @ObservedObject var home: HomeConnectorsModel
+    @Environment(\.openConnectors) private var open
 
     var body: some View {
         let key = MemberChanges.key(connector.id, member.key)
         let at = member.value?.key ?? ""
+        let options = member.menu.map(ModelFind.options) ?? (member.steps ?? []).map { MenuRow.Option($0.value, $0.words, note: $0.note) }
         SettingRow(member.label, about: line == nil ? nil : member.about, waiting: member.waitingLine, only: member.only,
                    problem: home.changes.problem(key, read: home.failure), line: line ?? member.about, signal: signal, separator: separator) {
             MenuRow(member.label, selection: Binding(get: { at }, set: { next in
                 guard next != at else { return }
+                if next == ModelFind.opens { return open(.model(connector.id, member.key)) }
                 Task { await home.set(connector, member.key, .string(next), was: member.value) }
-            }), options: (member.steps ?? []).map { MenuRow.Option($0.value, $0.words, note: $0.note) },
+            }), options: options,
                     default: member.default.map(\.key), busy: home.changes.busy.contains(key), words: member.words, flush: .trailing)
                 .accessibilityIdentifier("connector.setting.\(member.key)")
         } held: {
