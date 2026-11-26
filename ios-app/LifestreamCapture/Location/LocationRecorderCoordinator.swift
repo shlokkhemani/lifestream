@@ -368,8 +368,8 @@ final class LocationRecorderCoordinator: NSObject, @preconcurrency CLLocationMan
             for waiter in waiting { waiter.resume(returning: status) }
         }
         if status == .authorizedAlways { alwaysWatch?.granted() }
+        holdLocationSessions()
         authorizationChanged.send(status)
-        holdServiceSession()
         recordCaptureState()
         switch manager.authorizationStatus {
         case .denied, .restricted:
@@ -601,8 +601,7 @@ final class LocationRecorderCoordinator: NSObject, @preconcurrency CLLocationMan
     private func recreateSessionsAndLattice(reason: String) {
         if platformServicesEnabled {
             sessionWanted = true
-            holdServiceSession()
-            backgroundSession = CLBackgroundActivitySession()
+            holdLocationSessions()
             fallbackManager.startMonitoringSignificantLocationChanges()
             fallbackManager.startMonitoringVisits()
         }
@@ -615,9 +614,19 @@ final class LocationRecorderCoordinator: NSObject, @preconcurrency CLLocationMan
         recordServiceEvent("resurrection_lattice_armed", detail: ["reason": .string(reason)])
     }
 
-    private func holdServiceSession() {
+    private func holdLocationSessions() {
         guard platformServicesEnabled, sessionWanted else { return }
         let status = fallbackManager.authorizationStatus
+        switch status {
+        case .notDetermined, .authorizedWhenInUse:
+            backgroundSession = backgroundSession ?? CLBackgroundActivitySession()
+        case .authorizedAlways where sessionHolds != .authorizedAlways:
+            (backgroundSession ?? CLBackgroundActivitySession()).invalidate()
+            backgroundSession = nil
+        default:
+            backgroundSession?.invalidate()
+            backgroundSession = nil
+        }
         let wanted: CLAuthorizationStatus? = switch status {
         case .authorizedAlways, .authorizedWhenInUse: status
         default: nil

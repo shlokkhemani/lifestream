@@ -8,6 +8,15 @@ import XCTest
 
 @MainActor
 final class LocationRecorderTests: XCTestCase {
+    func testRecordersKeepBackgroundFixesWithoutRequestingTheBlueIndicator() throws {
+        let coordinator = try makeCoordinator()
+        let recorder = AppOwnedRecorder(coordinator: coordinator)
+        for manager in [recorder.recordingManager, recorder.keepAliveManager] {
+            XCTAssertTrue(manager.allowsBackgroundLocationUpdates)
+            XCTAssertFalse(manager.showsBackgroundLocationIndicator)
+        }
+    }
+
     func testStationaryCheckWritesItsFixAndOneEvent() async throws {
         let coordinator = try makeCoordinator()
         let recorder = AppOwnedRecorder(coordinator: coordinator, watch: .init(stillInterval: 0.25))

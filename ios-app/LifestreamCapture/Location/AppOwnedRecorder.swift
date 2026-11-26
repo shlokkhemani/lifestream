@@ -60,8 +60,8 @@ final class AppOwnedRecorder: NSObject, @preconcurrency CLLocationManagerDelegat
         keepAliveManager.delegate = self
         recordingManager.allowsBackgroundLocationUpdates = true
         recordingManager.pausesLocationUpdatesAutomatically = false
-        recordingManager.showsBackgroundLocationIndicator = true
-        keepAliveManager.showsBackgroundLocationIndicator = true
+        recordingManager.showsBackgroundLocationIndicator = false
+        keepAliveManager.showsBackgroundLocationIndicator = false
         keepAliveManager.allowsBackgroundLocationUpdates = true
         keepAliveManager.pausesLocationUpdatesAutomatically = false
         keepAliveManager.desiredAccuracy = 3_000
