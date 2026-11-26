@@ -1,0 +1,30 @@
+[
+  {
+    "name": "headphones",
+    "about": "a call on headphones, on Chrome",
+    "from_ms": 1791257400000,
+    "to_ms": 1791258611141,
+    "parts": 4
+  },
+  {
+    "name": "speakers",
+    "about": "a call on the built-in speakers, on Chrome",
+    "from_ms": 1791262800000,
+    "to_ms": 1791264460290,
+    "parts": 6
+  },
+  {
+    "name": "dictation",
+    "about": "a dictation of 6 min, on an app outside the list",
+    "from_ms": 1791268200000,
+    "to_ms": 1791268546997,
+    "parts": 2
+  },
+  {
+    "name": "held",
+    "about": "the first two hours of a session held 23 h, by Chrome",
+    "from_ms": 1791273600000,
+    "to_ms": 1791280800246,
+    "parts": 12
+  }
+]

@@ -74,6 +74,11 @@ public struct StoreFiles: Sendable {
 
     func held(_ opened: OpenedFile, spelled: String?) throws -> OpenedFile {
         guard let location = Self.location(of: opened.handle.fileDescriptor) else { throw FileOpenerError.unreadable(errno) }
+        var now = stat()
+        guard fstat(opened.handle.fileDescriptor, &now) == 0 else { throw FileOpenerError.unreadable(errno) }
+        guard now.st_nlink <= 1 else {
+            throw Unsafe(reason: "\(spelled ?? "a file the store names") has more than one name, which is never opened")
+        }
         try hold(opened.url, resolved: location, spelled: spelled)
         return opened
     }

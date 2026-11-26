@@ -8,7 +8,7 @@ import { callHandles, callRecord, callsReading, type Call, type CallReading } fr
 import { labelInputs, type Books } from "../shared/labels.js";
 import { statedPrompt } from "../shared/prompts.js";
 import { Stretches } from "../shared/stretches.js";
-import { callRule, closesAt, isOpen, joinerOf, joins, loudSeconds, isQuiet, stoppedAt, stretchesOf, THRESHOLDS, unitOf, type Part, type Recording, type Span, type Stretch } from "./rule.js";
+import { callRule, closesAt, holderOf, isOpen, joinerOf, joins, loudSeconds, isQuiet, stoppedAt, stretchesOf, THRESHOLDS, unitOf, type Part, type Recording, type Span, type Stretch } from "./rule.js";
 import { readTranscript, speakerSpans, type KeptSegment } from "./turns.js";
 import { callDay, holderName, summaryInput } from "./lines.js";
 import { askedParts, CALLAUDIO_FAMILY, partItem, stretchItem, type CallAudioContent, type CallContent, type CallPart, type CallSummary, type JoinedCall } from "./content.js";
@@ -69,7 +69,7 @@ function callAudioOver(settings: CallAudioSettings, given: readonly Given<CallAu
   return {
     name: CALLAUDIO_FAMILY,
     type: "calls",
-    code: "1",
+    code: "2",
     inputs,
     borrowed: { calls: settings.calls },
     prompts: CALL_PROMPTS,
@@ -234,7 +234,7 @@ function callContent(source: string, stretch: Stretch, span: Span, joined: Joine
     short: false, source, span,
     mic: stretch.parts.filter((part) => part.track === "mic").map(partOf),
     sound: stretch.parts.filter((part) => part.track === "sound").map(partOf),
-    holder: longestHolder(stretch),
+    holder: shownHolder(stretch),
     camera: stretch.parts.some((part) => part.camera),
     speakers: speakerSpans(stretch.parts),
     stopped_ms,
@@ -243,11 +243,9 @@ function callContent(source: string, stretch: Stretch, span: Span, joined: Joine
   };
 }
 
-function longestHolder(stretch: Stretch): string | null {
-  const held = new Map<string, number>();
-  for (const part of stretch.parts) for (const holder of part.holders) held.set(holder, (held.get(holder) ?? 0) + part.end_ms - part.start_ms);
-  const [longest] = [...held].sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
-  return longest === undefined ? null : holderName(longest[0]);
+function shownHolder(stretch: Stretch): string | null {
+  const holder = holderOf(stretch);
+  return holder === null ? null : holderName(holder);
 }
 
 function joinedOf(view: View, calls: CallReading, own: string, stretch: Stretch, recordings: (span: Span) => Recording[]): JoinedCall | null {

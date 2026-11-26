@@ -8,6 +8,7 @@ export const THRESHOLDS = {
   WINDOW_MS: 30_000,
   WINDOW_LOUD_S: 3,
   TWO_WAY_MS: 120_000,
+  SILENT_SHARE: 0.8,
   ECHO_WORDS: 4,
   ECHO_S: 3,
   BAD_SHARE: 0.5,
@@ -28,6 +29,7 @@ export interface Span {
 
 export interface Stretch extends Span {
   readonly parts: readonly Part[];
+  readonly windows: readonly Span[];
 }
 
 export type Verdict =
@@ -35,6 +37,7 @@ export type Verdict =
   | { readonly call: false; readonly two_way_ms: number };
 
 const SECOND = 1_000;
+const FLOOR_DBFS = -96;
 
 export const STOPPED = "stopped";
 
@@ -45,6 +48,19 @@ export function loudSeconds(part: CallAudioPart): number | null {
   if (part.loudness === null) return null;
   const loud = part.loudness.rms_dbfs.filter((level) => level >= THRESHOLDS.LOUD_DBFS).length;
   return (loud * part.loudness.every_ms) / SECOND;
+}
+
+export function silentShare(parts: readonly CallAudioPart[]): number {
+  let quiet = 0;
+  let silent = 0;
+  for (const part of parts) {
+    for (const level of part.loudness?.rms_dbfs ?? []) {
+      if (level >= THRESHOLDS.LOUD_DBFS) continue;
+      quiet++;
+      if (level <= FLOOR_DBFS) silent++;
+    }
+  }
+  return quiet === 0 ? 0 : silent / quiet;
 }
 
 export function isQuiet(part: CallAudioPart): boolean {
@@ -76,7 +92,7 @@ const loudHull = (part: CallAudioPart): Span | null => hullOf(loudRuns(part));
 const sessionOf = (part: Part): string => part.session ?? `${part.kind}/${part.key}`;
 
 export function stretchesOf(parts: readonly Part[]): Stretch[] {
-  return chainsOf(parts).flatMap(cut).sort((a, b) => earlier(a.parts[0]!, b.parts[0]!));
+  return chainsOf(parts).flatMap(cut).flatMap(talksOf).sort((a, b) => earlier(a.parts[0]!, b.parts[0]!));
 }
 
 function chainsOf(parts: readonly Part[]): Part[][] {
@@ -121,7 +137,16 @@ function chainsOf(parts: readonly Part[]): Part[][] {
   return [...chains.values()];
 }
 
-function cut(chain: readonly Part[]): Stretch[] {
+interface Piece extends Span {
+  readonly parts: readonly Part[];
+}
+
+const pieceOf = (parts: Part[]): Piece => {
+  const sorted = parts.sort(earlier);
+  return { parts: sorted, start_ms: Math.min(...sorted.map((part) => part.start_ms)), end_ms: Math.max(...sorted.map((part) => part.end_ms)) };
+};
+
+function cut(chain: readonly Part[]): Piece[] {
   const held = chain.filter((part) => !isQuiet(part)).map((part) => ({ part, hull: loudHull(part) }))
     .filter((each): each is { part: Part; hull: Span } => each.hull !== null)
     .sort((a, b) => a.hull.start_ms - b.hull.start_ms);
@@ -138,10 +163,37 @@ function cut(chain: readonly Part[]): Stretch[] {
     const middle_ms = (part.start_ms + part.end_ms) / 2;
     pieces.find((piece) => piece.span.start_ms <= middle_ms && middle_ms < piece.span.end_ms)?.parts.push(part);
   }
-  return pieces.map((piece) => {
-    const parts = piece.parts.sort(earlier);
-    return { parts, start_ms: Math.min(...parts.map((part) => part.start_ms)), end_ms: Math.max(...parts.map((part) => part.end_ms)) };
-  });
+  return pieces.map((piece) => pieceOf(piece.parts));
+}
+
+const overlapOf = (left: Span, right: Span): number => Math.min(left.end_ms, right.end_ms) - Math.max(left.start_ms, right.start_ms);
+
+function talksOf(piece: Piece): Stretch[] {
+  const windows = new Grid(piece).twoWayWindows();
+  const anchors = [...windows, ...piece.parts.filter((part) => part.loudness === null)].sort((a, b) => a.start_ms - b.start_ms);
+  const talks: { span: Span; windows: Span[]; parts: Part[] }[] = [];
+  for (const anchor of anchors) {
+    const last = talks.at(-1);
+    const own = windows.includes(anchor) ? [anchor] : [];
+    if (last !== undefined && anchor.start_ms - last.span.end_ms < THRESHOLDS.SPLIT_GAP) {
+      last.span = { start_ms: last.span.start_ms, end_ms: Math.max(last.span.end_ms, anchor.end_ms) };
+      last.windows.push(...own);
+    } else talks.push({ span: { start_ms: anchor.start_ms, end_ms: anchor.end_ms }, windows: own, parts: [] });
+  }
+  if (talks.length === 0) return [{ ...piece, windows: [] }];
+  const first = talks[0]!;
+  const last = talks.at(-1)!;
+  if (first.span.start_ms - piece.start_ms < THRESHOLDS.SPLIT_GAP) first.span = { start_ms: piece.start_ms, end_ms: first.span.end_ms };
+  if (piece.end_ms - last.span.end_ms < THRESHOLDS.SPLIT_GAP) last.span = { start_ms: last.span.start_ms, end_ms: piece.end_ms };
+  const between: Part[][] = Array.from({ length: talks.length + 1 }, () => []);
+  for (const part of piece.parts) {
+    const [most] = talks.map((talk, index) => ({ index, overlap: overlapOf(part, talk.span) })).filter((each) => each.overlap > 0)
+      .sort((a, b) => b.overlap - a.overlap || a.index - b.index);
+    if (most !== undefined) talks[most.index]!.parts.push(part);
+    else between[talks.filter((talk) => talk.span.end_ms <= part.start_ms).length]!.push(part);
+  }
+  const held = between.filter((parts) => parts.some((part) => !isQuiet(part))).map((parts): Stretch => ({ ...pieceOf(parts), windows: [] }));
+  return [...talks.filter((talk) => talk.parts.length > 0).map((talk): Stretch => ({ ...pieceOf(talk.parts), windows: talk.windows })), ...held];
 }
 
 export function firstOf(stretch: Stretch): Part {
@@ -166,8 +218,6 @@ export function isOpen(stretch: Stretch, read_through_ms: number | null): boolea
   return read_through_ms === null || read_through_ms <= closesAt(stretch.end_ms, stoppedAt(stretch) !== null);
 }
 
-const overlapOf = (left: Span, right: Span): number => Math.min(left.end_ms, right.end_ms) - Math.max(left.start_ms, right.start_ms);
-
 export function joins(stretch: Span, call: Span): boolean {
   const overlap = overlapOf(stretch, call);
   return overlap > 0 && overlap * 2 >= stretch.end_ms - stretch.start_ms && overlap * 2 >= call.end_ms - call.start_ms;
@@ -190,19 +240,33 @@ export function callRule(stretch: Stretch, joined = false): Verdict {
   const mic = stretch.parts.filter((part) => part.track === "mic");
   const sound = stretch.parts.filter((part) => part.track === "sound");
   if (sound.length === 0) return { call: false, two_way_ms: 0 };
+  const line = joined || silentShare(sound) < THRESHOLDS.SILENT_SHARE;
   if (mic.length === 0) {
     const span = hullOf(sound.flatMap(loudRuns));
     const shown = joined || stretch.parts.some((part) => part.camera);
-    return span !== null && shown && length(span) >= THRESHOLDS.TWO_WAY_MS ? { call: true, span, two_way_ms: 0 } : { call: false, two_way_ms: 0 };
+    return span !== null && shown && line && length(span) >= THRESHOLDS.TWO_WAY_MS ? { call: true, span, two_way_ms: 0 } : { call: false, two_way_ms: 0 };
   }
-  const grid = new Grid(stretch);
-  const windows = grid.twoWayWindows();
+  const { windows } = stretch;
   const two_way_ms = windows.length * THRESHOLDS.WINDOW_MS;
   const held = (parts: readonly Part[]): number => parts.reduce((sum, part) => sum + length(part), 0);
-  const unheard = grid.knownMs() < THRESHOLDS.TWO_WAY_MS && held(mic) >= THRESHOLDS.TWO_WAY_MS && held(sound) >= THRESHOLDS.TWO_WAY_MS;
+  const unheard = (windows.length > 0 || joined) && new Grid(stretch).knownMs() < THRESHOLDS.TWO_WAY_MS &&
+    held(mic) >= THRESHOLDS.TWO_WAY_MS && held(sound) >= THRESHOLDS.TWO_WAY_MS;
   const span = hullOf([...windows, ...stretch.parts.filter((part) => part.loudness === null)]);
-  if (span === null || (two_way_ms < THRESHOLDS.TWO_WAY_MS && !unheard)) return { call: false, two_way_ms };
+  if (span === null || !line || (two_way_ms < THRESHOLDS.TWO_WAY_MS && !unheard)) return { call: false, two_way_ms };
   return { call: true, span: { start_ms: span.start_ms, end_ms: Math.min(span.end_ms, stretch.end_ms) }, two_way_ms };
+}
+
+export function holderOf(stretch: Stretch): string | null {
+  const held = new Map<string, number>();
+  for (const part of stretch.parts) for (const holder of part.holders) held.set(holder, (held.get(holder) ?? 0) + length(part));
+  const talked = new Map<string, number>();
+  for (const window of stretch.windows) {
+    const over = stretch.parts.filter((part) => overlapOf(part, window) > 0);
+    const players = new Set(over.flatMap((part) => part.players));
+    for (const holder of new Set(over.flatMap((part) => part.holders))) if (players.has(holder)) talked.set(holder, (talked.get(holder) ?? 0) + 1);
+  }
+  const ranked = [...held.keys()].sort((a, b) => (talked.get(b) ?? 0) - (talked.get(a) ?? 0) || held.get(b)! - held.get(a)! || (a < b ? -1 : a > b ? 1 : 0));
+  return ranked[0] ?? null;
 }
 
 const LOUD = 1;
@@ -213,7 +277,7 @@ class Grid {
   readonly #mic: Uint8Array;
   readonly #sound: Uint8Array;
 
-  constructor(stretch: Stretch) {
+  constructor(stretch: Piece) {
     this.#start_ms = stretch.start_ms;
     const seconds = Math.ceil(length(stretch) / SECOND);
     this.#mic = new Uint8Array(seconds);

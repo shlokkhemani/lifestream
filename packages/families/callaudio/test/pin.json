@@ -1,7 +1,7 @@
 {
   "family": "callaudio",
   "key": {
-    "code": "1",
+    "code": "2",
     "adapters": {
       "callaudio/audio": "1",
       "calls/test-calls": "1"

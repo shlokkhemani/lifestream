@@ -16,7 +16,7 @@ once, and asks your Mac for its files first.
 
 Your past is your library from the connector's start on, newest first: each device lists every
 photo, then sends the files Lifestream lacks of those taken from the start on. On your iPhone, **New photos go at once, the rest on Wi-Fi.** On either
-device, the files of older photos wait while it is on cellular or a phone's hotspot, unless its
+device, the files of older photos, and of a new video of 500 MB or more, wait while it is on cellular or a phone's hotspot, unless its
 **Mobile data** choice is **Everything, including my past**, and on a network with Low Data Mode
 on, whatever the choice. While the Mac that runs Lifestream is on a hotspot, your other devices'
 older photos wait for Wi-Fi too; that Mac sends its own on any network. **Bring in all photos**

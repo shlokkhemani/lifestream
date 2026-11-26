@@ -1,16 +1,18 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { audioCallAudio, providers } from "@lifestreamprotocol/connect";
 import type { Ask, CallAudioAdapter, CallAudioPart, CallsAdapter, Call, CallTrack, DaySettings, ExtractRow, Json, ReaderOutput } from "@lifestreamprotocol/core";
 import { tableUnits, type DayDocument } from "../days.js";
-import type { DayLine, Given } from "../family.js";
+import type { DayLine, Family, Given } from "../family.js";
 import { callsFamily } from "../calls/family.js";
 import { buildLabels, labelsFrom, type DayLabels } from "../shared/labels.js";
 import type { RecordState } from "../shared/people.js";
 import { FED } from "../test/fed.js";
 import { pin } from "../test/pin.js";
 import { FakeLedger, ROUTE, sha256, TestHome } from "../test/drive.js";
-import { partItem, stretchItem, type CallContent } from "./content.js";
+import { askedParts, partItem, stretchItem, type CallAudioContent, type CallContent } from "./content.js";
 import { CALL_SUMMARY, CALL_TRANSCRIPT, callaudioFamily } from "./family.js";
+import type { Shape, ShapeName, Spoken } from "./test/recorded.js";
 import { callAudioView } from "./view.js";
 
 const WRITE = process.env.LIFESTREAM_FIXTURES === "write";
@@ -35,6 +37,12 @@ const CALLS_ADAPTER: CallsAdapter = { version: "1", kinds: ["call"], services: {
 const CALLS: readonly Given<CallsAdapter>[] = [{ product: "test-calls", name: "Test Calls", vendor: "synthetic", type: "calls", adapter: CALLS_ADAPTER }];
 
 const family = callaudioFamily({ books: FED.labels, zone: SETTINGS.zone, calls: CALLS })(AUDIO);
+const recorder = callaudioFamily({ books: FED.labels, zone: SETTINGS.zone, calls: CALLS })([{ product: "audio", name: "Call recordings", vendor: "lifestream", type: "voice", adapter: audioCallAudio }]);
+const READER = providers().flatMap((provider) => provider.readers).find((reader) => reader.name === "audio-recording")!;
+const RECORDED = new URL("./test/recorded/", import.meta.url);
+const RECORDED_DAY = "2026-10-06";
+const SPOKEN = JSON.parse(readFileSync(new URL("recorded.words.json", FIXTURES), "utf8")) as Record<string, Spoken>;
+const SHAPES = JSON.parse(readFileSync(new URL("recorded.shapes.json", FIXTURES), "utf8")) as Shape[];
 const calls = callsFamily({ books: FED.labels, messages: FED.messages })(CALLS);
 
 const talk = {
@@ -52,7 +60,7 @@ function recorded(track: CallTrack, start_ms: number, minutes: number, loud: (se
   const seconds = minutes * 60;
   const part: CallAudioPart = {
     track, start_ms, end_ms: start_ms + seconds * 1_000, sha256: hash, media_type: "audio/mp4", ms: seconds * 1_000, session: shape.session, part: shape.part,
-    ended_by: "part_limit", holders: [shape.holder], camera: false,
+    ended_by: "part_limit", holders: [shape.holder], players: [shape.holder], camera: false,
     loudness: { every_ms: 1_000, rms_dbfs: Array.from({ length: seconds }, (_, second) => (loud(second) ? -20 : -70)) }, outputs: [],
   };
   const key = new Date(start_ms).toISOString().replace(/[-:]/gu, "");
@@ -168,10 +176,10 @@ function readThrough(home: TestHome, stated_ms: number): string[] {
   return rows.map((row) => row.unit);
 }
 
-function dayLines(home: TestHome, names = labels()): DayLine[] {
-  const enrichments = new Map(home.enrichments(family.name).map((row) => [row.item, row]));
-  const extracts = home.extracts(family.name).filter((row) => row.days.includes(DAY));
-  return family.day({ day: DAY, settings: SETTINGS, extracts, enrichments, labels: labelsFrom(tableUnits(names), SETTINGS), sources: new Map(), device: (unit) => unit }).lines;
+function dayLines(home: TestHome, names = labels(), reading: Family = family, day = DAY): DayLine[] {
+  const enrichments = new Map(home.enrichments(reading.name).map((row) => [row.item, row]));
+  const extracts = home.extracts(reading.name).filter((row) => row.days.includes(day));
+  return reading.day({ day, settings: SETTINGS, extracts, enrichments, labels: labelsFrom(tableUnits(names), SETTINGS), sources: new Map(), device: (unit) => unit }).lines;
 }
 
 const texts = (lines: readonly DayLine[]) => lines.map((line) => line.text);
@@ -357,7 +365,75 @@ describe("the callaudio family: each way it could fail, written before the code"
     ].join("\n"));
     expect(summary.input.filter((piece) => "free" in piece).map((piece) => piece.text)).toEqual(["Are we still on for Saturday?", "Yes, Saturday works for me.", "I will book the table."]);
   });
+
+  it("reads real sidecar shapes through the audio reader and adapter: the calls on headphones and on the speakers print, the speakers' echo is gone from You, a dictation and a tab held for hours print nothing", async () => {
+    const home = new TestHome("families-callaudio-recorded-", { families: [calls, recorder], settings: SETTINGS });
+    homes.push(home);
+    const files = readdirSync(RECORDED).sort().map((path) => {
+      const bytes = readFileSync(new URL(path, RECORDED));
+      return { path, blob: home.blobs.put(bytes, { mediaType: path.endsWith(".m4a") ? "audio/mp4" : "application/json" }), size: bytes.length };
+    });
+    const stated_ms = Math.max(...SHAPES.map((shape) => shape.to_ms)) + 10 * MIN;
+    const rows: ReaderOutput[] = [];
+    for await (const row of READER.read({ id: `${SOURCE}/recorded`, source: SOURCE, sealed_ms: stated_ms, stated_ms, facts: {}, files }, home.blobs)) rows.push(row);
+    expect(rows.flatMap((row) => row.refused ?? [])).toEqual([]);
+    expect(rows.flatMap((row) => READER.kinds[row.kind]!(row.content))).toEqual([]);
+    expect(rows).toHaveLength(files.filter((file) => file.path.endsWith(".json")).length);
+    home.deliver(SOURCE, stated_ms, rows);
+
+    const answer = (ask: Ask): string => (ask.prompt === CALL_TRANSCRIPT
+      ? JSON.stringify({ segments: SPOKEN[ask.item.slice("recording:".length)]!.segments })
+      : JSON.stringify({ title: "Synthetic call", summary: "Two synthetic voices go over a schedule." }));
+    new FakeLedger(ROUTE).settle(home, recorder, answer);
+    const extracts = home.extracts(recorder.name);
+    const content = (row: ExtractRow) => row.content as unknown as CallAudioContent;
+    const of = (name: ShapeName) => {
+      const shape = SHAPES.find((each) => each.name === name)!;
+      return extracts.filter((row) => {
+        const at = keyMs(row.unit.slice(row.unit.lastIndexOf("/") + 1));
+        return at >= shape.from_ms && at < shape.to_ms;
+      });
+    };
+    const called = (name: ShapeName) => of(name).map((row) => content(row)).filter((each): each is CallContent => !each.short);
+    expect(called("headphones").map((call) => call.speakers)).toEqual([[]]);
+    expect(called("speakers").map((call) => call.speakers.length > 0)).toEqual([true]);
+    expect(of("dictation").length).toBeGreaterThan(0);
+    expect(called("dictation")).toEqual([]);
+    expect(of("held").length).toBeGreaterThan(0);
+    expect(called("held")).toEqual([]);
+
+    const lines = dayLines(home, labels(), recorder, RECORDED_DAY);
+    const you = texts(lines).filter((text) => text.startsWith("You: "));
+    const heard = Object.values(SPOKEN).filter((spoken) => spoken.track === "sound").flatMap((spoken) => spoken.segments.map((segment) => segment.text));
+    const echoes = Object.values(SPOKEN).flatMap((spoken) => spoken.echo);
+    expect(echoes.length).toBeGreaterThan(0);
+    expect(you.filter((text) => heard.some((said) => text.includes(said)))).toEqual([]);
+    for (const echo of echoes) {
+      const nod = echo.slice(heard.find((said) => echo.startsWith(said))!.length + 1);
+      expect(you.some((text) => text.includes(nod)), nod).toBe(true);
+    }
+
+    const day = home.render(RECORDED_DAY, labels());
+    fixture(`${RECORDED_DAY}.recorded.day.json`, day.json);
+    fixture(`${RECORDED_DAY}.recorded.day.txt`, day.txt);
+    fixture("recorded.calls.json", `${JSON.stringify(extracts.map((row) => {
+      const each = content(row);
+      const unit = row.unit.slice(SOURCE.length + 1);
+      if (each.short) return { unit, short: true };
+      return {
+        unit, short: false, holder: each.holder, span: [new Date(each.span.start_ms).toISOString(), new Date(each.span.end_ms).toISOString()],
+        mic: each.mic.length, sound: each.sound.length, quiet: [...each.mic, ...each.sound].filter((part) => part.quiet).length, asked: askedParts(each).length,
+        speakers: each.speakers.length, camera: each.camera, open: each.open,
+      };
+    }), null, 2)}\n`);
+    home.artifact("recorded-lines.json", lines);
+  });
 });
+
+function keyMs(key: string): number {
+  const [, y, mo, d, h, mi, s, fraction] = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d+)?Z/u.exec(key)!;
+  return Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}${fraction ?? ""}Z`);
+}
 
 function fixture(name: string, text: string): void {
   const url = new URL(name, FIXTURES);
