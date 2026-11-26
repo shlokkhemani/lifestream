@@ -494,9 +494,12 @@ const Mail = named("Mail", object({ family: oneOf("mail", "calendar"), title: nu
 const SettingsValue = named("SettingsValue", object({ id, label: nullable(label), value: nullable(phrase), signal: nullable(State) }));
 const SettingsDevice = named("SettingsDevice", object({ id, name, icon: id, line: words, signal: nullable(State), removed: bool }));
 
+const SettingsPick = named("SettingsPick", object({ words: label, value: id, chosen: bool, default: bool }));
+
 export const SettingsEnd = named("SettingsEnd", tagged("kind", {
   value: { value: phrase, signal: nullable(State) },
   choice: { key: id, choices: list(object({ words: label, value: num, chosen: bool, default: bool }), 1) },
+  pick: { key: id, choices: list(SettingsPick, 1) },
 }));
 export type SettingsEnd = Of<typeof SettingsEnd>;
 

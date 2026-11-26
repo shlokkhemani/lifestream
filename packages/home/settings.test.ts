@@ -27,11 +27,11 @@ function folder(): string {
 
 describe("a device's mobile data", () => {
   it("runs at now for a device the settings hold none for, at its own choice where they do, is set by a device for its own unit alone, and refuses any other word by name", () => {
-    const held = effectiveOf({ ...HELD, "devices.iphone-aa01.mobile_data": "small" }, "settings.json").settings;
-    expect([mobileDataOf(held, "iphone-aa01"), mobileDataOf(held, "macbook-pro-0001")]).toEqual(["small", "now"]);
+    const held = effectiveOf({ ...HELD, "devices.iphone-aa01.mobile_data": "everything" }, "settings.json").settings;
+    expect([mobileDataOf(held, "iphone-aa01"), mobileDataOf(held, "macbook-pro-0001")]).toEqual(["everything", "now"]);
     expect([deviceSets("devices.iphone-aa01.mobile_data"), unitOfSetting("devices.iphone-aa01.mobile_data"), unitOfSetting("model.cap")]).toEqual([true, "iphone-aa01", null]);
-    for (const value of ["metered", "all", 1]) {
-      expect(() => effectiveOf({ ...HELD, "devices.iphone-aa01.mobile_data": value }, "settings.json")).toThrow("settings.json: devices.iphone-aa01.mobile_data is now, everything, small");
+    for (const value of ["small", "metered", "all", 1]) {
+      expect(() => effectiveOf({ ...HELD, "devices.iphone-aa01.mobile_data": value }, "settings.json")).toThrow("settings.json: devices.iphone-aa01.mobile_data is now, everything");
     }
   });
 });

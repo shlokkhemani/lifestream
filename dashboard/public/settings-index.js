@@ -11,6 +11,7 @@ export const SETTINGS_INDEX = {
     ] },
     { label: 'Lifestream', entries: [
       { id: 'storage', label: 'Storage', icon: 'drive', host: false, answer: 'storage' },
+      { id: 'mobile-data', label: 'Mobile data', icon: 'online', host: false, answer: 'settingsPage' },
       { id: 'time', label: 'Day and time', icon: 'time', host: false, answer: 'settingsPage' },
     ] },
     { label: 'App', entries: [
@@ -26,6 +27,7 @@ export const SETTINGS_INDEX = {
     { label: 'Lifestream', entries: [
       { id: 'home', label: 'General', icon: 'home', host: false, answer: 'own' },
       { id: 'storage', label: 'Storage', icon: 'drive', host: false, answer: 'storage' },
+      { id: 'mobile-data', label: 'Mobile data', icon: 'online', host: true, answer: 'settingsPage' },
       { id: 'time', label: 'Day and time', icon: 'time', host: false, answer: 'settingsPage' },
       { id: 'recovery', label: 'Recovery key', icon: 'private', host: true, answer: 'own' },
     ] },

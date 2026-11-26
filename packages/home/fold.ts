@@ -24,7 +24,7 @@ export interface CopyFacts {
   expect_ms: number | null;
   owed: boolean;
   disk: boolean;
-  metered: boolean;
+  pastWaits: boolean;
 }
 
 export interface Folded {
@@ -74,7 +74,7 @@ export function foldCopy(copy: CopyFacts, now: number): { health: Folded; troubl
     ...copy.device === null && silent ? [plain("quiet", "device", copy.contact_ms, { since_ms: copy.contact_ms })] : [],
     ...stale ? [plain("quiet", "nothing-new", copy.newest_ms, { since_ms: copy.newest_ms })] : [],
     ...copy.disk ? [plain("waiting", "disk")] : [],
-    ...copy.metered ? [plain("waiting", "metered")] : [],
+    ...copy.pastWaits ? [plain("waiting", "metered")] : [],
     ...copy.owed ? [plain("syncing")] : [],
   ]) ?? plain("ok");
   return { health, troubles };

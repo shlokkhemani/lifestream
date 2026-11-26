@@ -1266,12 +1266,24 @@ export type SettingsEnd =
       chosen: boolean;
       default: boolean;
     }[];
+  }
+  | {
+    kind: "pick";
+    key: string;
+    choices: SettingsPick[];
   };
 
 export interface SettingsPart {
   label: string | null;
   line: string | null;
   rows: SettingsRow[];
+}
+
+export interface SettingsPick {
+  words: string;
+  value: string;
+  chosen: boolean;
+  default: boolean;
 }
 
 export interface SettingsRow {

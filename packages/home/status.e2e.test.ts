@@ -452,7 +452,7 @@ describe("the days left", () => {
   it("raises the home's own Mac's disk beside the home's disk need on the Mac's own disk, or drops it on another, or drops a former home Mac's", () => {
     const word = (pass: string, since_ms: number): Statement => ({
       pass, grants: null, found: null, imports: null, settings: null, sending: {}, room: { value: "low", since_ms: NOW },
-      network: { value: "all", since_ms }, recorder: null, stores: null, heard_ms: NOW, waiting_since_ms: null,
+      network: { value: { allows: "all", loopback: true }, since_ms }, recorder: null, stores: null, heard_ms: NOW, waiting_since_ms: null,
     });
     const roomNeeds = (name: string, machine: string): string[] => {
       const root = tempDir(name);

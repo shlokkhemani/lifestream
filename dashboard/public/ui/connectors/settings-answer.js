@@ -1,6 +1,7 @@
 // @ts-check
-/** @import { PhrasePart, SettingsEnd, SettingsPage, SettingsPart, SettingsRow, When } from '../../pages.js' */
+/** @import { SettingsEnd, SettingsPage, SettingsPart, SettingsRow } from '../../pages.js' */
 /** @import { DetailPart, End, PanelRow } from './dialog.js' */
+/** @import { HostAct } from '../../lib/host.js' */
 /** @import { SignalKind } from '../kit/signal.js' */
 import { phraseOf } from '../../lib/words.js';
 import { STATE_LOOKS } from '../kit/connector-row.js';
@@ -13,26 +14,45 @@ export const WORDS = {
   notHere: 'Your settings aren’t on this Mac yet.',
 };
 
-
-const HOST_KEYS = /** @type {const} */ (['model.cap']);
+const MOBILE_DATA = /^devices\.[^.]+\.mobile_data$/u;
 
 /**
  * @param {string} key
- * @returns {key is typeof HOST_KEYS[number]}
+ * @returns {key is `devices.${string}.mobile_data`}
  */
-const hostSets = key => HOST_KEYS.some(each => each === key);
+const mobileDataKey = key => MOBILE_DATA.test(key);
 
 /**
- * @param {typeof HOST_KEYS[number]} key
- * @param {Extract<SettingsEnd, { kind: 'choice' }>['choices']} choices
+ * @param {Extract<SettingsEnd, { kind: 'choice' | 'pick' }>} end
+ * @returns {HostAct[] | null}
+ */
+function actsOf(end) {
+  if (end.kind === 'choice' && end.key === 'model.cap') {
+    const { key } = end;
+    return end.choices.map(each => ({ act: 'home-setting', key, value: each.value }));
+  }
+  if (end.kind === 'pick' && mobileDataKey(end.key)) {
+    const { key } = end;
+    return end.choices.map(each => ({ act: 'home-setting', key, value: each.value }));
+  }
+  return null;
+}
+
+/**
+ * @param {Extract<SettingsEnd, { kind: 'choice' | 'pick' }>} end
+ * @param {boolean} home
  * @param {string} label
  * @param {string} id
  * @returns {End}
  */
-const menuOf = (key, choices, label, id) => ({ menu: { id: `settings.${id}`, busy: homeSettingKey(key), label,
-  words: choices.find(each => each.chosen)?.words ?? '', find: '', date: null,
-  choices: choices.map(each => ({ words: each.words, note: '', chosen: each.chosen, default: each.default,
-    do: { host: { act: 'home-setting', key, value: each.value } } })) } });
+function menuOf(end, home, label, id) {
+  const words = end.choices.find(each => each.chosen)?.words ?? '';
+  const acts = home ? actsOf(end) : null;
+  if (acts === null) return { words };
+  return { menu: { id: `settings.${id}`, busy: homeSettingKey(end.key), label, words, find: '', date: null,
+    choices: end.choices.map((each, at) => ({ words: each.words, note: '', chosen: each.chosen, default: each.default,
+      do: { host: acts[at] } })) } };
+}
 
 /**
  * @param {SettingsRow} row
@@ -46,11 +66,7 @@ function rowOfAnswer({ id, label, line, end }, home) {
     const signal = end.signal ? STATE_LOOKS[end.signal] ?? null : null;
     return rowOf(label, { ...said, signal, end: { words: phraseOf(end.value) } });
   }
-  if (end?.kind === 'choice') {
-    const { key, choices } = end;
-    return rowOf(label, { ...said, end: home && hostSets(key) ? menuOf(key, choices, label, id)
-      : { words: choices.find(each => each.chosen)?.words ?? '' } });
-  }
+  if (end?.kind === 'choice' || end?.kind === 'pick') return rowOf(label, { ...said, end: menuOf(end, home, label, id) });
   return rowOf(label, said);
 }
 

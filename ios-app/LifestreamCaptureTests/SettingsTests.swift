@@ -28,10 +28,10 @@ final class SettingsTests: XCTestCase {
         guard case let .choice(key, choices) = lines[0].end else { return XCTFail("model.cap is a choice: \(lines[0].end)") }
         XCTAssertEqual(key, "model.cap")
         XCTAssertEqual(choices.map(\.words), ["1", "2", "4", "8", "16", "32"])
-        XCTAssertEqual(choices.filter(\.chosen).map(\.value), [8])
-        XCTAssertEqual(choices.filter(\.isDefault).map(\.value), [8])
-        XCTAssertEqual(SettingsRows.held(choices), 8, "the menu shows the value the settings hold")
-        XCTAssertEqual(SettingsPage.held("model.cap", in: advanced), 8)
+        XCTAssertEqual(choices.filter(\.chosen).map(\.value), [.number(8)])
+        XCTAssertEqual(choices.filter(\.isDefault).map(\.value), [.number(8)])
+        XCTAssertEqual(SettingsRows.held(choices), .number(8), "the menu shows the value the settings hold")
+        XCTAssertEqual(SettingsPage.held("model.cap", in: advanced), .number(8))
         XCTAssertNil(SettingsPage.held("door.port", in: advanced), "a key no choice names holds nothing to compare")
         XCTAssertEqual(lines[0].line, "The most model calls Lifestream makes at the same time.")
     }
@@ -76,27 +76,27 @@ final class SettingsTests: XCTestCase {
         }
         sent.outcomes = [.taken(.number(8)), .refused, .unreachable]
 
-        let landed = await writes.set("model.cap", 8)
+        let landed = await writes.set("model.cap", .number(8))
         XCTAssertTrue(landed, "a taken write reads the page again")
         XCTAssertEqual(sent.calls.first?.0, "model.cap")
         XCTAssertEqual(sent.calls.first?.1, .number(8), "a picked default is sent as picked, never null")
         XCTAssertTrue(writes.busy.isEmpty)
         XCTAssertTrue(writes.unlanded.isEmpty)
 
-        let refused = await writes.set("model.cap", 16)
+        let refused = await writes.set("model.cap", .number(16))
         XCTAssertFalse(refused)
-        XCTAssertEqual(writes.unlanded["model.cap"], SettingsWrites.Unlanded(said: .refused(ReachWords.refused), value: 16))
+        XCTAssertEqual(writes.unlanded["model.cap"], SettingsWrites.Unlanded(said: .refused(ReachWords.refused), value: .number(16)))
 
-        let unsent = await writes.set("model.cap", 32)
+        let unsent = await writes.set("model.cap", .number(32))
         XCTAssertFalse(unsent)
-        XCTAssertEqual(writes.unlanded["model.cap"], SettingsWrites.Unlanded(said: .notSent, value: 32), "the last pick is the one offered again")
+        XCTAssertEqual(writes.unlanded["model.cap"], SettingsWrites.Unlanded(said: .notSent, value: .number(32)), "the last pick is the one offered again")
         XCTAssertTrue(writes.busy.isEmpty)
     }
 
     @MainActor
     func testAWriteThatThrowsIsNotSent() async {
         let writes = SettingsWrites { _, _ in throw LinkFailure.unpaired }
-        let landed = await writes.set("model.cap", 8)
+        let landed = await writes.set("model.cap", .number(8))
         XCTAssertFalse(landed)
         XCTAssertEqual(writes.unlanded["model.cap"]?.said, .notSent)
     }
@@ -114,6 +114,36 @@ final class SettingsTests: XCTestCase {
         XCTAssertNotNil(CannedHome.CannedPages.settingsPage("time"))
         XCTAssertNil(CannedHome.CannedPages.settingsPage("recovery"), "a Mac-only page is no phone's")
         XCTAssertNil(CannedHome.CannedPages.settingsPage("storage"), "Storage has its own answer")
+    }
+
+    @MainActor
+    func testAPickIsSentAsItsWordAndReadBackChosen() async throws {
+        let home = CannedHome.HomeSettings()
+        let fixture = try fixture("settingsPage.mobile-data")
+        let page = try JSONDecoder().decode(HomeLink.Pages.SettingsPage.self, from: home.page(fixture))
+        let key = "devices.\(CannedHome.unit).mobile_data"
+        guard case .pick? = page.parts[0].rows[0].end else { return XCTFail("Mobile data is a pick") }
+        guard case let .choice(named, choices) = SettingsPage.lines(page.parts[0].rows)[0].end else { return XCTFail("a pick draws as a menu") }
+        XCTAssertEqual(named, key, "the home names the phone's own key")
+        XCTAssertEqual(choices.map(\.words), ["What I record now", "Everything, including my past"])
+        XCTAssertEqual(choices.map(\.value), [.word("now"), .word("everything")])
+        XCTAssertEqual(SettingsRows.held(choices), .word("now"), "unset is What I record now")
+
+        let sent = Sent()
+        let writes = SettingsWrites { key, value in
+            sent.calls.append((key, value))
+            let body = try JSONEncoder().encode([key: value])
+            return home.set(body).0 == 200 ? .taken(value) : .refused
+        }
+        let picked = try XCTUnwrap(choices.first { $0.words == "Everything, including my past" }?.value)
+        let landed = await writes.set(key, picked)
+        XCTAssertTrue(landed)
+        XCTAssertEqual(sent.calls.first?.1, .string("everything"), "a word is sent as the word, never a number")
+
+        let again = try JSONDecoder().decode(HomeLink.Pages.SettingsPage.self, from: home.page(fixture))
+        XCTAssertEqual(SettingsPage.held(key, in: again), .word("everything"))
+        XCTAssertEqual(home.set(Data(#"{"devices.\#(CannedHome.unit).mobile_data":"sometimes"}"#.utf8)).0, 422, "a word no choice offers")
+        XCTAssertEqual(home.set(Data(#"{"devices.iphone-bb02.mobile_data":"now"}"#.utf8)).0, 403, "another device's key")
     }
 
     @MainActor

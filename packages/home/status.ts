@@ -367,12 +367,16 @@ const ROOM_WORDS: Readonly<Record<"mac" | "phone", Readonly<Record<Exclude<Room,
   },
 };
 
+const HOTSPOT_WORDS = ["Lifestream is on a hotspot", "History waits for Wi-Fi · Settings › Mobile data"] as const;
+const LOW_DATA_WORDS = ["Low Data Mode is on", "History waits · turn Low Data Mode off in this Mac's network settings"] as const;
+
 function limitNeeds(db: Database.Database, found: Found, root: string, passes: readonly Principal[], stated: Stated | null, home: Room): void {
   if (stated === null) return;
   const devices = readTables(db).devices;
   const network = homeNetwork({ devices }, stated);
   if (network.pastWaits) {
-    found.needs.push({ ...own("metered", "needs-you", "Lifestream is on a hotspot", network.since_ms), line: "History waits for Wi-Fi" });
+    const [words, line] = network.allows === "low-data" ? LOW_DATA_WORDS : HOTSPOT_WORDS;
+    found.needs.push({ ...own("metered", "needs-you", words, network.since_ms), line });
   }
   const kinds = new Map(passes.map((pass) => [pass.id, pass.kind]));
   const named = db.prepare("SELECT value FROM meta WHERE key = ?").pluck();

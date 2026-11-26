@@ -1024,9 +1024,11 @@ export function openReads(input: {
     if (query.text("files") !== "1") bad("files", "is 1");
     const owed = query.all("owed");
     if (owed.length > OWED_MOST) bad("owed", `is named at most ${OWED_MOST} times`);
-    const answer = wanted(view, photoRoutes, held.source, new Set(held.asking), held.start_ms, new Set(owed));
+    const asked = new Set(owed);
+    const answer = wanted(view, photoRoutes, held.source, new Set(held.asking), held.start_ms, asked);
     const may = historyGate(view.tables, ask.held.stated, held.room).may(held.connector, held.reach);
-    return { photos: JSON.stringify(may ? answer.photos : []), left: JSON.stringify(answer.left), ...(may ? {} : { paused: "true" }) };
+    const photos = may ? answer.photos : answer.photos.filter((photo) => asked.has(photo.asset));
+    return { photos: JSON.stringify(photos), settled: JSON.stringify(answer.settled), left: JSON.stringify(answer.left), ...(may ? {} : { paused: "true" }) };
   });
 
   const spotsOf = (machine: string) => (pieces: readonly Piece[]): (string | null)[] => {
@@ -1492,7 +1494,7 @@ export function openReads(input: {
     },
     running: () => {
       const now = settings();
-      return { position: viewed((view) => view.position()), settings: runningSettings(now, thisMachine().helpers), max_bundle_bytes: now.door.max_bundle_bytes };
+      return { position: viewed((view) => view.position()), settings: runningSettings(now, thisMachine().helpers), devices: now.devices, home_unit: now.unit, max_bundle_bytes: now.door.max_bundle_bytes };
     },
   };
   const pages = servePages({

@@ -198,7 +198,7 @@ test('S4–S9: the gallery\'s Settings, demo and worst case, at the dialog\'s wi
   assert.ok(await browser.evaluate(`(() => { const row = document.querySelector('[data-set-page="narrow"] [data-set-part="field-end"]');
     const words = row.querySelector('.ck-srow__main').getBoundingClientRect(); const end = row.querySelector('.ck-srow__end').getBoundingClientRect();
     return end.top >= words.bottom && Math.abs(end.right - row.getBoundingClientRect().right) < 0.5; })()`));
-  assert.deepEqual(await browser.evaluate(`(() => { const note = document.querySelector('[data-set-scene] .gallery__set-pages [data-set-page="models"] .ck-menubtn__note');
+  assert.deepEqual(await browser.evaluate(`(() => { const note = document.querySelector('[data-set-scene] .gallery__set-pages [data-set-page="defaults"] .ck-menubtn__note');
     return [note.scrollWidth > note.clientWidth, Math.round(note.closest('.ck-menubtn').getBoundingClientRect().height)]; })()`), [true, 32]);
   assert.deepEqual(await browser.evaluate(`[...new Set([...document.querySelectorAll('[data-set-page="held"] [data-vault-face]')]
     .map(row => Math.round(row.getBoundingClientRect().height)))].length`), 1, 'the vault row one height in every face');

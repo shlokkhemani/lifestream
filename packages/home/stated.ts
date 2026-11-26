@@ -35,8 +35,9 @@ export type MacImport = {
   readonly files: MacImportFile[];
 };
 const ROOMS: readonly Room[] = ["ok", "low", "full"];
-export const NETWORKS = ["all", "now", "small", "low-data"] as const;
+export const NETWORKS = ["all", "now", "low-data"] as const;
 export type Network = (typeof NETWORKS)[number];
+export type NetworkStated = { readonly allows: Network; readonly loopback: boolean };
 export const CAUSES = ["disk", "permission", "browser", "capture", "away", "private"] as const;
 export type Cause = (typeof CAUSES)[number];
 export const RECORDER_STATES = ["recording", "starting", "paused"] as const;
@@ -58,7 +59,7 @@ export type Statement = {
   readonly settings: Applies | null;
   readonly sending: Sending;
   readonly room: Since<Room> | null;
-  readonly network: Since<Network> | null;
+  readonly network: Since<NetworkStated> | null;
   readonly recorder: Since<Recorder> | null;
   readonly stores: StoresStated | null;
   readonly heard_ms: number;
@@ -72,7 +73,7 @@ const HEARD_MS = 60_000;
 const MAC_KNOCK_MS = 60_000;
 const RECORDER_HEARD_MS = MAC_KNOCK_MS + HEARD_MS + MAC_KNOCK_MS;
 const RECORDER_MS = 60_000;
-const SHAPE = 5;
+const SHAPE = 6;
 export const SENDING_MS = 60 * 60_000;
 const GRANT = /^[a-z][A-Za-z-]{0,63}$/u;
 const MAX_GRANTS = 64;
@@ -89,7 +90,7 @@ const NONE = canonical({});
 
 export type Said = {
   grants?: Grants | undefined; found?: readonly string[] | undefined; imports?: readonly MacImport[] | undefined; settings?: Applies | undefined; sending: Sending;
-  room?: Room | undefined; network?: Network | undefined; recorder?: Recorder | undefined; stores?: StoresStated | undefined;
+  room?: Room | undefined; network?: NetworkStated | null | undefined; recorder?: Recorder | undefined; stores?: StoresStated | undefined;
 };
 
 export interface StatedStore {
@@ -111,17 +112,17 @@ export function openStated(folder: HomeFolder, socket: HomeSocket, clock: () => 
     db.pragma(`user_version = ${SHAPE}`);
   }
   db.exec(`CREATE TABLE IF NOT EXISTS stated (pass TEXT PRIMARY KEY, unit TEXT NOT NULL, grants TEXT, found TEXT, imports TEXT, settings TEXT, sending TEXT NOT NULL,
-    room TEXT, network TEXT, recorder TEXT, stores TEXT, grants_ms INTEGER, room_ms INTEGER, network_ms INTEGER, recorder_ms INTEGER,
+    room TEXT, network TEXT, network_loopback INTEGER, recorder TEXT, stores TEXT, grants_ms INTEGER, room_ms INTEGER, network_ms INTEGER, recorder_ms INTEGER,
     at_ms INTEGER NOT NULL, told INTEGER NOT NULL, heard_ms INTEGER NOT NULL, waiting_since_ms INTEGER) WITHOUT ROWID`);
-  const COLUMNS = "unit, grants, found, imports, settings, sending, room, network, recorder, stores, grants_ms, room_ms, network_ms, recorder_ms, at_ms, told, heard_ms, waiting_since_ms";
+  const COLUMNS = "unit, grants, found, imports, settings, sending, room, network, network_loopback, recorder, stores, grants_ms, room_ms, network_ms, recorder_ms, at_ms, told, heard_ms, waiting_since_ms";
   const rowOf = db.prepare(`SELECT ${COLUMNS} FROM stated WHERE pass = ?`);
   const hear = db.prepare(`INSERT INTO stated (pass, unit, sending, at_ms, told, heard_ms, waiting_since_ms) VALUES (@pass, @unit, '${NONE}', 0, 1, @now, @now)
     ON CONFLICT (pass) DO UPDATE SET heard_ms = @now,
       waiting_since_ms = CASE WHEN waiting_since_ms IS NULL OR @now - heard_ms >= ${SENDING_MS} THEN @now ELSE waiting_since_ms END`);
-  const put = db.prepare(`INSERT INTO stated (pass, unit, grants, found, imports, settings, sending, room, network, recorder, stores, grants_ms, room_ms, network_ms, recorder_ms, at_ms, told, heard_ms, waiting_since_ms)
-    VALUES (@pass, @unit, @grants, @found, @imports, @settings, @sending, @room, @network, @recorder, @stores, @grants_ms, @room_ms, @network_ms, @recorder_ms, @at, 0, @at, @at)
+  const put = db.prepare(`INSERT INTO stated (pass, unit, grants, found, imports, settings, sending, room, network, network_loopback, recorder, stores, grants_ms, room_ms, network_ms, recorder_ms, at_ms, told, heard_ms, waiting_since_ms)
+    VALUES (@pass, @unit, @grants, @found, @imports, @settings, @sending, @room, @network, @network_loopback, @recorder, @stores, @grants_ms, @room_ms, @network_ms, @recorder_ms, @at, 0, @at, @at)
     ON CONFLICT (pass) DO UPDATE SET grants = @grants, found = @found, imports = @imports, settings = @settings, sending = @sending, room = @room, network = @network,
-      recorder = @recorder, stores = @stores, grants_ms = @grants_ms, room_ms = @room_ms, network_ms = @network_ms, recorder_ms = @recorder_ms, at_ms = @at, told = 0`);
+      network_loopback = @network_loopback, recorder = @recorder, stores = @stores, grants_ms = @grants_ms, room_ms = @room_ms, network_ms = @network_ms, recorder_ms = @recorder_ms, at_ms = @at, told = 0`);
   const clear = db.prepare("UPDATE stated SET waiting_since_ms = NULL WHERE pass = ?");
   const markTold = db.prepare("UPDATE stated SET told = 1 WHERE pass = ? AND at_ms = ?");
   const every = db.prepare(`SELECT pass, ${COLUMNS} FROM stated ORDER BY unit, at_ms DESC, heard_ms DESC, pass`);
@@ -132,8 +133,8 @@ export function openStated(folder: HomeFolder, socket: HomeSocket, clock: () => 
   const quiet = new Set<string>();
   let closed = false;
   type Row = {
-    unit: string; grants: string | null; found: string | null; imports: string | null; settings: string | null; sending: string; room: Room | null; network: string | null;
-    recorder: string | null; stores: string | null; grants_ms: number | null; room_ms: number | null; network_ms: number | null; recorder_ms: number | null; at_ms: number; told: number; heard_ms: number;
+    unit: string; grants: string | null; found: string | null; imports: string | null; settings: string | null; sending: string; room: Room | null; network: Network | null;
+    network_loopback: number | null; recorder: string | null; stores: string | null; grants_ms: number | null; room_ms: number | null; network_ms: number | null; recorder_ms: number | null; at_ms: number; told: number; heard_ms: number;
     waiting_since_ms: number | null;
   };
 
@@ -176,18 +177,19 @@ export function openStated(folder: HomeFolder, socket: HomeSocket, clock: () => 
         const settings = said.settings === undefined ? own?.settings ?? null : canonical(said.settings as Json);
         const sending = canonical(said.sending as Json);
         const room = said.room ?? own?.room ?? null;
-        const network = said.network ?? own?.network ?? null;
+        const network = said.network === undefined ? own?.network ?? null : said.network?.allows ?? null;
+        const network_loopback = said.network === undefined ? own?.network_loopback ?? null : said.network === null ? null : Number(said.network.loopback);
         const recorder = said.recorder === undefined ? own?.recorder ?? null : canonical(said.recorder as unknown as Json);
         const stores = said.stores === undefined ? own?.stores ?? null : canonical(said.stores as unknown as Json);
         const others = own === undefined || grants !== own.grants || found !== own.found || imports !== own.imports || settings !== own.settings || sending !== own.sending
-          || room !== own.room || network !== own.network || stores !== own.stores;
+          || room !== own.room || network !== own.network || network_loopback !== own.network_loopback || stores !== own.stores;
         if (others || recorder !== own.recorder) {
           const at = Math.max(clock(), (own?.at_ms ?? -Infinity) + 1);
           put.run({
-            pass: id, unit, grants, found, imports, settings, sending, room, network, recorder, stores, at,
+            pass: id, unit, grants, found, imports, settings, sending, room, network, network_loopback, recorder, stores, at,
             grants_ms: own !== undefined && grants === own.grants ? own.grants_ms : at,
             room_ms: own !== undefined && room === own.room ? own.room_ms : at,
-            network_ms: own !== undefined && network === own.network ? own.network_ms : at,
+            network_ms: own !== undefined && network === own.network && network_loopback === own.network_loopback ? own.network_ms : at,
             recorder_ms: own !== undefined && recorder === own.recorder ? own.recorder_ms : at,
           });
           if (!others && (own!.told === 1 || quiet.has(id) || telling.has(id))) quiet.add(id);
@@ -223,7 +225,7 @@ export function openStated(folder: HomeFolder, socket: HomeSocket, clock: () => 
           settings: row.settings === null ? null : JSON.parse(row.settings) as Applies,
           sending: JSON.parse(row.sending) as Sending,
           room: row.room === null ? null : { value: row.room, since_ms: row.room_ms! },
-          network: networkIn(row.network) === undefined ? null : { value: row.network as Network, since_ms: row.network_ms! },
+          network: row.network === null ? null : { value: { allows: row.network, loopback: row.network_loopback === 1 }, since_ms: row.network_ms! },
           recorder: row.recorder === null ? null : { value: JSON.parse(row.recorder) as Recorder, since_ms: row.recorder_ms! },
           stores: row.stores === null ? null : JSON.parse(row.stores) as StoresStated,
           heard_ms: row.heard_ms,
@@ -332,8 +334,9 @@ export function roomIn(value: unknown): Room | undefined {
   return (ROOMS as readonly unknown[]).includes(value) ? value as Room : refuse(422, "BAD_REQUEST", `room is the level of the device's own disk: ${ROOMS.join(", ")}`);
 }
 
-export function networkIn(value: unknown): Network | undefined {
-  return (NETWORKS as readonly unknown[]).includes(value) ? value as Network : undefined;
+export function networkIn(value: unknown, loopback: boolean): NetworkStated | null | undefined {
+  if (value === undefined) return undefined;
+  return (NETWORKS as readonly unknown[]).includes(value) ? { allows: value as Network, loopback } : null;
 }
 
 export function recorderIn(value: unknown): Recorder | undefined {

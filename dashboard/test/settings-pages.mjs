@@ -69,13 +69,13 @@ test('P1: every page draws; the Mac\'s own neither listed nor drawn in a browser
     const browser = at(`settings/${page.id}`, { state: null });
     assert.equal(browser === null, OWN.includes(page.id), `${page.id} in a browser`);
   }
-  assert.deepEqual(OWN, ['recovery', 'updates']);
+  assert.deepEqual(OWN, ['mobile-data', 'recovery', 'updates']);
   const listed = /** @param {Detail | null} detail */ detail => detail?.nav?.groups.flatMap(group => group.items.map(item => item.id));
   assert.deepEqual(listed(at('settings')), PAGES.map(page => page.id));
   assert.deepEqual(listed(at('settings', { state: null })), PAGES.map(page => page.id).filter(id => !OWN.includes(id)));
   assert.ok(PAGES.some(page => page.id === 'privacy'), 'Privacy is listed, under Models');
   assert.deepEqual(SETTINGS_INDEX.mac.map(group => [group.label, group.entries.map(entry => entry.label)]), [
-    ['Lifestream', ['General', 'Storage', 'Day and time', 'Recovery key']], ['Devices', ['This Mac', 'iPhone', 'Chrome extension']],
+    ['Lifestream', ['General', 'Storage', 'Mobile data', 'Day and time', 'Recovery key']], ['Devices', ['This Mac', 'iPhone', 'Chrome extension']],
     ['Models', ['Default models', 'Providers', 'Privacy', 'Search by meaning']], ['App', ['Appearance', 'Updates', 'Advanced']]]);
 });
 
@@ -177,6 +177,15 @@ test('P4: each control sends its act', () => {
   assert.deepEqual(elsewhere?.end, { words: '3' }, 'a key the host cannot set: its chosen value in words');
   assert.deepEqual(rowOf(/** @type {Detail} */ (at('settings/advanced', { state: null })), 'Model calls at once')?.end, { words: '8' },
     'in a browser: the value in words');
+  const mobile = /** @type {any} */ (rowOf(/** @type {Detail} */ (at('settings/mobile-data')), 'On a hotspot')?.end).menu;
+  assert.deepEqual(mobile.choices.map((/** @type {any} */ each) => [each.words, each.chosen, each.default, each.do]), [
+    ['History waits for Wi-Fi', true, true, { host: { act: 'home-setting', key: 'devices.macbook-pro-0001.mobile_data', value: 'now' } }],
+    ['History comes over the hotspot too', false, false, { host: { act: 'home-setting', key: 'devices.macbook-pro-0001.mobile_data', value: 'everything' } }],
+  ], 'a pick sends its word for the Mac\'s own key');
+  assert.equal(mobile.busy, 'home-setting:devices.macbook-pro-0001.mobile_data');
+  const picks = choices.map(each => ({ ...each, value: each.words }));
+  assert.deepEqual(rowOf(/** @type {Detail} */ (at('settings/advanced', { answers: advancedWith({ kind: 'pick', key: 'model.cap', choices: picks }) })),
+    'Model calls at once')?.end, { words: '3' }, 'a pick for a key that takes a number: its chosen words');
   const unknown = rowOf(/** @type {Detail} */ (at('settings/advanced', { answers: advancedWith(/** @type {any} */ ({ kind: 'slider', key: 'model.cap' })) })),
     'Model calls at once');
   assert.deepEqual([unknown?.label, unknown?.end], ['Model calls at once', null], 'an end of a kind it does not know: label and line alone');

@@ -2,7 +2,7 @@ import { dayBounds, digest, type DaySettings, type Json } from "@lifestreamproto
 import type { AnswerOf, Body, PageAsk, PageHandler, Phrase, Row, SettingsEnd, SettingsRow } from "./pages.js";
 import type { StreamsRead } from "./page-streams.js";
 import { refuse } from "./refusal.js";
-import { deviceSets } from "./settings.js";
+import { deviceSets, MOBILE_DATA_DEFAULT, mobileDataKey, mobileDataOf, type MobileData, type Settings } from "./settings.js";
 import type { DeviceRow, HomeSettings, StreamsReport } from "./streams-report.js";
 import { spaceWords } from "./page-storage.js";
 import { number } from "./stream-words.js";
@@ -29,7 +29,11 @@ const entry = (id: string, label: string, icon: string, answer: SettingsAnswer =
 export const SETTINGS_INDEX: Readonly<Record<SettingsKind, readonly SettingsGroup[]>> = {
   phone: [
     { label: "Devices", entries: [entry("lifestream", "Lifestream", "home"), entry("this-phone", "This iPhone", "phone-screen")] },
-    { label: "Lifestream", entries: [entry("storage", "Storage", "drive", "storage"), entry("time", "Day and time", "time", "settingsPage")] },
+    { label: "Lifestream", entries: [
+      entry("storage", "Storage", "drive", "storage"),
+      entry("mobile-data", "Mobile data", "online", "settingsPage"),
+      entry("time", "Day and time", "time", "settingsPage"),
+    ] },
     { label: "App", entries: [entry("appearance", "Appearance", "settings"), entry("advanced", "Advanced", "filter", "settingsPage")] },
     { label: "About", entries: [entry("version", "Version", "info"), entry("privacy-policy", "Privacy policy", "private")] },
   ],
@@ -37,6 +41,7 @@ export const SETTINGS_INDEX: Readonly<Record<SettingsKind, readonly SettingsGrou
     { label: "Lifestream", entries: [
       entry("home", "General", "home"),
       entry("storage", "Storage", "drive", "storage"),
+      entry("mobile-data", "Mobile data", "online", "settingsPage", true),
       entry("time", "Day and time", "time", "settingsPage"),
       entry("recovery", "Recovery key", "private", "own", true),
     ] },
@@ -63,6 +68,8 @@ export const entryOf = (kind: SettingsKind, id: string): SettingsEntry | undefin
 export interface Running {
   readonly position: string;
   readonly settings: HomeSettings;
+  readonly devices: Settings["devices"];
+  readonly home_unit: string;
   readonly max_bundle_bytes: number;
 }
 
@@ -137,23 +144,25 @@ const extensionOf = ({ extension }: StreamsReport): Device => ({
 
 export function settingsPageHandler(reads: SettingsReads): PageHandler<AnswerOf<"settingsPage">> {
   return {
-    params: ["id"],
+    params: ["id", "unit"],
     open(ask, use) {
       const asked = ask.query.get("id") ?? refuse(422, "BAD_PARAMETER", "id names a page of Settings");
       const kind = kindOf(ask);
       if (entryOf(kind, asked)?.answer !== "settingsPage") refuse(404, "NOT_FOUND", `Settings on a ${kind === "phone" ? "phone" : "Mac"} has no page ${asked} of rows`);
       const running = reads.running();
-      const body = pageOf(asked, running, ask);
+      const body = pageOf(asked, running, { ...ask, unit: ask.unit ?? ask.query.get("unit") });
       return use({ position: running.position, inputs: [digest(body as unknown as Json)], counting: false, build: () => body });
     },
   };
 }
 
-export function pageOf(id: string, running: Running, ask: Pick<PageAsk, "device" | "today" | "now_ms">): Page {
+export function pageOf(id: string, running: Running, ask: Pick<PageAsk, "device" | "unit" | "today" | "now_ms">): Page {
   const title = entryOf(kindOf(ask), id)!.label;
   switch (id) {
     case "time":
       return { id, title, line: null, parts: [{ label: null, line: null, rows: timeRows(running.settings, ask) }] };
+    case "mobile-data":
+      return { id, title, line: null, parts: [mobileDataPart(running, ask)] };
     case "advanced":
       return { id, title, line: null, parts: advancedParts(running, ask) };
     default:
@@ -192,6 +201,49 @@ function capEnd(settings: HomeSettings, ask: Pick<PageAsk, "device">): SettingsE
     key: MODEL_CAP,
     choices: offered.map((value) => ({ words: number(value), value, chosen: value === cap, default: value === settings.model_cap_default })),
   };
+}
+
+interface MobileDataChoice {
+  readonly value: MobileData;
+  readonly words: string;
+  readonly line: string;
+}
+
+interface MobileDataWords {
+  readonly part: string;
+  readonly label: string;
+  readonly choices: readonly [MobileDataChoice, ...MobileDataChoice[]];
+}
+
+const DEVICE_CHOICES: MobileDataWords["choices"] = [
+  { value: "now", words: "What I record now", line: "Photos, places and everything you record go at once. Older photos and history wait for Wi-Fi." },
+  { value: "everything", words: "Everything, including my past", line: "Older photos and history go over mobile data too." },
+];
+
+const MOBILE_DATA_WORDS: Readonly<Record<SettingsKind | "home", MobileDataWords>> = {
+  phone: { part: "Low Data Mode is always respected: then only sends under 50 MB go.", label: "Use mobile data for", choices: DEVICE_CHOICES },
+  mac: { part: "When this Mac is on a phone’s hotspot. Low Data Mode is always respected.", label: "Use mobile data for", choices: DEVICE_CHOICES },
+  home: {
+    part: "When this Mac is on a phone’s hotspot. What it records always goes.",
+    label: "On a hotspot",
+    choices: [
+      { value: "now", words: "History waits for Wi-Fi", line: "History from your accounts comes in once this Mac is on Wi-Fi." },
+      { value: "everything", words: "History comes over the hotspot too", line: "History from your accounts comes in over the hotspot too." },
+    ],
+  },
+};
+
+function mobileDataPart({ devices, home_unit }: Running, ask: Pick<PageAsk, "device" | "unit">): Page["parts"][number] {
+  const unit = ask.unit ?? refuse(404, "NOT_FOUND", "Mobile data is a device’s own page, and this reader is no device");
+  const key = mobileDataKey(unit);
+  const kind = kindOf(ask);
+  const { part, label, choices } = MOBILE_DATA_WORDS[kind === "mac" && unit === home_unit ? "home" : kind];
+  const stored = mobileDataOf({ devices }, unit);
+  const held = choices.find((each) => each.value === stored) ?? choices.find((each) => each.value === MOBILE_DATA_DEFAULT) ?? choices[0];
+  const end: SettingsEnd = writes(ask, key)
+    ? { kind: "pick", key, choices: choices.map(({ value, words }) => ({ words, value, chosen: value === held.value, default: value === MOBILE_DATA_DEFAULT })) }
+    : shown(words(held.words));
+  return { label: null, line: part, rows: [row("mobile-data", label, held.line, end)] };
 }
 
 function advancedParts({ settings, max_bundle_bytes }: Running, ask: Pick<PageAsk, "device">): Page["parts"] {

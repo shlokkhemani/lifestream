@@ -7,7 +7,7 @@ import { labelerRecordsOf } from "../shared/labelers.js";
 import { statedPrompt } from "../shared/prompts.js";
 import {
   cameraOf, CAMERA_PHOTO_KIND, CAMERAS_SOURCES, compare, copiesNear, copyIdOf, copyOf, FACES_SOURCES, headsIn, held, joinedOf, keyedInstant, lacks, MODEL_IMAGE_KIND, missingOf, modelImageOf, namingCopies,
-  PHOTO_KINDS, photoId, photoRecords, PhotoRoutes,
+  PHOTO_KINDS, PHOTO_UNIT, photoId, photoRecords, PhotoRoutes,
   type Copy, type File, type Joined, type Missing, type ModelFace, type Rung,
 } from "./read.js";
 import { putBack, type CaptionFaces } from "./faces.js";
@@ -76,7 +76,6 @@ export interface PhotosOptions {
   faces: boolean;
 }
 
-const PHOTO = "photo/";
 export const PHOTOS_FAMILY = "photos";
 const PHOTOS_CODE = "13";
 export const BURST_UNIT = "burst/";
@@ -153,13 +152,13 @@ function photosOver(options: PhotosOptions, routes: PhotoRoutes, given: readonly
       for (const [lo, hi] of joinedPlaces(places, 2 * BURST_GAP_MS)) {
         for (const unit of burstsAround(view, routes, lo - BURST_GAP_MS, hi + BURST_GAP_MS)) units.add(unit);
       }
-      for (const unit of [...units]) if (unit.startsWith(PHOTO)) units.add(`${WANTED_UNIT}${unit.slice(PHOTO.length)}`);
+      for (const unit of [...units]) if (unit.startsWith(PHOTO_UNIT)) units.add(`${WANTED_UNIT}${unit.slice(PHOTO_UNIT.length)}`);
       return [...units].sort(compare).map((unit) => ({ unit }));
     },
 
     extract(unit: string, view: View, files: BlobReader): Extracted | null {
-      if (unit.startsWith(PHOTO)) {
-        const content = photoContent(view, routes, files, unit.slice(PHOTO.length));
+      if (unit.startsWith(PHOTO_UNIT)) {
+        const content = photoContent(view, routes, files, unit.slice(PHOTO_UNIT.length));
         if (content === null) return null;
         return { content: content as unknown as Json, start_ms: content.at_ms, end_ms: content.at_ms, reading: digest(content as unknown as Json) };
       }
@@ -383,7 +382,7 @@ function copiesOfItem(view: View, routes: PhotoRoutes, thing: string): Copy[] {
   const hex = /^photo:([0-9a-f]{64})$/u.exec(thing)?.[1];
   if (hex !== undefined) return namingCopies(view, routes, hex);
   if (thing.startsWith("photo:apple:")) {
-    for (const stored of view.extractsUnder("photos", PHOTO)) {
+    for (const stored of view.extractsUnder("photos", PHOTO_UNIT)) {
       const content = stored.content as unknown as PhotoContent;
       if (content.item !== thing) continue;
       return content.records.flatMap((record) => copyOf(view, routes, record) ?? []);
@@ -503,7 +502,7 @@ function burstsAround(view: View, routes: PhotoRoutes, lo: number, hi: number): 
 }
 
 function photoUnit(id: string): string {
-  return `${PHOTO}${id}`;
+  return `${PHOTO_UNIT}${id}`;
 }
 
 export interface Unshown {

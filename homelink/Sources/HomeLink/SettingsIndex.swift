@@ -30,6 +30,7 @@ extension HomeLink {
             ]),
             Group(label: "Lifestream", entries: [
                 Entry(id: "storage", label: "Storage", icon: "drive", host: false, answer: .storage),
+                Entry(id: "mobile-data", label: "Mobile data", icon: "online", host: false, answer: .settingsPage),
                 Entry(id: "time", label: "Day and time", icon: "time", host: false, answer: .settingsPage),
             ]),
             Group(label: "App", entries: [
@@ -46,6 +47,7 @@ extension HomeLink {
             Group(label: "Lifestream", entries: [
                 Entry(id: "home", label: "General", icon: "home", host: false, answer: .own),
                 Entry(id: "storage", label: "Storage", icon: "drive", host: false, answer: .storage),
+                Entry(id: "mobile-data", label: "Mobile data", icon: "online", host: true, answer: .settingsPage),
                 Entry(id: "time", label: "Day and time", icon: "time", host: false, answer: .settingsPage),
                 Entry(id: "recovery", label: "Recovery key", icon: "private", host: true, answer: .own),
             ]),

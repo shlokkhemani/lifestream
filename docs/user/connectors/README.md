@@ -163,9 +163,10 @@ at each step.
 
 **Waiting for Wi-Fi**\
 Your Mac is on a phone's hotspot, or on a network with Low Data Mode on, so the connector's past
-waits. New data still comes in. **Connectors** also shows **Lifestream is on a hotspot**, and the
-menu bar menu says **Waiting for Wi-Fi** or **Waiting: Low Data Mode is on**. The connector goes on
-by itself once your Mac joins another Wi-Fi, or Low Data Mode is off.
+waits. New data still comes in. **Connectors** also shows **Lifestream is on a hotspot** or **Low
+Data Mode is on**. On a hotspot, **Everything, including my past** on this Mac's **Mobile data**
+page lets the past come over it too; Low Data Mode holds the past whatever you choose. The connector
+goes on by itself once your Mac joins another Wi-Fi, or Low Data Mode is off.
 
 **Waiting for power**\
 Your Mac is on battery, and this work waits until it is plugged in. To run it on battery, turn off

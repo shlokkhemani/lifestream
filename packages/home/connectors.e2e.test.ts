@@ -1155,7 +1155,7 @@ describe("the connectors", () => {
     const row = (got: StreamsReport, id: string) => got.connectors.find((each) => each.id === id)!;
     const frames = `3${NB}frames today`;
 
-    const held = report(mac({ network: { value: "now", since_ms: now - 60_000 }, recorder: { state: "interrupted", cause: "disk" } }));
+    const held = report(mac({ network: { value: { allows: "now", loopback: true }, since_ms: now - 60_000 }, recorder: { state: "interrupted", cause: "disk" } }));
     expect([row(held, "chatgpt").health.state, row(held, "chatgpt").health.reason, row(held, "chatgpt").health.words]).toEqual(["waiting", "metered", "Waiting for Wi-Fi"]);
     expect(row(held, "chatgpt").copies.map((copy) => copy.health.words)).toEqual(["Waiting for Wi-Fi"]);
     expect(row(held, "whatsapp").health.reason).not.toBe("metered");
@@ -1181,7 +1181,7 @@ describe("the connectors", () => {
     const off = row(reportOf(root, { sites, settings: { ...settings, sources: { off: ["screen"] } }, now_ms: now, stated: mac({ recorder: { state: "paused" } }) }), "screen").line;
     expect(off).toBe("Disconnected");
 
-    const free = report(mac({ network: { value: "all", since_ms: now }, recorder: { state: "recording" } }));
+    const free = report(mac({ network: { value: { allows: "all", loopback: true }, since_ms: now }, recorder: { state: "recording" } }));
     expect(row(free, "chatgpt").health.reason).not.toBe("metered");
     expect(row(free, "screen").line).toBe(frames);
 

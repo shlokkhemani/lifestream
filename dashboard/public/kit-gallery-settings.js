@@ -541,10 +541,20 @@ const ADVANCED_PAGE = { position: '1:0', today: STORAGE_TODAY, id: 'advanced', t
   ] },
 ] };
 
+/** @type {SettingsPage} */
+const MOBILE_DATA_PAGE = { position: '1:0', today: STORAGE_TODAY, id: 'mobile-data', title: 'Mobile data', line: null, parts: [
+  { label: null, line: 'When this Mac is on a phone’s hotspot. What it records always goes.', rows: [
+    { id: 'mobile-data', label: 'On a hotspot', line: 'History from your accounts comes in once this Mac is on Wi-Fi.',
+      end: { kind: 'pick', key: 'devices.macbook-pro-0001.mobile_data', choices: [
+        ['History waits for Wi-Fi', 'now'], ['History comes over the hotspot too', 'everything'],
+      ].map(([words, value]) => ({ words, value, chosen: value === 'now', default: value === 'now' })) } },
+  ] },
+] };
+
 /** @type {import('./ui/connectors/settings.js').SettingsReads} */
 export const SETTINGS_ANSWERS = {
   live: { position: '1:0', today: STORAGE_TODAY, you: null, devices: [], removed: '0 removed',
     values: [{ id: 'mac', label: 'Macs', value: null, signal: null }, { id: 'iphone', label: null, value: null,
       signal: REPORT.devices.some(each => each.kind === 'phone' && !each.retired && each.health.state === 'needs-you') ? 'needs-you' : null }] },
-  pages: { time: { read: TIME_PAGE, drawn: null }, advanced: { read: ADVANCED_PAGE, drawn: null } },
+  pages: { time: { read: TIME_PAGE, drawn: null }, 'mobile-data': { read: MOBILE_DATA_PAGE, drawn: null }, advanced: { read: ADVANCED_PAGE, drawn: null } },
 };

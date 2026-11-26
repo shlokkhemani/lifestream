@@ -115,13 +115,21 @@ final class PagesTests: XCTestCase {
         [{"id": "zone", "label": "Time zone", "line": null, "end": {"kind": "value", "value": [{"kind": "words", "words": "UTC"}], "signal": null}},
          {"id": "model-cap", "label": "Model calls at once", "line": null, "end": {"kind": "choice", "key": "model.cap",
           "choices": [{"words": "8", "value": 8, "chosen": true, "default": true}]}},
+         {"id": "mobile-data", "label": "Use mobile data for", "line": null, "end": {"kind": "pick", "key": "devices.iphone-0001.mobile_data",
+          "choices": [{"words": "What I record now", "value": "now", "chosen": true, "default": true},
+                      {"words": "Everything, including my past", "value": "everything", "chosen": false, "default": false}]}},
          {"id": "later", "label": "A later control", "line": "Its line", "end": {"kind": "slider", "key": "later.key", "from": 1, "to": 9}}]
         """))
-        XCTAssertEqual(rows.map(\.id), ["zone", "model-cap", "later"])
+        XCTAssertEqual(rows.map(\.id), ["zone", "model-cap", "mobile-data", "later"])
         guard case .choice(let key, let choices)? = rows[1].end else { return XCTFail("\(String(describing: rows[1].end))") }
         XCTAssertEqual([key, choices.first?.words], ["model.cap", "8"])
-        XCTAssertEqual(rows[2].end, .unknown)
-        XCTAssertEqual(rows[2].line, "Its line")
+        XCTAssertEqual(choices.first?.value, 8)
+        guard case .pick(let named, let picks)? = rows[2].end else { return XCTFail("\(String(describing: rows[2].end))") }
+        XCTAssertEqual(named, "devices.iphone-0001.mobile_data")
+        XCTAssertEqual(picks.map(\.value), ["now", "everything"])
+        XCTAssertEqual(picks.filter(\.chosen).map(\.words), ["What I record now"])
+        XCTAssertEqual(rows[3].end, .unknown)
+        XCTAssertEqual(rows[3].line, "Its line")
     }
 
     func testAnUnknownEnumValueDecodesAsUnknown() throws {
