@@ -2,13 +2,14 @@ import { accountOf, civilDay, isSqliteError, type DaySettings, type ExtractRow, 
 import { roadsOf, type cameras, type Connector } from "@lifestreamprotocol/connect";
 import {
   areaOf, asksCaption, BURST_GAP_MS, BURST_UNIT, burstOf, burstUnitOf, cameraFiles, cameraOf, captionContentOf, copyOf, joinedOf, LABELS_FAMILY, labelsFrom, MESSAGES_FAMILY, PHOTO_CAPTION,
-  PHOTO_KINDS, PHOTOS_FAMILY, PhotoRoutes, nameId, readCamera, recordFocus, resolveChat, resolvedChat, shownCopy, unitFocus, type BurstPhoto, type Networks,
+  PHOTO_KINDS, PHOTOS_FAMILY, PhotoRoutes, nameId, readCamera, recordFocus, resolveChat, resolvedChat, shownCopy, unavailable, unitFocus, type BurstPhoto, type Networks, type Unshown,
 } from "@lifestreamprotocol/families";
 import { catalogOf, declaredOf } from "./catalog.js";
-import { cameraNamed } from "./devices.js";
+import { cameraNamed, shownName } from "./devices.js";
 import { damaged, PEOPLE, PLACES, readPrepared, type PreparedRead } from "./prepared.js";
 import { openMade, type MadeInput } from "./made.js";
 import { notNow, RETRY_SOON_S } from "./refusal.js";
+import type { Stated } from "./stated.js";
 import type { Made } from "./streams-report.js";
 
 
@@ -89,6 +90,31 @@ export function photoOfRecord<T>(view: OpenView, version: string, photo: (hex: s
     if (held !== undefined) return held;
   }
   return undefined;
+}
+
+export function unheldWords(view: OpenView, stated: Stated, unshown: Unshown): string {
+  const what = unshown.video ? "video" : "picture";
+  const wanted = unshown.wanted;
+  if (wanted === null || wanted.routes.length === 0) return `no ${what} held`;
+  if (unavailable(wanted)) {
+    const { name } = holderOf(view, stated, wanted.routes[0]!.source);
+    return `no ${what}: ${name === null ? "its library" : `the library on ${name}`} cannot send it`;
+  }
+  const open = wanted.routes.filter((route) => !route.refused).map((route) => holderOf(view, stated, route.source));
+  const sending = open.find((holder) => holder.waits === null);
+  if (sending !== undefined) return `no ${what} yet: on its way${sending.name === null ? "" : ` from ${sending.name}`}`;
+  const { name, waits } = open[0]!;
+  return `no ${what} yet: ${name ?? "its device"} ${waits}`;
+}
+
+function holderOf(view: OpenView, stated: Stated, source: string): { name: string | null; waits: string | null } {
+  const unit = view.source(source)?.copy;
+  if (unit === undefined) return { name: null, waits: null };
+  const said = stated[unit];
+  return {
+    name: view.tables.devices.get(unit) === undefined ? null : shownName(view.tables, unit),
+    waits: said?.room?.value === "full" ? "is out of space" : said?.network?.value === "metered" ? "is on mobile data, so it waits for Wi-Fi" : null,
+  };
 }
 
 export type PhotoNaming = Pick<PhotoInput, "day" | "networks" | "photos">;

@@ -9,7 +9,7 @@ export * from "./shared/places.js";
 export * from "./shared/replicas.js";
 export * from "./photos/family.js";
 export { cameraOf, copyOf, FACES_SOURCES, joinedOf, PHOTO_KIND, PHOTO_KINDS, PhotoRoutes, snapshotOf } from "./photos/read.js";
-export { coming, wanted, wantedUnits, type Coming, type Left, type Served, type WantedAnswer, type WantedContent } from "./photos/wanted.js";
+export { coming, unavailable, wanted, wantedOf, wantedUnits, type Coming, type Left, type Served, type WantedAnswer, type WantedContent } from "./photos/wanted.js";
 export * from "./voice/family.js";
 export * from "./screen/family.js";
 export { ScreenFrameReader, screenFrames, screenFrameVersions, segmentsSpanning, type LazyFrame, type ScreenFrameRead, type ScreenText } from "./screen/frames.js";

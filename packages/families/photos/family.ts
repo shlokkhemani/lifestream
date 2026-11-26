@@ -11,7 +11,7 @@ import {
   type Copy, type File, type Joined, type Missing, type ModelFace, type Rung,
 } from "./read.js";
 import { putBack, type CaptionFaces } from "./faces.js";
-import { WANTED_UNIT, type WantedContent } from "./wanted.js";
+import { WANTED_UNIT, wantedOf, type WantedContent } from "./wanted.js";
 
 export const PHOTO_CAPTION = "photo-caption";
 export const PHOTO_CAPTION_PROMPT: Prompt = {
@@ -504,6 +504,41 @@ function burstsAround(view: View, routes: PhotoRoutes, lo: number, hi: number): 
 
 function photoUnit(id: string): string {
   return `${PHOTO}${id}`;
+}
+
+export interface Unshown {
+  video: boolean;
+  wanted: WantedContent | null;
+}
+
+export type UnshownOf = { record: Pick<RecordRef, "source" | "key"> } | { burst: string; item: string };
+
+export function unshownReader(view: View, routes: PhotoRoutes): (of: UnshownOf) => Unshown | null {
+  const bursts = new Map<string, BurstContent | null>();
+  const burstNamed = (unit: string): BurstContent | null => {
+    if (!bursts.has(unit)) {
+      const stored = unit.startsWith(BURST_UNIT) ? view.extract(PHOTOS_FAMILY, unit) : undefined;
+      bursts.set(unit, stored === undefined ? null : burstOf(stored));
+    }
+    return bursts.get(unit)!;
+  };
+  return (of) => {
+    const photo = "record" in of ? recordPhoto(view, routes, of.record) : burstPhoto(burstNamed(of.burst), of.item);
+    return photo === null ? null : { video: photo.video, wanted: wantedOf(view, photo.id) };
+  };
+}
+
+function recordPhoto(view: View, routes: PhotoRoutes, record: Pick<RecordRef, "source" | "key">): { id: string; video: boolean } | null {
+  const copy = copyOf(view, routes, record);
+  if (copy === null) return null;
+  const id = photoId(joinedOf(view, routes, copy).placer);
+  const content = view.extract(PHOTOS_FAMILY, photoUnit(id))?.content as unknown as PhotoContent | undefined;
+  return content === undefined || content.image !== null ? null : { id, video: content.video };
+}
+
+function burstPhoto(burst: BurstContent | null, item: string): { id: string; video: boolean } | null {
+  const photo = burst?.photos.find((each) => each.item === item);
+  return photo === undefined || photo.sha256 !== null ? null : { id: photo.photo, video: photo.kind === "video" };
 }
 
 function burstUnit(photo: Placed): string {

@@ -12,7 +12,7 @@ import {
   NAME_SHARE, namesOf, phrasesOf, PHYSICAL, PLACE_REACH_M, placeTable, REACH_DAYS, readCameras, resolveChat, resolvedChat, resolvedName, resolvedPlace,
   SCREEN_ACCOUNT, servedTable, suggest, SUGGESTIONS_LIMIT, SUGGESTIONS_MAX, summarise,
   photoRoutesIn, AI_FAMILY, aiChatsIn, namedCopyOf, type DayDocument, textFamilyOf, wanted, where, wordsOf as suggestedWords, type Answers, type GooglePlace, type Labels, type Piece, type Searched,
-  type ServedPhoto, type PlaceTable, type Point, type RecordRead as FamilyRecordRead, type RecordText, type Said, type Where, type Words as SuggestWords, isRecording, VOICE_FAMILY, voiceItems, voiceItem,
+  type ServedPhoto, type PlaceTable, type Point, type RecordRead as FamilyRecordRead, type RecordText, type Said, type Where, type Words as SuggestWords, isRecording, unshownReader, VOICE_FAMILY, voiceItems, voiceItem,
 } from "@lifestreamprotocol/families";
 import { googlePlaces, productName, productsOf, type cameras, type Connector, type HeldSite, type RefusedStation } from "@lifestreamprotocol/connect";
 import type { Ledger } from "@lifestreamprotocol/model";
@@ -22,7 +22,7 @@ import { DAY_FILES, dayFile, readDayHead } from "./derive.js";
 import { cameraNamed, type DeviceKind } from "./devices.js";
 import { newest, type Feed } from "./feed.js";
 import { freshSourcesOf } from "./freshness.js";
-import { photoNamed, photoOfRecord, preparedFile, readPhoto, type PreparedFile } from "./photo.js";
+import { photoNamed, photoOfRecord, preparedFile, readPhoto, unheldWords, type PreparedFile } from "./photo.js";
 import { modelsAt, modelsRead } from "./models-read.js";
 import { modelsFindHandler, modelsHandler, type ModelsReads } from "./page-models.js";
 import { storedModels } from "./models.js";
@@ -691,6 +691,7 @@ export function openReads(input: {
   const describeRoute = contractRoute(DESCRIBE_ROUTE, READ_ROWS, (params, call, ask) => describedOf(params, readSourcesOf(call, ask)));
   function readSourcesOf(call: Call, ask: Ask): ReadSources {
     const families = input.registry?.families ?? [];
+    let unshown: ReturnType<typeof unshownReader> | undefined;
     const screenOf = (screen: ScreenRead): ScreenSource => ({
       ...screenSource(screen, call.view(), families, blobs, settings().screen_cutover_ms), clock: screen.clock, file: screen.file,
       as_of: call.asOf(screen.seq, screen.clock.zone),
@@ -731,6 +732,11 @@ export function openReads(input: {
           return file === undefined ? undefined : read(file);
         };
         return withLedger(folder, (ledger) => readPhoto(call.view(), hex, { unit: settings().unit, day: call.clock(), now_ms: ask.now_ms, people, places, made: madeInputOf(ledger, ask.now_ms), networks, photos: photoRoutes }));
+      },
+      unheld: (of) => {
+        unshown ??= unshownReader(call.view(), photoRoutes);
+        const photo = unshown(of);
+        return photo === null ? null : unheldWords(call.view(), ask.held.stated, photo);
       },
       held: (blob) => served(call.view(), blobs, blob),
       dayDocument: (on) => {
