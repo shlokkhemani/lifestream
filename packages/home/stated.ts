@@ -35,7 +35,7 @@ export type MacImport = {
   readonly files: MacImportFile[];
 };
 const ROOMS: readonly Room[] = ["ok", "low", "full"];
-export const NETWORKS = ["free", "metered"] as const;
+export const NETWORKS = ["all", "now", "small", "low-data"] as const;
 export type Network = (typeof NETWORKS)[number];
 export const CAUSES = ["disk", "permission", "browser", "capture", "away", "private"] as const;
 export type Cause = (typeof CAUSES)[number];
@@ -132,7 +132,7 @@ export function openStated(folder: HomeFolder, socket: HomeSocket, clock: () => 
   const quiet = new Set<string>();
   let closed = false;
   type Row = {
-    unit: string; grants: string | null; found: string | null; imports: string | null; settings: string | null; sending: string; room: Room | null; network: Network | null;
+    unit: string; grants: string | null; found: string | null; imports: string | null; settings: string | null; sending: string; room: Room | null; network: string | null;
     recorder: string | null; stores: string | null; grants_ms: number | null; room_ms: number | null; network_ms: number | null; recorder_ms: number | null; at_ms: number; told: number; heard_ms: number;
     waiting_since_ms: number | null;
   };
@@ -223,7 +223,7 @@ export function openStated(folder: HomeFolder, socket: HomeSocket, clock: () => 
           settings: row.settings === null ? null : JSON.parse(row.settings) as Applies,
           sending: JSON.parse(row.sending) as Sending,
           room: row.room === null ? null : { value: row.room, since_ms: row.room_ms! },
-          network: row.network === null ? null : { value: row.network, since_ms: row.network_ms! },
+          network: networkIn(row.network) === undefined ? null : { value: row.network as Network, since_ms: row.network_ms! },
           recorder: row.recorder === null ? null : { value: JSON.parse(row.recorder) as Recorder, since_ms: row.recorder_ms! },
           stores: row.stores === null ? null : JSON.parse(row.stores) as StoresStated,
           heard_ms: row.heard_ms,
@@ -333,8 +333,7 @@ export function roomIn(value: unknown): Room | undefined {
 }
 
 export function networkIn(value: unknown): Network | undefined {
-  if (value === undefined) return undefined;
-  return (NETWORKS as readonly unknown[]).includes(value) ? value as Network : refuse(422, "BAD_REQUEST", `network is ${NETWORKS.join(" or ")}`);
+  return (NETWORKS as readonly unknown[]).includes(value) ? value as Network : undefined;
 }
 
 export function recorderIn(value: unknown): Recorder | undefined {

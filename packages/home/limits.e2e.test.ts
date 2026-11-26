@@ -95,6 +95,7 @@ async function running(prefix: string, options: { registry: string; clocks: bool
       pass: () => readPrincipals(openHomeFolder(root)).principals.find((each) => each.unit === unit && each.revoked_at === null)!.id,
       exchange: (said: Record<string, unknown> = {}) => call(url, "POST", "/v1/exchange", headers, JSON.stringify(said)),
       away: (said: Record<string, unknown> = {}) => overLan(lan(), "/v1/exchange", headers, JSON.stringify(said)),
+      set: (members: Record<string, unknown>) => call(url, "POST", "/v1/settings", headers, JSON.stringify(members)),
     };
   };
   return {
@@ -124,7 +125,7 @@ const limits = (needs: readonly Need[]) => needs.filter((need) => need.id === "m
   .map((need) => [need.id, need.state, need.words, need.line ?? null]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
 
 describe("the home's network", () => {
-  it("runs the home's page while its Mac states the network metered, reads a day of silence as free, answers history to an exchange from away, holds one over loopback, or takes a Mac's word from away", async () => {
+  it("reads a Mac's word of the last release as no statement, runs the home's page while its Mac states `now`, reads a day of silence as free, answers history to an exchange from away, holds one over loopback, or takes a Mac's word from away, and runs it once the Mac states `all`", async () => {
     const clock = { now: T0 };
     const home = await running("lifestream-limits-network-", { registry: CLOCKED, clocks: true, clock: () => clock.now });
     const ran = () => ranOf(home.root).filter((each) => each.name === "fake-clock").map((each) => each.call);
@@ -144,6 +145,12 @@ describe("the home's network", () => {
     expect(history(await phone.away()).length).toBeGreaterThan(0);
 
     expect((await mac.exchange({ network: "metered" })).status).toBe(200);
+    expect((await mac.exchange({ network: "free" })).status).toBe(200);
+    seen.lastRelease = history(await phone.away());
+    expect(history(await phone.away()).every((each) => each)).toBe(true);
+    expect(limits(await home.needs())).toEqual([]);
+
+    expect((await mac.exchange({ network: "now" })).status).toBe(200);
     await until("the home reads its network metered", () => home.logs.some((line) => line.includes('"network":"metered"')));
     clock.now = T0 + 10 * MINUTE;
     expect((await settled(3, "the fetch at its refresh")).slice(2)).toEqual(["fetch"]);
@@ -157,7 +164,7 @@ describe("the home's network", () => {
     seen.answers = { away: history(away), loopback: history(loopback) };
     expect(history(away).every((each) => !each)).toBe(true);
     expect(history(loopback).every((each) => each)).toBe(true);
-    expect((await mac.away({ network: "free" })).status).toBe(200);
+    expect((await mac.away({ network: "all" })).status).toBe(200);
     expect(limits(await home.needs()).map((need) => need[0])).toEqual(["metered"]);
 
     const before = ran().length;
@@ -176,7 +183,12 @@ describe("the home's network", () => {
     expect((await settled(4, "the fetch a day on")).slice(3)).toEqual(["fetch"]);
     expect((await row()).health.reason).toBe("metered");
 
-    expect((await mac.exchange({ network: "free" })).status).toBe(200);
+    expect((await mac.exchange({ network: "small" })).status).toBe(200);
+    expect(history(await phone.away()).every((each) => !each)).toBe(true);
+    expect((await mac.exchange({ network: "low-data" })).status).toBe(200);
+    expect(history(await phone.away()).every((each) => !each)).toBe(true);
+    expect((await mac.exchange({ network: "all" })).status).toBe(200);
+    expect(history(await phone.away()).every((each) => each)).toBe(true);
     await until("the home reads its network free", () => home.logs.some((line) => line.includes('"network":"free"')) && home.logs.findLastIndex((line) => line.includes('"network":"free"')) > home.logs.findIndex((line) => line.includes('"network":"metered"')));
     clock.now = T0 + DAY + 10 * MINUTE;
     await until("the page runs once the network is free", () => ran().slice(4).includes("page"));
@@ -199,7 +211,7 @@ describe("the home's network", () => {
     const phone = await home.phone();
 
     const mac = await home.mac();
-    await mac.exchange({ network: "metered" });
+    await mac.exchange({ network: "now" });
     await until("the home reads its network metered", () => metered() === 1);
     let freed = free();
     await askHome(home.sock, "device", ["retire", mac.unit]);
@@ -211,7 +223,7 @@ describe("the home's network", () => {
     await until("the page runs once its Mac is retired", () => ran().slice(2).includes("page"));
 
     const other = await home.mac("aa43");
-    await other.exchange({ network: "metered" });
+    await other.exchange({ network: "now" });
     await until("the home reads the other Mac's network metered", () => metered() === 2);
     const paged = ran().length;
     freed = free();
@@ -223,6 +235,23 @@ describe("the home's network", () => {
     await until("the home reads its network free once the pass is revoked", () => free() > freed);
     await until("a page runs once the pass is revoked", () => ran().slice(paged).includes("page"));
     seen.ran = ran();
+  });
+});
+
+describe("a device's mobile data", () => {
+  it("answers each device its own choice, `now` while unset", async () => {
+    const home = await running("lifestream-limits-mobile-", { registry: FAKES, clocks: false, clock: () => Date.now() });
+    const mac = await home.mac();
+    const phone = await home.phone();
+    const own = (unit: string) => `devices.${unit}.mobile_data`;
+    const seen: Record<string, unknown> = {};
+    report.mobile = seen;
+
+    expect([(await phone.exchange()).body.mobile_data, (await mac.exchange()).body.mobile_data]).toEqual(["now", "now"]);
+    expect(await phone.set({ [own(phone.unit)]: "everything" })).toEqual({ status: 200, body: {} });
+    expect(await mac.set({ [own(mac.unit)]: "small" })).toEqual({ status: 200, body: {} });
+    seen.answers = { phone: (await phone.exchange()).body.mobile_data, mac: (await mac.exchange()).body.mobile_data };
+    expect(seen.answers).toEqual({ phone: "everything", mac: "small" });
   });
 });
 
@@ -245,7 +274,7 @@ describe("what a device states of its limits", () => {
     }
   });
 
-  it("ages an asking grant by a recorder's or a room's change, tells a recorder's change more than once a minute or never, forgets a member left out, takes another shape, takes a stopped recorder, raises a disk's need otherwise than by its device's name or for a retired one, or the home's own Mac's beside the home's disk", async () => {
+  it("ages an asking grant by a recorder's or a room's change, tells a recorder's change more than once a minute or never, forgets a member left out, takes another shape, takes a stopped recorder, raises a disk's need otherwise than by its device's name or for a retired one, or the home's own Mac's beside the home's disk, and reads a network word it does not know as no statement", async () => {
     const skew = { ms: 0 };
     const free = freeSpace(1e12);
     const home = await running("lifestream-limits-stated-", { registry: FAKES, clocks: false, clock: () => Date.now() + skew.ms });
@@ -278,7 +307,8 @@ describe("what a device states of its limits", () => {
     await until("the held recorder told at the next exchange after the minute", () => home.settled(mac.unit));
     expect(home.told(mac.unit)).toBe(4);
 
-    for (const said of [{ room: "half" }, { network: "slow" }, { recorder: null }, { recorder: { cause: "disk" } }, { recorder: { state: "napping" } },
+    expect(await mac.exchange({ network: "slow" })).toMatchObject({ status: 200 });
+    for (const said of [{ room: "half" }, { recorder: null }, { recorder: { cause: "disk" } }, { recorder: { state: "napping" } },
       { recorder: { state: "interrupted", cause: "nap" } }, { recorder: { state: "interrupted" } },
       { recorder: { state: "interrupted", cause: "disk", since: new Date().toISOString() } }, { recorder: { state: "recording", cause: "disk" } },
       { recorder: { state: "stopped" } }]) {
@@ -286,10 +316,10 @@ describe("what a device states of its limits", () => {
     }
 
     await askHome(home.sock, "device", ["name", phone.unit, "Sam's iPhone"]);
-    await phone.exchange({ room: "full", network: "metered" });
+    await phone.exchange({ room: "full", network: "now" });
     const former = await home.mac("aa41");
-    await former.exchange({ network: "free" });
-    await mac.exchange({ network: "free" });
+    await former.exchange({ network: "all" });
+    await mac.exchange({ network: "all" });
     const needs = limits(await home.needs());
     seen.needs = needs;
     const macLow = [`room:${mac.unit}`, "needs-you", "MacBook Pro's disk is almost full", "Photos and dropped files wait for room"];

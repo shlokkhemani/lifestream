@@ -166,19 +166,19 @@ final class FilesTests: XCTestCase {
                         "kept plain")
     }
 
-    func testAKeyedBundlesMeteredRuleReadsItsPlainSize() async throws {
+    func testAKeyedBundlesNetworkRuleReadsItsPlainSize() async throws {
         let files = DeviceFiles(.keyed(SymmetricKey(size: .bits256)))
         let bundle = folder.appendingPathComponent("large.zip")
-        try files.writeNew(bundle, Data(count: Int(Transfer.largeBytes) - 1), flush: .data)
+        try files.writeNew(bundle, Data(count: Int(MobileData.largeBytes) - 1), flush: .data)
         let onDisk = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: bundle.path)[.size] as? Int)
-        XCTAssertGreaterThanOrEqual(Int64(onDisk), Transfer.largeBytes, "the encrypted file is past the line")
+        XCTAssertGreaterThanOrEqual(Int64(onDisk), MobileData.largeBytes, "the encrypted file is past the line")
         let transport = StreamingTransport(dropsFirst: false)
         let link = try await pairedLink(transport, files: files)
         _ = try await link.send(bundle: bundle, id: "sha256:00aa", kind: .new)
         let request = try XCTUnwrap(transport.uploads.first)
-        XCTAssertTrue(request.mayUseMetered, "under 50 MB of plain bytes: any network")
+        XCTAssertEqual(request.crossing, .any, "under 50 MB of plain bytes: any network, Low Data Mode too")
         guard case .stream(let size, _) = request.body else { return XCTFail("a keyed bundle is streamed") }
-        XCTAssertEqual(size, Transfer.largeBytes - 1, "the body states its plain size")
+        XCTAssertEqual(size, MobileData.largeBytes - 1, "the body states its plain size")
     }
 
     func testAKeyedBundleLostMidBodyIsSentAgainFromItsFirstByte() async throws {

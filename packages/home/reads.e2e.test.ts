@@ -1360,6 +1360,11 @@ describe("one photo's facts", () => {
     expect((await get(`/v1/photos/${RUN_1.hash}`, READER, { "if-none-match": first.etag! })).status).toBe(304);
     const wanted = await get(`/v1/photos/wanted?source=${encodeURIComponent(LIBRARY)}&files=1`, PHONE, DEVICE.phone);
     expect([wanted.status, Array.isArray(wanted.body.photos), typeof wanted.body.left]).toEqual([200, true, "object"]);
+    const owing = (count: number) => `/v1/photos/wanted?source=${encodeURIComponent(LIBRARY)}&files=1${Array.from({ length: count }, (_, index) => `&owed=${encodeURIComponent(`A1B2C3D4-0000-4000-8000-${String(index).padStart(12, "0")}/L0/001`)}`).join("")}`;
+    const owedAll = await get(owing(200), PHONE, DEVICE.phone);
+    expect([owedAll.status, owedAll.body.photos]).toEqual([200, wanted.body.photos]);
+    const owedTooMany = await get(owing(201), PHONE, DEVICE.phone);
+    expect([owedTooMany.status, owedTooMany.body.code, owedTooMany.body.message]).toEqual([422, "BAD_PARAMETER", "owed is named at most 200 times"]);
     const reads = openReads({ folder: openHomeFolder(root), home: new HomeFile(openHomeFolder(root)), blobs: openHomeFolder(root).blobs(join(root, "blobs"), { reading: true }), settings: lastGood(root) });
     const path = `/v1/photos/${RUN_1.hash}`;
     expect([typeof reads.prepared(path), reads.route(path), reads.reply(path)]).toEqual(["function", undefined, undefined]);

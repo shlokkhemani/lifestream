@@ -67,6 +67,7 @@ public final class HomeLink: Sendable {
     private let newest = Newest()
     private let clocks = Clocks()
     private let counts = Counts()
+    private let chosen = Chosen()
     let recipes = Recipes()
 
     public init(device: Device, credentials: any Credentials = KeychainCredentials(), folder: URL,
@@ -438,9 +439,50 @@ public final class HomeLink: Sendable {
         telling()
     }
 
-    public func tell(network: NetworkCost) {
+    public func tell(network: MobileData.Allows) {
         guard told.keep(at: clock(), { $0.own.network = network }) else { return }
         telling()
+    }
+
+    public func tell(network: NetworkCost) {
+        tell(network: network == .free ? MobileData.Allows.all : .now)
+    }
+
+    public func mobile(pressed: Bool) -> MobileData.Moment {
+        let home = (try? name())?.flatMap(\.host) ?? ""
+        return MobileData.Moment(path: network?.facts?.cost ?? .costly, choice: choice,
+                                 loopback: Self.isLoopback(host: home), pressed: pressed)
+    }
+
+    public func mobileChanges() -> AsyncStream<Void> {
+        AsyncStream { reader in
+            let id = UUID()
+            chosen.listen(id, reader)
+            let paths = network.map { watch in
+                let first = watch.facts?.cost
+                return Task {
+                    var last = first
+                    for await facts in watch.changes() where facts.cost != last {
+                        last = facts.cost
+                        reader.yield()
+                    }
+                }
+            }
+            reader.onTermination = { [weak self] _ in
+                paths?.cancel()
+                self?.chosen.drop(id)
+            }
+        }
+    }
+
+    private var choice: MobileData.Choice {
+        chosen.choice ?? newest.fresh?.mobileData ?? saved?.mobileData ?? .now
+    }
+
+    private func choose(_ choice: MobileData.Choice, after sent: Int) {
+        let was = self.choice
+        chosen.take(choice, after: sent)
+        if self.choice != was { chosen.changed() }
     }
 
     private func telling() {
@@ -494,10 +536,15 @@ public final class HomeLink: Sendable {
                      sent: (@Sendable (Int64) -> Void)? = nil) async throws -> FreshAnswer {
         let path = try bundlePath(file, id)
         let (body, bytes) = try upload(file)
+        let crossing: MobileData.Crossing
+        switch mobile(pressed: pressed).decide(kind, bytes: bytes) {
+        case .moves(let allowed): crossing = allowed
+        case .waits(let wait): throw LinkFailure.waits(wait)
+        }
         let headers = ["Content-Type": "application/zip", Self.kindHeader: kind.rawValue]
         let response = try await contact("PUT", path, headers, body, timeout: URLSessionTransport.uploadSilence,
-                                         mayUseMetered: Transfer.mayMove(kind, bytes: bytes, pressed: pressed, metered: true),
-                                         route: "PUT /v1/bundles/<id>", lands: true, progress: sent.map(UploadProgress.init))
+                                         crossing: crossing, route: "PUT /v1/bundles/<id>", lands: true,
+                                         progress: sent.map(UploadProgress.init))
         guard response.status == 200 || response.status == 201 else { throw failure(response) }
         return try keep(response)
     }
@@ -535,16 +582,21 @@ public final class HomeLink: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let body = try encoder.encode(Body(connector: connector, member: member, value: value, was: was))
-        return try await postSetting(body) { (try? JSONDecoder().decode(SettingAnswer.self, from: $0))?.landed.value }
+        return try await postSetting(body) { (try? JSONDecoder().decode(SettingAnswer.self, from: $0.body))?.landed.value }
     }
 
     public func setHomeSetting(key: String, value: JSON) async throws -> SettingOutcome {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        return try await postSetting(try encoder.encode([key: value])) { _ in value }
+        return try await postSetting(try encoder.encode([key: value])) { response in
+            if let unit, key == MobileData.key(of: unit), case .string(let word) = value, let choice = MobileData.Choice(rawValue: word) {
+                choose(choice, after: response.sent ?? newest.sending())
+            }
+            return value
+        }
     }
 
-    private func postSetting(_ body: Data, landed: (Data) -> JSON?) async throws -> SettingOutcome {
+    private func postSetting(_ body: Data, landed: (HomeResponse) -> JSON?) async throws -> SettingOutcome {
         let response: HomeResponse
         do {
             response = try await contact("POST", "/v1/settings", ["Content-Type": "application/json"], .json(body))
@@ -553,7 +605,7 @@ public final class HomeLink: Sendable {
         }
         switch response.status {
         case 200:
-            return .taken(landed(response.body))
+            return .taken(landed(response))
         case 409:
             struct Changed: Decodable {
                 let code: String
@@ -636,7 +688,10 @@ public final class HomeLink: Sendable {
     }
 
     private func keep(_ answer: Answer, from response: HomeResponse) throws -> FreshAnswer {
+        let was = choice
         let (fresh, newer) = try storing.withLock { try land(answer, from: response) }
+        if newer { chosen.answered(sent: response.sent ?? 0) }
+        if choice != was { chosen.changed() }
         let kept = try judging(fresh, token: response.sent ?? tick())
         if newer { newest.landed() }
         readClockIfOwed()
@@ -811,15 +866,15 @@ public final class HomeLink: Sendable {
 
     func contact(_ method: String, _ path: String, _ extra: [String: String], _ body: HomeRequest.Body,
                  timeout: TimeInterval = HomeLink.silence, within: TimeInterval? = nil, whileHeld: Bool = false,
-                 mayUseMetered: Bool = true, route: String? = nil, lands: Bool = false,
+                 crossing: MobileData.Crossing = .any, route: String? = nil, lands: Bool = false,
                  progress: UploadProgress? = nil) async throws -> HomeResponse {
         try await contact(method, path, extra, { _ in body }, timeout: timeout, within: within, whileHeld: whileHeld,
-                          mayUseMetered: mayUseMetered, route: route, lands: lands, progress: progress)
+                          crossing: crossing, route: route, lands: lands, progress: progress)
     }
 
     func contact(_ method: String, _ path: String, _ extra: [String: String], _ body: @escaping (_ pass: String) throws -> HomeRequest.Body,
                  timeout: TimeInterval = HomeLink.silence, within: TimeInterval? = nil, whileHeld: Bool = false,
-                 mayUseMetered: Bool = true, route: String? = nil, lands: Bool = false,
+                 crossing: MobileData.Crossing = .any, route: String? = nil, lands: Bool = false,
                  progress: UploadProgress? = nil) async throws -> HomeResponse {
         let key = route ?? Self.route(method: method, path: path)
         let budget = budget(for: key)
@@ -827,7 +882,7 @@ public final class HomeLink: Sendable {
             try await self.contact(method, path, extra, body, timeout: timeout, within: within, whileHeld: whileHeld,
                                    route: key, budget: budget) { request, pass in
                 var request = request
-                request.mayUseMetered = mayUseMetered || Self.isLoopback(host: request.url.host ?? "")
+                request.crossing = crossing
                 request.progress = progress
                 let sent = self.newest.sending()
                 var response = try await self.perform(request)
@@ -1219,6 +1274,7 @@ public enum LinkFailure: Error, Equatable, CustomStringConvertible {
     case unusableID
     case credentials
     case notTheHome
+    case waits(MobileData.Wait)
 
     public var code: String {
         switch self {
@@ -1239,6 +1295,7 @@ public enum LinkFailure: Error, Equatable, CustomStringConvertible {
         case .unusableID: return "BUNDLE_ID"
         case .credentials: return "CREDENTIALS"
         case .notTheHome: return "NOT_THE_HOME"
+        case .waits: return "WAITS_FOR_NETWORK"
         }
     }
 
@@ -1262,6 +1319,7 @@ public enum LinkFailure: Error, Equatable, CustomStringConvertible {
         case .unusableID: return "the bundle's id is not a delivery path"
         case .credentials: return "the pass could not be read or saved. Unlock this device and try again."
         case .notTheHome: return "This isn't your Mac."
+        case .waits(let wait): return wait.words
         }
     }
 }
@@ -1319,6 +1377,36 @@ private final class TellsHeld: @unchecked Sendable {
     }
 }
 
+private final class Chosen: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken: (choice: MobileData.Choice, after: Int)?
+    private var readers: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    var choice: MobileData.Choice? { lock.withLock { taken?.choice } }
+
+    func take(_ choice: MobileData.Choice, after sent: Int) {
+        lock.withLock { taken = (choice, sent) }
+    }
+
+    func answered(sent: Int) {
+        lock.withLock {
+            if let held = taken, sent > held.after { taken = nil }
+        }
+    }
+
+    func listen(_ id: UUID, _ reader: AsyncStream<Void>.Continuation) {
+        lock.withLock { readers[id] = reader }
+    }
+
+    func drop(_ id: UUID) {
+        _ = lock.withLock { readers.removeValue(forKey: id) }
+    }
+
+    func changed() {
+        for reader in lock.withLock({ Array(readers.values) }) { reader.yield() }
+    }
+}
+
 private final class Waiting: @unchecked Sendable {
     private let lock = NSLock()
     private var waits: Bool?
@@ -1344,7 +1432,7 @@ private final class Told: @unchecked Sendable {
             var imports: [MacImport]?
             var recorder: RecorderStatement?
             var room: Room?
-            var network: NetworkCost?
+            var network: MobileData.Allows?
             var stores: HomeLink.StoresStated?
         }
         struct Riding: Equatable {

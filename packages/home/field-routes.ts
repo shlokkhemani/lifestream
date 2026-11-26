@@ -4,7 +4,7 @@ import type { JsonObject } from "@lifestreamprotocol/core";
 import type { Act } from "./door.js";
 import type { Principal } from "./principals.js";
 import { refuse } from "./refusal.js";
-import { deviceSets, type Member } from "./settings.js";
+import { deviceSets, unitOfSetting, type Member } from "./settings.js";
 import type { SealAnswer, SettingAnswer } from "./wire.js";
 
 const ROUTES = new Set(["/v1/settings", "/v1/seal"]);
@@ -22,18 +22,20 @@ export function fieldRoutes(door: FieldDoor): (principal: Principal, pathname: s
   const declared = (id: unknown): Connector =>
     door.connectors.find((each) => each.id === id) ?? refuse(403, "PRINCIPAL_SCOPE", `the home declares no connector ${String(id)}`);
 
-  const homeSetting = async (body: JsonObject, request: IncomingMessage): Promise<[number, JsonObject]> => {
+  const homeSetting = async (principal: Principal, body: JsonObject, request: IncomingMessage): Promise<[number, JsonObject]> => {
     const keys = Object.keys(body);
     if (keys.length !== 1) refuse(422, "BAD_REQUEST", "a body naming no connector names one setting and its value");
     const key = keys[0]!;
     if (!deviceSets(key)) refuse(403, "PRINCIPAL_SCOPE", `${key} is set on the Mac Lifestream runs on, never by a device's pass`);
+    const unit = unitOfSetting(key);
+    if (unit !== null && unit !== principal.unit) refuse(403, "PRINCIPAL_SCOPE", `${key} is device ${unit}'s own: a pass sets its own device's alone`);
     await door.relay({ verb: "settings", args: ["set", key, JSON.stringify(body[key])], by: "you" }, "POST /v1/settings", request);
     return [200, {}];
   };
 
   const setting = async (principal: Principal, request: IncomingMessage): Promise<[number, JsonObject]> => {
     const body = await door.body(request);
-    if (!Object.hasOwn(body, "connector")) return homeSetting(body, request);
+    if (!Object.hasOwn(body, "connector")) return homeSetting(principal, body, request);
     const { connector: id, member, value, was } = body;
     if (typeof id !== "string" || typeof member !== "string" || value === undefined) refuse(422, "BAD_REQUEST", "settings names a connector, a member and its value, and the value it was");
     const kind = declared(id).fields?.[member]?.kind;

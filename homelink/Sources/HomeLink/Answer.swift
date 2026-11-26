@@ -45,6 +45,7 @@ public struct Answer: Sendable, Equatable {
     public let stores: [String: HomeLink.DeclaredStore]?
     public let refresh: [String: Int]?
     public let keyed: Bool
+    public let mobileData: MobileData.Choice
     public let body: Data
 
     init?(body: Data) {
@@ -91,6 +92,7 @@ public struct Answer: Sendable, Equatable {
         }
         refresh = (object["refresh"] as? [String: Any])?.compactMapValues { Self.count($0) }
         keyed = object["keyed"] as? Bool == true
+        mobileData = (object["mobile_data"] as? String).flatMap(MobileData.Choice.init(rawValue:)) ?? .now
         self.body = body
     }
 

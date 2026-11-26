@@ -141,9 +141,6 @@ final class LimitsTests: XCTestCase {
     }
 
     func testAMacsNetworkReachesTheHomeOnceAChangeAndEveryExchangeCarriesIt() async throws {
-        XCTAssertEqual(Metered(expensive: true, constrained: true), .expensive, "another Wi-Fi ends it")
-        XCTAssertEqual(Metered(expensive: false, constrained: true), .lowDataMode, "Low Data Mode alone: turning it off ends it")
-        XCTAssertNil(Metered(expensive: false, constrained: false))
         XCTAssertEqual(NetworkCost(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, metered: .expensive)), .metered)
         XCTAssertEqual(NetworkCost(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false, metered: .lowDataMode)), .metered)
         XCTAssertEqual(NetworkCost(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: false)), .free)
@@ -162,27 +159,28 @@ final class LimitsTests: XCTestCase {
         _ = try await link.exchange()
         XCTAssertNil(try Fixture.object(transport.requests[0])["network"], "none before any is told")
 
-        link.tell(network: .metered)
+        link.tell(network: MobileData.Allows.now)
         await fulfillment(of: [transport.reached(2)], timeout: 30)
-        XCTAssertEqual(try Fixture.object(transport.requests[1])["network"] as? String, "metered", "a change is one exchange of its own")
-        link.tell(network: .metered)
+        XCTAssertEqual(try Fixture.object(transport.requests[1])["network"] as? String, "now", "a change is one exchange of its own")
+        link.tell(network: MobileData.Allows.now)
         _ = try await link.exchange()
         XCTAssertEqual(transport.requests.count, 3, "a repeat makes none")
-        XCTAssertEqual(try Fixture.object(transport.requests[2])["network"] as? String, "metered", "an exchange made for another reason carries it")
+        XCTAssertEqual(try Fixture.object(transport.requests[2])["network"] as? String, "now", "an exchange made for another reason carries it")
         XCTAssertFalse(link.owesExchange)
-        link.tell(network: .free)
+        link.tell(network: MobileData.Allows.all)
         await fulfillment(of: [transport.reached(4)], timeout: 30)
-        XCTAssertEqual(try Fixture.object(transport.requests[3])["network"] as? String, "free")
+        XCTAssertEqual(try Fixture.object(transport.requests[3])["network"] as? String, "all")
     }
 
-    func testAnUploadToAHomeOnLoopbackMayTakeAnyPathWhileOneElsewhereIsKeptOffTheMeteredOnes() async throws {
+    func testAnUploadToAHomeOnLoopbackMayTakeAnyPathWhileOneElsewhereIsKeptOffTheCostlyOnes() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("limits-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let bundle = folder.appendingPathComponent("b.zip")
         try Data("zip".utf8).write(to: bundle)
         let mac = HomeLink.Device(kind: .mac, version: "1.4.0", model: "MacBook Pro", serial4: "0001")
-        var sent: [Bool] = []
+        var sent: [MobileData.Crossing] = []
+        let free = Watch(NetworkFacts(online: true, onLocalNetwork: true, tunnelUp: true))
         for (index, home) in ["http://127.0.0.1:4680", "http://100.100.1.1:4680"].enumerated() {
             let credentials = MemoryCredentials()
             let place = folder.appendingPathComponent("\(index)", isDirectory: true)
@@ -190,11 +188,12 @@ final class LimitsTests: XCTestCase {
             _ = try await HomeLink(device: mac, credentials: credentials, folder: place, transport: ScriptedTransport([.reply(200, Fixture.paired())]))
                 .pair(code: "12345678", name: home)
             let transport = ScriptedTransport([.reply(201, Fixture.answer(received: 1, imported: 0))])
-            _ = try await HomeLink(device: mac, credentials: credentials, folder: place, transport: transport)
+            _ = try await HomeLink(device: mac, credentials: credentials, folder: place, transport: transport, network: free)
                 .send(bundle: bundle, id: "sha256:00aa", kind: .later)
-            sent += transport.requests.map(\.mayUseMetered)
+            sent += transport.requests.map(\.crossing)
         }
-        XCTAssertEqual(sent, [true, false], "loopback crosses no network; a history page to a home elsewhere waits for a free one")
+        XCTAssertEqual(sent, [.any, MobileData.Crossing(costly: false, lowData: false)],
+                       "loopback crosses no network; a history page to a home elsewhere crosses no path that costs")
     }
 
     func testEveryRouteHomeLinkRelaysAgreesWithTheDoorsTableOnAgainAndWait() throws {

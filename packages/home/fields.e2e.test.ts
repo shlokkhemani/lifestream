@@ -207,19 +207,23 @@ describe("fields through the door", () => {
     report.set = refused;
   });
 
-  it("F11 a phone sets a key its row allows and no other, one key a body, and the write appends a settings event", async () => {
+  it("F11 a phone sets a key its row allows and no other, its own device's and no other unit's, one key a body, and the write appends a settings event", async () => {
     const home = await running("lifestream-fields-home-setting-");
     const { phone } = home.passes;
     const before = settingEvents(home.root);
     expect(await home.set(phone, { "model.cap": 16 })).toEqual({ status: 200, body: {} });
     expect(effective(home.root).settings.model.cap).toBe(16);
     expect(settingEvents(home.root)).toEqual([...before, "model.cap"]);
+    expect(await home.set(phone, { "devices.synthetic-iphone-5a49.mobile_data": "everything" })).toEqual({ status: 200, body: {} });
+    expect(effective(home.root).settings.devices).toEqual({ "synthetic-iphone-5a49": { mobile_data: "everything" } });
     const refused = {
       port: await home.set(phone, { "door.port": 4999 }),
       none: await home.set(phone, { "nothing.here": 1 }),
       two: await home.set(phone, { "model.cap": 4, "history.start": "all" }),
       empty: await home.set(phone, {}),
       rule: await home.set(phone, { "model.cap": "many" }),
+      otherUnit: await home.set(phone, { [`devices.${OTHER_MAC}.mobile_data`]: "small" }),
+      choice: await home.set(phone, { "devices.synthetic-iphone-5a49.mobile_data": "sometimes" }),
     };
     expect(refused).toEqual({
       port: { status: 403, body: { code: "PRINCIPAL_SCOPE", message: "door.port is set on the Mac Lifestream runs on, never by a device's pass" } },
@@ -227,10 +231,13 @@ describe("fields through the door", () => {
       two: { status: 422, body: { code: "BAD_REQUEST", message: "a body naming no connector names one setting and its value" } },
       empty: { status: 422, body: { code: "BAD_REQUEST", message: "a body naming no connector names one setting and its value" } },
       rule: { status: 422, body: { code: "SETTING_REFUSED", message: expect.stringContaining("model.cap") } },
+      otherUnit: { status: 403, body: { code: "PRINCIPAL_SCOPE", message: `devices.${OTHER_MAC}.mobile_data is device ${OTHER_MAC}'s own: a pass sets its own device's alone` } },
+      choice: { status: 422, body: { code: "SETTING_REFUSED", message: expect.stringContaining("now, everything, small") } },
     });
     expect(effective(home.root).settings.model.cap).toBe(16);
     expect(effective(home.root).settings.door.port).not.toBe(4999);
-    expect(settingEvents(home.root)).toEqual([...before, "model.cap"]);
+    expect(effective(home.root).settings.devices).toEqual({ "synthetic-iphone-5a49": { mobile_data: "everything" } });
+    expect(settingEvents(home.root)).toEqual([...before, "model.cap", "devices.synthetic-iphone-5a49.mobile_data"]);
     report.homeSetting = refused;
   });
 

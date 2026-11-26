@@ -184,7 +184,7 @@ describe("a device request today's door accepts is refused, or the reverse", () 
       pass: at.ids.mac, unit: "mac", calls: [],
       sources: { [CALLS]: { received: 0, imported: 0, formats: FORMATS.mac }, [MACHINE]: { received: 1, imported: 0, formats: FORMATS.mac } },
     } });
-    expect(Object.keys(first.body)).toEqual(["home", "clock", "pass", "unit", "sources", "owner", "needs", "calls", "settings", "stores", "turn"]);
+    expect(Object.keys(first.body)).toEqual(["home", "clock", "pass", "unit", "sources", "owner", "needs", "calls", "settings", "mobile_data", "stores", "turn"]);
     expect(first.body.clock).toMatch(/^[0-9a-f]{16}$/u);
     expect(first.body.settings).toEqual({ "apple-calls": { refresh: "5m", start_ms: null }, machine: { start_ms: null } });
     const directory = join(at.root, "inbox", MACHINE, basic(NOW_MS));

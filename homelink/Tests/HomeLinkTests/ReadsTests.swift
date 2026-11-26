@@ -35,7 +35,7 @@ final class ReadsTests: XCTestCase {
             .reply(200, Answers.people),
             .reply(200, Answers.person), .reply(200, Answers.connectors), .reply(200, Answers.status), .reply(200, Answers.extracts),
             .reply(200, Answers.extracts), .reply(200, Answers.record), .reply(200, Answers.devices), .reply(200, Answers.wanted),
-            .reply(200, Answers.place), .reply(200, Answers.placePhotos), .reply(200, Answers.suggest),
+            .reply(200, Answers.wanted), .reply(200, Answers.place), .reply(200, Answers.placePhotos), .reply(200, Answers.suggest),
             .reply(200, Answers.suggestTyped), .reply(200, Answers.sources),
         ])
         _ = try await link.days(from: "2026-10-01", to: "2026-10-14", after: "IjIwMjYtMTAtMDIi", limit: 30)
@@ -56,6 +56,8 @@ final class ReadsTests: XCTestCase {
         _ = try await link.record(source: "whatsapp:15550000000:phone-aa01", kind: "msg", key: "m 1/2")
         _ = try await link.devices()
         let _: Wanted = try await link.photosWanted(source: "apple-photos:person-a@example.com:iphone-aa01")
+        let _: Wanted = try await link.photosWanted(source: "apple-photos:person-a@example.com:iphone-aa01",
+                                                    owed: ["A1B2C3D4-0000-4000-8000-000000000001/L0/001", "A1B2C3D4-0000-4000-8000-000000000002/L0/001"])
         _ = try await link.place(slug: "the-office")
         _ = try await link.placePhotos(slug: "the-office", after: "NjA=")
         _ = try await link.suggest(spot: "spot:37.3187,-122.009", q: "Kiln & Co")
@@ -79,6 +81,8 @@ final class ReadsTests: XCTestCase {
             "/v1/record?source=whatsapp%3A15550000000%3Aphone-aa01&kind=msg&key=m%201%2F2&text=1",
             "/v1/devices",
             "/v1/photos/wanted?source=apple-photos%3Aperson-a%40example.com%3Aiphone-aa01&files=1",
+            "/v1/photos/wanted?source=apple-photos%3Aperson-a%40example.com%3Aiphone-aa01&files=1"
+                + "&owed=A1B2C3D4-0000-4000-8000-000000000001%2FL0%2F001&owed=A1B2C3D4-0000-4000-8000-000000000002%2FL0%2F001",
             "/v1/places?slug=the-office",
             "/v1/places/photos?slug=the-office&after=NjA%3D",
             "/v1/places/suggest?spot=spot%3A37.3187%2C-122.009&q=Kiln%20%26%20Co",

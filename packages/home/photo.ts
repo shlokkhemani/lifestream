@@ -113,9 +113,15 @@ function holderOf(view: OpenView, stated: Stated, source: string): { name: strin
   const said = stated[unit];
   return {
     name: view.tables.devices.get(unit) === undefined ? null : shownName(view.tables, unit),
-    waits: said?.room?.value === "full" ? "is out of space" : said?.network?.value === "metered" ? "is on mobile data, so it waits for Wi-Fi" : null,
+    waits: said?.room?.value === "full" ? "is out of space" : NETWORK_WAITS[said?.network?.value ?? "all"] ?? null,
   };
 }
+
+const NETWORK_WAITS: Record<string, string> = {
+  now: "is on mobile data, so its older photos wait for Wi-Fi",
+  small: "is on mobile data and sends only small files, so it waits for Wi-Fi",
+  "low-data": "is on Low Data Mode, so it waits for Wi-Fi",
+};
 
 export type PhotoNaming = Pick<PhotoInput, "day" | "networks" | "photos">;
 

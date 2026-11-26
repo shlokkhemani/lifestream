@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Connector } from "@lifestreamprotocol/connect";
 import { USE_IDS } from "@lifestreamprotocol/model";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { blockOf, checkMember, chosenFor, connectorSettings, effectiveOf, planned, plannedBlock, settingsPath } from "./settings.js";
+import { blockOf, checkMember, chosenFor, connectorSettings, deviceSets, effectiveOf, mobileDataOf, planned, plannedBlock, settingsPath, unitOfSetting } from "./settings.js";
 
 const NOTES = {
   id: "notes-start", product: "apple-notes", name: "Notes", vendor: "apple", type: "notes", records: "Synthetic notes.", noun: ["note", "notes"],
@@ -24,6 +24,17 @@ function folder(): string {
   onTestFinished(() => rmSync(root, { recursive: true, force: true }));
   return root;
 }
+
+describe("a device's mobile data", () => {
+  it("runs at now for a device the settings hold none for, at its own choice where they do, is set by a device for its own unit alone, and refuses any other word by name", () => {
+    const held = effectiveOf({ ...HELD, "devices.iphone-aa01.mobile_data": "small" }, "settings.json").settings;
+    expect([mobileDataOf(held, "iphone-aa01"), mobileDataOf(held, "macbook-pro-0001")]).toEqual(["small", "now"]);
+    expect([deviceSets("devices.iphone-aa01.mobile_data"), unitOfSetting("devices.iphone-aa01.mobile_data"), unitOfSetting("model.cap")]).toEqual([true, "iphone-aa01", null]);
+    for (const value of ["metered", "all", 1]) {
+      expect(() => effectiveOf({ ...HELD, "devices.iphone-aa01.mobile_data": value }, "settings.json")).toThrow("settings.json: devices.iphone-aa01.mobile_data is now, everything, small");
+    }
+  });
+});
 
 describe("the home's start", () => {
   it("runs at all where the settings hold none, at a day or all where they do, and refuses anything else by name", () => {

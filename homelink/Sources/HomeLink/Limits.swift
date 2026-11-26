@@ -99,7 +99,7 @@ public enum NetworkCost: String, Sendable, Codable, Equatable {
 }
 
 public enum Transfer {
-    public static let largeBytes: Int64 = 50_000_000
+    public static let largeBytes = MobileData.largeBytes
 
     public static func mayMove(_ kind: WriteKind, bytes: Int64, pressed: Bool, metered: Bool) -> Bool {
         !metered || pressed || (kind == .new && bytes < largeBytes)

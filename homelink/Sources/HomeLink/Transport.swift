@@ -27,7 +27,7 @@ public struct HomeRequest: Sendable, Equatable {
     public let body: Body
     public let timeout: TimeInterval
     public var pin: String? = nil
-    public var mayUseMetered = true
+    public var crossing = MobileData.Crossing.any
     public var progress: UploadProgress? = nil
 }
 
@@ -275,8 +275,8 @@ public struct URLSessionTransport: HomeTransport {
         var made = URLRequest(url: Self.url(request.url, at: origin))
         made.httpMethod = request.method
         made.timeoutInterval = request.timeout
-        made.allowsExpensiveNetworkAccess = request.mayUseMetered
-        made.allowsConstrainedNetworkAccess = request.mayUseMetered
+        made.allowsExpensiveNetworkAccess = request.crossing.costly
+        made.allowsConstrainedNetworkAccess = request.crossing.lowData
         for (name, value) in request.headers { made.setValue(value, forHTTPHeaderField: name) }
         return made
     }
