@@ -57,20 +57,13 @@ describe("why a photo shows no picture", () => {
       devices: { get: (unit: string) => (unit === "iphone-aa01" ? { model: "iPhone" } : unit === "macbook-pro-0001" ? { model: "MacBook Pro" } : undefined) },
     },
   } as unknown as OpenView;
-  const said = (room: "ok" | "full", network: Network): Statement => ({ room: { value: room, since_ms: 0 }, network: { value: network, since_ms: 0 } }) as unknown as Statement;
+  const said = (room: "ok" | "full", allows: Network): Statement => ({ room: { value: room, since_ms: 0 }, network: { value: { allows, loopback: false }, since_ms: 0 } }) as unknown as Statement;
   const wanted = (...routes: [string, boolean][]) => ({
     video: false, wanted: { at_ms: 0, missing: [], routes: routes.map(([source, refused]) => ({ source, asset: "asset-0001", files: ["photo"], refused })) },
   });
 
-  it("U1: the device that holds it says why it waits: mobile data, or a full disk", () => {
-    expect(unheldWords(view, { "iphone-aa01": said("ok", "now") }, wanted([PHONE, false]))).toBe("no picture yet: Example Phone is on mobile data, so its older photos wait for Wi-Fi");
-    expect(unheldWords(view, { "iphone-aa01": said("ok", "small") }, wanted([PHONE, false]))).toBe("no picture yet: Example Phone is on mobile data and sends only small files, so it waits for Wi-Fi");
-    expect(unheldWords(view, { "iphone-aa01": said("ok", "low-data") }, wanted([PHONE, false]))).toBe("no picture yet: Example Phone is on Low Data Mode, so it waits for Wi-Fi");
-    expect(unheldWords(view, { "iphone-aa01": said("full", "all") }, wanted([PHONE, false]))).toBe("no picture yet: Example Phone is out of space");
-  });
-
   it("U2: a device that can send it is named as where it comes from, before one that waits", () => {
-    const stated: Stated = { "iphone-aa01": said("ok", "now"), "macbook-pro-0001": said("ok", "all") };
+    const stated: Stated = { "iphone-aa01": said("ok", "low-data"), "macbook-pro-0001": said("ok", "all") };
     expect(unheldWords(view, stated, wanted([PHONE, false], [MAC, false]))).toBe("no picture yet: on its way from MacBook Pro");
     expect(unheldWords(view, {}, wanted([PHONE, false]))).toBe("no picture yet: on its way from Example Phone");
   });

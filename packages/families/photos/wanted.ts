@@ -1,5 +1,6 @@
 import type { Json, OpenView } from "@lifestreamprotocol/core";
-import { compare, routesOf, type Missing, type PhotoRoutes } from "./read.js";
+import type { PhotoContent } from "./family.js";
+import { compare, copyIdOf, copyOf, joinedOf, PHOTO_UNIT, photoId, routesOf, type Missing, type PhotoRoutes } from "./read.js";
 
 export const WANTED_UNIT = "wanted/";
 export const WANTED_PAGE = 1_000;
@@ -22,6 +23,7 @@ export interface Left {
 
 export interface WantedAnswer {
   photos: { asset: string; files: string[] }[];
+  settled: string[];
   left: Left;
 }
 
@@ -37,7 +39,19 @@ export function wanted(view: OpenView, photos: PhotoRoutes, source: string, aski
   const order: Order = (id) => (routes.get(id)?.rank === 0 ? 1 : asking.has(id) ? 0 : null);
   const units = [...wantedUnits(servedOf(view))].filter(fromStart(start_ms));
   const { unsized: _unsized, libraries: _libraries, ...left } = coming(units, start_ms);
-  return { photos: askedOf(units, order, source, owed), left };
+  const asked = askedOf(units, order, source, owed);
+  const named = new Set(asked.map((photo) => photo.asset));
+  const settled = [...owed].filter((asset) => !named.has(asset) && known(view, photos, source, asset)).sort(compare);
+  return { photos: asked, settled, left };
+}
+
+function known(view: OpenView, photos: PhotoRoutes, source: string, asset: string): boolean {
+  const copy = copyOf(view, photos, { source, key: asset });
+  if (copy === null) return false;
+  const joined = joinedOf(view, photos, copy);
+  if (joined.erased) return true;
+  const placed = view.extract("photos", `${PHOTO_UNIT}${photoId(joined.placer)}`)?.content as unknown as PhotoContent | undefined;
+  return placed?.records.some((record) => copyIdOf(view, photos, record) === photoId(copy)) === true;
 }
 
 export function askedOf(units: Iterable<WantedContent>, order: Order, source: string, owed: ReadonlySet<string>): WantedAnswer["photos"] {

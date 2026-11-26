@@ -87,7 +87,7 @@ interface Stored {
   records: { source: string; key: string; rung: number }[];
   routes: { source: string; asset: string; refused: boolean }[];
 }
-interface Files { photos: { asset: string; files: string[] }[]; left: { wanted: number; unavailable: number; bytes: number }; paused?: true }
+interface Files { photos: { asset: string; files: string[] }[]; settled: string[]; left: { wanted: number; unavailable: number; bytes: number }; paused?: true }
 interface Answer { photos: string[]; left: Files["left"] }
 
 describe("photos from a phone, a Mac and a Takeout", () => {
@@ -183,8 +183,8 @@ describe("photos from a phone, a Mac and a Takeout", () => {
         return (db.prepare("SELECT unit, content FROM extracts WHERE family = 'photos' AND unit LIKE 'photo/%' ORDER BY unit").all() as { unit: string; content: string }[])
           .map(({ unit, content }) => ({ unit, ...JSON.parse(content) as Omit<Stored, "unit" | "routes">, routes: routes.get(unit.slice("photo/".length)) ?? [] }));
       });
-      const wantedFiles = async (pass: string, headers: Record<string, string>, source: string): Promise<Files> =>
-        (await fetch(`${url()}/v1/photos/wanted?source=${encodeURIComponent(source)}&files=1`, { headers: { authorization: `Bearer ${pass}`, ...headers } })).json() as Promise<Files>;
+      const wantedFiles = async (pass: string, headers: Record<string, string>, source: string, owed: string[] = []): Promise<Files> =>
+        (await fetch(`${url()}/v1/photos/wanted?source=${encodeURIComponent(source)}&files=1${owed.map((id) => `&owed=${encodeURIComponent(id)}`).join("")}`, { headers: { authorization: `Bearer ${pass}`, ...headers } })).json() as Promise<Files>;
       const exchange = async (pass: string, headers: Record<string, string>) =>
         ((await fetch(`${url()}/v1/exchange`, { method: "POST", headers: { authorization: `Bearer ${pass}`, ...headers, "content-type": "application/json" }, body: "{}" })).json()) as Promise<{ sources: Record<string, { history?: boolean }> }>;
       const caughtUp = () => Number(readHome(root, (db) => db.prepare("SELECT value FROM meta WHERE key = 'disk:catch-up'").pluck().get() as string | undefined) ?? 0);
@@ -395,12 +395,15 @@ describe("photos from a phone, a Mac and a Takeout", () => {
           files: await wantedFiles(phonePass, DEVICE.phone, PHONE),
         };
       };
+      const owes = (await wantedFiles(phonePass, DEVICE.phone, PHONE)).photos[0]!.asset;
       await askHome(sock, "connectors", ["backfill", "apple-photos", "pause", "--reason", "a test holds the library's history"]);
       const paused = await pausing();
       const original24 = file("photo twenty-four, new on the phone while Photos' past is paused");
       await phoneShip([{ kind: "asset", payload: asset({ lid: "PHONE-24/L0/001", cloud: "CLOUD-0024", taken: at("12:25:00"), name: "IMG_0024.HEIC", bytes: original24 }) }], [original24]);
       await settle("a photo new on the phone while paused");
       const landed = (await report("one-pause")).of(PHONE, "PHONE-24/");
+      const owing = await wantedFiles(phonePass, DEVICE.phone, PHONE, [owes, "PHONE-24/L0/001", "PHONE-99/L0/001"]);
+      expect([owing.photos.map((photo) => photo.asset), owing.settled, owing.paused]).toEqual([[owes], ["PHONE-24/L0/001"], true]);
       await askHome(sock, "connectors", ["backfill", "apple-photos", "resume"]);
       const resumed = await pausing();
       const pause = { paused: { ...paused, files: { photos: paused.files.photos, paused: paused.files.paused ?? null } }, landed, resumed: { ...resumed, files: { photos: resumed.files.photos.length, paused: resumed.files.paused ?? null } } };

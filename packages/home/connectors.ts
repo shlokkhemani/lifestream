@@ -381,7 +381,7 @@ function foldStreams(db: Database.Database, input: FoldInput, everyPass: readonl
         road, on: !off.source(row), outcomes, contact_ms, device: sent ? { trouble: unit === null ? null : troubleOf.get(unit) ?? null } : null, newest_ms: span.newest_ms,
         refresh_ms: connector.refresh === undefined ? null : running.refresh_ms, expect_ms, owed: history?.owed === true,
         disk: gate.disk && road !== "label" && history?.owed === true,
-        metered: gate.pastWaits && (road === "poll" || road === "chrome") && history?.paged?.owed === true,
+        pastWaits: gate.pastWaits && (road === "poll" || road === "chrome") && history?.paged?.owed === true,
       };
       return {
         row, road, unit, retired: device?.retired === true, facts, folded: foldCopy(facts, now_ms), span, history, contact_ms,
@@ -856,7 +856,7 @@ function connectorHistory(live: readonly CopyFolded[], connector: Connector, sta
     left = paged.reduce((sum, each) => sum + each.left!, 0);
     unit = [...unitOf(connector) ?? nouns] as [string, string];
     const rates = paged.filter((each) => each.left! > 0);
-    const waits = live.some((copy) => copy.facts.disk || copy.facts.metered);
+    const waits = live.some((copy) => copy.facts.disk || copy.facts.pastWaits);
     if (!waits && rates.length > 0 && rates.every((each) => each.rate !== null)) eta_ms = now_ms + Math.round(60_000 * left / rates.reduce((sum, each) => sum + each.rate!, 0));
     what = leftWords(left, unit);
     if (unit[1] === nouns[1]) ahead = left;

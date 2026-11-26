@@ -605,20 +605,28 @@ enum CannedHome {
     static let settings = Settings()
 
     final class HomeSettings: @unchecked Sendable {
-        private static let device: Set<String> = ["model.cap", "history.start"]
+        private static let words = ["now", "everything"]
         private let lock = NSLock()
-        private var held: [String: Double] = [:]
+        private var held: [String: Any] = [:]
+
+        private static func device(_ key: String) -> Bool {
+            ["model.cap", "history.start", "devices.\(CannedHome.paired.withLock { $0 }).mobile_data"].contains(key)
+        }
+
+        private static func takes(_ key: String, _ value: Any) -> Bool {
+            key.hasSuffix(".mobile_data") ? (value as? String).map(words.contains) == true : ((value as? NSNumber)?.doubleValue ?? 0) >= 1
+        }
 
         func set(_ body: Data) -> (Int, [String: Any]) {
             guard let asked = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], asked.count == 1,
                   let (key, value) = asked.first else {
                 return (422, ["code": "BAD_REQUEST", "message": "a body naming no connector names one setting and its value"])
             }
-            guard Self.device.contains(key) else { return (403, ["code": "PRINCIPAL_SCOPE", "message": "\(key) is set on the Mac"]) }
-            guard let number = (value as? NSNumber)?.doubleValue, number >= 1 else {
+            guard Self.device(key) else { return (403, ["code": "PRINCIPAL_SCOPE", "message": "\(key) is set on the Mac"]) }
+            guard Self.takes(key, value) else {
                 return (422, ["code": "SETTING_REFUSED", "message": "the canned home refuses \(key) \(value)"])
             }
-            lock.withLock { held[key] = number }
+            lock.withLock { held[key] = value }
             return (200, [:])
         }
 
@@ -634,20 +642,36 @@ enum CannedHome {
             return (try? JSONSerialization.data(withJSONObject: page, options: [.sortedKeys])) ?? answered
         }
 
-        private static func chosen(_ row: [String: Any], _ held: [String: Double]) -> [String: Any] {
-            guard var end = row["end"] as? [String: Any], end["kind"] as? String == "choice", let key = end["key"] as? String,
-                  let value = held[key], var choices = end["choices"] as? [[String: Any]] else { return row }
+        private static func chosen(_ row: [String: Any], _ held: [String: Any]) -> [String: Any] {
+            guard var end = row["end"] as? [String: Any], let key = end["key"] as? String, let value = held[key],
+                  let choices = end["choices"] as? [[String: Any]] else { return row }
+            switch (end["kind"] as? String, value) {
+            case let ("choice", number as NSNumber):
+                end["choices"] = numbers(choices, number.doubleValue)
+            case let ("pick", word as String):
+                end["choices"] = choices.map { choice in
+                    var choice = choice
+                    choice["chosen"] = choice["value"] as? String == word
+                    return choice
+                }
+            default:
+                return row
+            }
+            var row = row
+            row["end"] = end
+            return row
+        }
+
+        private static func numbers(_ choices: [[String: Any]], _ value: Double) -> [[String: Any]] {
+            var choices = choices
             if !choices.contains(where: { ($0["value"] as? NSNumber)?.doubleValue == value }) {
                 choices.append(["words": String(Int(value)), "value": value, "chosen": false, "default": false])
             }
-            end["choices"] = choices.map { choice in
+            return choices.map { choice in
                 var choice = choice
                 choice["chosen"] = (choice["value"] as? NSNumber)?.doubleValue == value
                 return choice
             }.sorted { (($0["value"] as? NSNumber)?.doubleValue ?? 0) < (($1["value"] as? NSNumber)?.doubleValue ?? 0) }
-            var row = row
-            row["end"] = end
-            return row
         }
     }
 

@@ -1,0 +1,38 @@
+{
+  "position": "1:1791968400000",
+  "today": "2026-11-23",
+  "id": "mobile-data",
+  "title": "Mobile data",
+  "line": null,
+  "parts": [
+    {
+      "label": null,
+      "line": "Low Data Mode is always respected: then only sends under 50 MB go.",
+      "rows": [
+        {
+          "id": "mobile-data",
+          "label": "Use mobile data for",
+          "line": "Photos, places and everything you record go at once. Older photos and history wait for Wi-Fi.",
+          "end": {
+            "key": "devices.iphone-aa01.mobile_data",
+            "choices": [
+              {
+                "words": "What I record now",
+                "value": "now",
+                "chosen": true,
+                "default": true
+              },
+              {
+                "words": "Everything, including my past",
+                "value": "everything",
+                "chosen": false,
+                "default": false
+              }
+            ],
+            "kind": "pick"
+          }
+        }
+      ]
+    }
+  ]
+}

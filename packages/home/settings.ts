@@ -34,9 +34,11 @@ export interface Settings {
   devices: Record<string, { mobile_data: MobileData }>;
 }
 
-export const MOBILE_DATA = ["now", "everything", "small"] as const;
+export const MOBILE_DATA = ["now", "everything"] as const;
 export type MobileData = (typeof MOBILE_DATA)[number];
-const MOBILE_DATA_DEFAULT: MobileData = "now";
+export const MOBILE_DATA_DEFAULT: MobileData = "now";
+
+export const mobileDataKey = (unit: string): string => `devices.${unit}.mobile_data`;
 
 export function mobileDataOf(settings: Pick<Settings, "devices">, unit: string): MobileData {
   return settings.devices[unit]?.mobile_data ?? MOBILE_DATA_DEFAULT;

@@ -9,6 +9,7 @@ import { homeSecrets, openHome, openHomeFolder, type Json } from "@lifestreampro
 import { readConnectors, type ConnectorsInput } from "./connectors.js";
 import { nameKey } from "./devices.js";
 import { startHome, type Home } from "./home.js";
+import { PAGES } from "./pages.js";
 import { mintPrincipal } from "./principals.js";
 import { homeRegistryModule } from "./programs.js";
 import { blockOf, checkMember, connectorSettings, effective, SettingsError } from "./settings.js";
@@ -222,7 +223,7 @@ describe("fields through the door", () => {
       two: await home.set(phone, { "model.cap": 4, "history.start": "all" }),
       empty: await home.set(phone, {}),
       rule: await home.set(phone, { "model.cap": "many" }),
-      otherUnit: await home.set(phone, { [`devices.${OTHER_MAC}.mobile_data`]: "small" }),
+      otherUnit: await home.set(phone, { [`devices.${OTHER_MAC}.mobile_data`]: "everything" }),
       choice: await home.set(phone, { "devices.synthetic-iphone-5a49.mobile_data": "sometimes" }),
     };
     expect(refused).toEqual({
@@ -232,13 +233,32 @@ describe("fields through the door", () => {
       empty: { status: 422, body: { code: "BAD_REQUEST", message: "a body naming no connector names one setting and its value" } },
       rule: { status: 422, body: { code: "SETTING_REFUSED", message: expect.stringContaining("model.cap") } },
       otherUnit: { status: 403, body: { code: "PRINCIPAL_SCOPE", message: `devices.${OTHER_MAC}.mobile_data is device ${OTHER_MAC}'s own: a pass sets its own device's alone` } },
-      choice: { status: 422, body: { code: "SETTING_REFUSED", message: expect.stringContaining("now, everything, small") } },
+      choice: { status: 422, body: { code: "SETTING_REFUSED", message: expect.stringContaining("is now, everything") } },
     });
     expect(effective(home.root).settings.model.cap).toBe(16);
     expect(effective(home.root).settings.door.port).not.toBe(4999);
     expect(effective(home.root).settings.devices).toEqual({ "synthetic-iphone-5a49": { mobile_data: "everything" } });
     expect(settingEvents(home.root)).toEqual([...before, "model.cap", "devices.synthetic-iphone-5a49.mobile_data"]);
     report.homeSetting = refused;
+  });
+
+  it("F11 a phone's Mobile data page offers its own key, and the word it picks is written and read back chosen", async () => {
+    const home = await running("lifestream-fields-mobile-data-");
+    const { phone } = home.passes;
+    const page = async () => {
+      const response = await fetch(`${home.url}${PAGES.settingsPage.route}?id=mobile-data`, { headers: phone });
+      expect(response.status).toBe(200);
+      const answer = await response.json() as { parts: { rows: { id: string; end: { kind: string; key: string; choices: { words: string; value: Json; chosen: boolean }[] } }[] }[] };
+      return answer.parts[0]!.rows.find((row) => row.id === "mobile-data")!.end;
+    };
+    const before = await page();
+    expect([before.kind, before.key, before.choices.filter((each) => each.chosen).map((each) => each.words)])
+      .toEqual(["pick", "devices.synthetic-iphone-5a49.mobile_data", ["What I record now"]]);
+    const picked = before.choices.find((each) => each.words === "Everything, including my past")!.value;
+    expect(picked).toBe("everything");
+    expect(await home.set(phone, { [before.key]: picked })).toEqual({ status: 200, body: {} });
+    expect(effective(home.root).settings.devices).toEqual({ "synthetic-iphone-5a49": { mobile_data: "everything" } });
+    expect((await page()).choices.filter((each) => each.chosen).map((each) => each.value)).toEqual([picked]);
   });
 
   it("F8 F9 a phone's seal leaves the vault without it, the block naming another or the old generation behind, its value in a log, or a refused one writes anything", async () => {

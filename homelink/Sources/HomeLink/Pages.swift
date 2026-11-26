@@ -5367,6 +5367,7 @@ extension HomeLink {
         public enum SettingsEnd: Decodable, Sendable, Equatable {
             case value(value: [PhrasePart], signal: State?)
             case choice(key: String, choices: [Choice])
+            case pick(key: String, choices: [SettingsPick])
             case unknown
 
             private enum Keys: String, CodingKey {
@@ -5389,6 +5390,11 @@ extension HomeLink {
                     self = .choice(
                         key: try container.decode(String.self, forKey: .key),
                         choices: try container.decode([Choice].self, forKey: .choices)
+                    )
+                case "pick":
+                    self = .pick(
+                        key: try container.decode(String.self, forKey: .key),
+                        choices: try container.decode([SettingsPick].self, forKey: .choices)
                     )
                 default:
                     self = .unknown
@@ -5434,6 +5440,28 @@ extension HomeLink {
                 self.label = try container.decodeNil(forKey: .label) ? nil : container.decode(String.self, forKey: .label)
                 self.line = try container.decodeNil(forKey: .line) ? nil : container.decode(String.self, forKey: .line)
                 self.rows = try container.decode([SettingsRow].self, forKey: .rows)
+            }
+        }
+
+        public struct SettingsPick: Decodable, Sendable, Equatable {
+            public let words: String
+            public let value: String
+            public let chosen: Bool
+            public let `default`: Bool
+
+            private enum Keys: String, CodingKey {
+                case words
+                case value
+                case chosen
+                case `default`
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: Keys.self)
+                self.words = try container.decode(String.self, forKey: .words)
+                self.value = try container.decode(String.self, forKey: .value)
+                self.chosen = try container.decode(Bool.self, forKey: .chosen)
+                self.`default` = try container.decode(Bool.self, forKey: .`default`)
             }
         }
 

@@ -55,15 +55,15 @@ struct SettingsPage: View {
         .accessibilityIdentifier("settings.page.\(id)")
     }
 
-    private func write(_ key: String, _ value: Double, over held: Double?) async {
+    private func write(_ key: String, _ value: SettingsLine.Value, over held: SettingsLine.Value?) async {
         guard held != value else { return }
         guard await writes.set(key, value) else { return }
         await read.read()
     }
 
-    static func held(_ key: String, in page: HomeLink.Pages.SettingsPage) -> Double? {
+    static func held(_ key: String, in page: HomeLink.Pages.SettingsPage) -> SettingsLine.Value? {
         for row in page.parts.flatMap(\.rows) {
-            if case let .choice(each, choices)? = row.end, each == key { return choices.first { $0.chosen }?.value }
+            if case let .choice(each, choices) = end(row.end), each == key { return choices.first { $0.chosen }?.value }
         }
         return nil
     }
@@ -77,7 +77,9 @@ struct SettingsPage: View {
         case let .value(value, signal)?:
             .value(Words.phrase(value), signal: signal.flatMap { Cockpit.HealthState(rawValue: $0.rawValue)?.signal })
         case let .choice(key, choices)?:
-            .choice(key: key, choices: choices.map { SettingsLine.Choice(words: $0.words, value: $0.value, chosen: $0.chosen, isDefault: $0.default) })
+            .choice(key: key, choices: choices.map { SettingsLine.Choice(words: $0.words, value: .number($0.value), chosen: $0.chosen, isDefault: $0.default) })
+        case let .pick(key, choices)?:
+            .choice(key: key, choices: choices.map { SettingsLine.Choice(words: $0.words, value: .word($0.value), chosen: $0.chosen, isDefault: $0.default) })
         case .unknown?, nil:
             .none
         }
@@ -90,7 +92,7 @@ final class SettingsWrites: ObservableObject {
 
     struct Unlanded: Equatable {
         let said: HomeLink.ActSaid
-        let value: Double
+        let value: SettingsLine.Value
     }
 
     @Published private(set) var busy: Set<String> = []
@@ -103,19 +105,26 @@ final class SettingsWrites: ObservableObject {
 
     static let home: Send = { key, value in try await AppRuntime.shared.shipping.link.setHomeSetting(key: key, value: value) }
 
-    func set(_ key: String, _ value: Double) async -> Bool {
+    func set(_ key: String, _ value: SettingsLine.Value) async -> Bool {
         guard !busy.contains(key) else { return false }
         busy.insert(key)
         unlanded[key] = nil
         defer { busy.remove(key) }
         let outcome: SettingOutcome
         do {
-            outcome = try await send(key, .number(value))
+            outcome = try await send(key, Self.json(value))
         } catch {
             outcome = .unreachable
         }
         guard let said = HomeConnectorsModel.said(outcome) else { return true }
         unlanded[key] = Unlanded(said: said, value: value)
         return false
+    }
+
+    static func json(_ value: SettingsLine.Value) -> HomeLink.JSON {
+        switch value {
+        case let .number(number): .number(number)
+        case let .word(word): .string(word)
+        }
     }
 }

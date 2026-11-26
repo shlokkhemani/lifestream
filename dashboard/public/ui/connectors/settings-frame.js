@@ -191,7 +191,8 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
   };
   const storage = storageReads({ fetch: () => fetchPage('storage'), draw, seen: () => !document.hidden, reach });
   const live = answerRead({ read: () => fetchPage('settings'), draw, reach });
-  const pages = new Map(ANSWERED.map(id => [id, answerRead({ read: () => fetchPage('settingsPage', { id }), draw, reach })]));
+  const unitOf = () => /** @type {HostState | null} */ (at.state)?.unit ?? null;
+  const pages = new Map(ANSWERED.map(id => [id, answerRead({ read: () => { const unit = unitOf(); return fetchPage('settingsPage', { id, ...unit === null ? {} : { unit } }); }, draw, reach })]));
   onHomeChange(change => {
     void readMoves().then(() => {
       if (pageMoved('storage', change, storage.read?.position)) storage.moved();
@@ -217,7 +218,9 @@ export function settingsFrame(host, reports, changes, { draw, root, say }) {
     },
     /** @param {Standing} standing */
     follow(standing) {
+      const unit = unitOf();
       at = standing;
+      if (unitOf() !== unit) for (const page of pages.values()) page.moved();
       if (!isSettings(at.id)) query = '';
       if (!at.id) more = false;
       if (onModels() && !plans.id) {

@@ -9,6 +9,7 @@ import { cameraNamed, shownName } from "./devices.js";
 import { damaged, PEOPLE, PLACES, readPrepared, type PreparedRead } from "./prepared.js";
 import { openMade, type MadeInput } from "./made.js";
 import { notNow, RETRY_SOON_S } from "./refusal.js";
+import { homeNetwork, type HomeNetwork } from "./jobs.js";
 import type { Stated } from "./stated.js";
 import type { Made } from "./streams-report.js";
 
@@ -97,31 +98,33 @@ export function unheldWords(view: OpenView, stated: Stated, unshown: Unshown): s
   const wanted = unshown.wanted;
   if (wanted === null || wanted.routes.length === 0) return `no ${what} held`;
   if (unavailable(wanted)) {
-    const { name } = holderOf(view, stated, wanted.routes[0]!.source);
+    const name = nameOf(view, view.source(wanted.routes[0]!.source)?.copy);
     return `no ${what}: ${name === null ? "its library" : `the library on ${name}`} cannot send it`;
   }
-  const open = wanted.routes.filter((route) => !route.refused).map((route) => holderOf(view, stated, route.source));
-  const sending = open.find((holder) => holder.waits === null);
-  if (sending !== undefined) return `no ${what} yet: on its way${sending.name === null ? "" : ` from ${sending.name}`}`;
-  const { name, waits } = open[0]!;
-  return `no ${what} yet: ${name ?? "its device"} ${waits}`;
+  const home = homeNetwork(view.tables, stated);
+  const open = wanted.routes.filter((route) => !route.refused).map((route) => holderOf(view, stated, home, route.source));
+  return `no ${what} yet: ${(open.find((holder) => holder.moves) ?? open[0]!).words}`;
 }
 
-function holderOf(view: OpenView, stated: Stated, source: string): { name: string | null; waits: string | null } {
+function holderOf(view: OpenView, stated: Stated, home: HomeNetwork, source: string): { moves: boolean; words: string } {
   const unit = view.source(source)?.copy;
-  if (unit === undefined) return { name: null, waits: null };
-  const said = stated[unit];
-  return {
-    name: view.tables.devices.get(unit) === undefined ? null : shownName(view.tables, unit),
-    waits: said?.room?.value === "full" ? "is out of space" : NETWORK_WAITS[said?.network?.value ?? "all"] ?? null,
-  };
+  const name = nameOf(view, unit);
+  const from = name === null ? "" : ` from ${name}`;
+  const moving = (then = "") => ({ moves: true, words: `on its way${from}${then}` });
+  const waiting = (words: string) => ({ moves: false, words });
+  const said = unit === undefined ? undefined : stated[unit];
+  const network = said?.network?.value ?? null;
+  if (said?.room?.value === "full") return waiting(`${name ?? "its device"} is out of space`);
+  if (network?.loopback === true) return moving();
+  if (network?.allows === "low-data") return waiting(`${name ?? "its device"} is on Low Data Mode, which holds its large sends`);
+  if (home.pastWaits) return waiting(`${home.allows === "low-data" ? "Lifestream's Mac is on Low Data Mode" : "Lifestream is on a hotspot"}, so older photos${from} wait for Wi-Fi`);
+  if (network?.allows === "now") return moving(", and its older photos wait for Wi-Fi");
+  return moving();
 }
 
-const NETWORK_WAITS: Record<string, string> = {
-  now: "is on mobile data, so its older photos wait for Wi-Fi",
-  small: "is on mobile data and sends only small files, so it waits for Wi-Fi",
-  "low-data": "is on Low Data Mode, so it waits for Wi-Fi",
-};
+function nameOf(view: OpenView, unit: string | undefined): string | null {
+  return unit === undefined || view.tables.devices.get(unit) === undefined ? null : shownName(view.tables, unit);
+}
 
 export type PhotoNaming = Pick<PhotoInput, "day" | "networks" | "photos">;
 

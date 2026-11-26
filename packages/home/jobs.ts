@@ -12,7 +12,7 @@ import { catalogOf } from "./catalog.js";
 import type { Reach } from "./principals.js";
 import type { Loaded, Registry } from "./registry.js";
 import type { Settings } from "./settings.js";
-import type { Network, Since, Stated } from "./stated.js";
+import type { Network, NetworkStated, Since, Stated } from "./stated.js";
 
 
 export const LANE = { live: 0, polls: 1, planning: 2, history: 3, backfill: 5 } as const;
@@ -35,17 +35,19 @@ export function jobPaused(read: { tables: Pick<ReadTables, "controls"> }, kind: 
 export type Crossing = "home" | Reach;
 
 export function homeNetwork(read: Pick<ReadTables, "devices"> | null, stated: Stated | null): HomeNetwork {
-  if (stated === null) return { unit: null, pastWaits: true, since_ms: null };
-  let newest: { unit: string; network: Since<Network> } | null = null;
+  if (stated === null) return { unit: null, allows: null, pastWaits: true, since_ms: null };
+  let newest: { unit: string; network: Since<NetworkStated> } | null = null;
   for (const [unit, each] of Object.entries(stated)) {
-    if (each.network === null || (read?.devices.get(unit)?.retired_ms ?? null) !== null) continue;
+    if (each.network === null || !each.network.value.loopback || (read?.devices.get(unit)?.retired_ms ?? null) !== null) continue;
     if (newest === null || each.network.since_ms > newest.network.since_ms) newest = { unit, network: each.network };
   }
-  return { unit: newest?.unit ?? null, pastWaits: newest !== null && newest.network.value !== "all", since_ms: newest?.network.since_ms ?? null };
+  const allows = newest?.network.value.allows ?? null;
+  return { unit: newest?.unit ?? null, allows, pastWaits: allows !== null && allows !== "all", since_ms: newest?.network.since_ms ?? null };
 }
 
 export interface HomeNetwork {
   readonly unit: string | null;
+  readonly allows: Network | null;
   readonly pastWaits: boolean;
   readonly since_ms: number | null;
 }

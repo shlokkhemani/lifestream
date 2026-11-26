@@ -1431,13 +1431,12 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     if (drained !== undefined && drained !== true) refuse(422, "BAD_REQUEST", "drained is true or absent");
     const told = {
       grants: grantsIn(grants), settings: settingsIn(applies), sending: sendingIn(sending), found: foundIn(found), imports: importsIn(imports),
-      room: roomIn(room), network: networkIn(network), recorder: recorderIn(recorder), stores: storesIn(stores),
+      room: roomIn(room), network: networkIn(network, reach === "loopback"), recorder: recorderIn(recorder), stores: storesIn(stores),
     };
     const values = throughIn(through);
     if (drained === true) return handedOver(current(principal), reach, request);
     const kind = deviceOf(principal);
-    const own = { ...told, network: kind === "mac" && reach === "loopback" ? told.network : undefined, recorder: kind === "mac" ? told.recorder : undefined,
-      stores: kind === "mac" ? told.stores : undefined };
+    const own = { ...told, recorder: kind === "mac" ? told.recorder : undefined, stores: kind === "mac" ? told.stores : undefined };
     if (kind !== null) stated.exchange(principal, custody.replaced(principal) ? undefined : own);
     const fresh = kind === null ? [] : ((offers ?? []) as string[]).filter((id) => !principal.sources.includes(id) && offered(kind, principal.unit, id, connectors) !== null);
     const { taken, news } = values === undefined ? { taken: {}, news: false } : takeThrough(principal, values);

@@ -9,6 +9,7 @@ export const FACES_SOURCES: SourceSelector = { product: ["faces"] };
 export const MODEL_IMAGE_KIND = "model-image";
 export const CAMERAS_SOURCES: SourceSelector = { product: ["cameras"] };
 export const CAMERA_PHOTO_KIND = "photo";
+export const PHOTO_UNIT = "photo/";
 const NAME_REACH_MS = 1_000;
 const HELD_MS = 60_000;
 

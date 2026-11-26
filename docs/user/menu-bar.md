@@ -56,7 +56,7 @@ Lifestream. Allow it in **Settings** › **This Mac**.
 | **Lifestream: synced** *a time* | Your Mac sent what it recorded at that time. It syncs again by itself. |
 | **Lifestream: syncing…** | Your Mac is sending now. |
 | **Lifestream: not synced yet** | Your Mac has not sent anything yet, such as right after setup. |
-| **Waiting for Wi-Fi**, or **Waiting: Low Data Mode is on** | Your Mac is on a phone's hotspot, or on a network with Low Data Mode on. What it records waits until it joins another Wi-Fi. |
+| **Older photos and history wait for Wi-Fi**, or **Low Data Mode is on, so only small new sends go** | Your Mac is on a phone's hotspot, or on a network with Low Data Mode on. What it records now still goes; its past waits until it joins another Wi-Fi. **Everything, including my past** in **Settings** › **Mobile data** sends the past over the hotspot too; Low Data Mode holds it whatever you choose. |
 | **Importing history on battery.** | Your Mac sends your past while it runs on battery. |
 | **Waiting for space on Lifestream's disk** | Lifestream has no room yet for something your Mac holds, such as a large export. Your Mac sends it once there is room. See [When the disk fills](./your-home.md#when-the-disk-fills). |
 | **This Mac's clock is ahead of Lifestream's. Set the time automatically in System Settings.** | Turn on **Set time and date automatically** in **System Settings** › **General** › **Date & Time**. |

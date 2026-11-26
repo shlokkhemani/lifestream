@@ -20215,6 +20215,53 @@
                                   "kind"
                                 ],
                                 "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string"
+                                  },
+                                  "choices": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "words": {
+                                          "type": "string"
+                                        },
+                                        "value": {
+                                          "type": "string"
+                                        },
+                                        "chosen": {
+                                          "type": "boolean"
+                                        },
+                                        "default": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "words",
+                                        "value",
+                                        "chosen",
+                                        "default"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "minItems": 1
+                                  },
+                                  "kind": {
+                                    "enum": [
+                                      "pick"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "choices",
+                                  "kind"
+                                ],
+                                "additionalProperties": false
                               }
                             ],
                             "discriminator": {

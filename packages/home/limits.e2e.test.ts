@@ -9,8 +9,9 @@ import { afterAll, describe, expect, it, onTestFinished } from "vitest";
 import { serveDoor } from "./door.js";
 import { startHome } from "./home.js";
 import { machine } from "./machine.js";
-import { readPrincipals } from "./principals.js";
-import { openStated } from "./stated.js";
+import { unheldWords } from "./photo.js";
+import { mintPrincipal, readPrincipals } from "./principals.js";
+import { openStated, type Stated } from "./stated.js";
 import { askHome } from "./socket.js";
 import type { Need } from "./status.js";
 import type { StreamsReport } from "./streams-report.js";
@@ -19,7 +20,7 @@ import { fakeDeclarations } from "./test/fakes.js";
 import { editSettings, testSocket } from "./test/folder.js";
 import { FAKES, freeSpace, makeRoot, readHome, removeRoot, TICK_MS, until } from "./test/harness-root.js";
 import { DEVICE, REPO } from "./test/support.js";
-import { openHomeFolder } from "@lifestreamprotocol/core";
+import { openHomeFolder, type OpenView } from "@lifestreamprotocol/core";
 
 const ACCOUNT = "person-a@example.com";
 const MINUTE = 60_000;
@@ -99,7 +100,7 @@ async function running(prefix: string, options: { registry: string; clocks: bool
     };
   };
   return {
-    root, sock, logs,
+    root, sock, logs, url,
     home: () => home,
     restart: async (meanwhile: () => Promise<void>) => {
       await door!.close();
@@ -157,14 +158,14 @@ describe("the home's network", () => {
     const held = await row();
     seen.held = held.health;
     expect([held.health.state, held.health.reason, held.health.words]).toEqual(["waiting", "metered", "Waiting for Wi-Fi"]);
-    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Lifestream is on a hotspot", "History waits for Wi-Fi"]]);
+    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Lifestream is on a hotspot", "History waits for Wi-Fi · Settings › Mobile data"]]);
 
     const away = await phone.away();
     const loopback = await phone.exchange();
     seen.answers = { away: history(away), loopback: history(loopback) };
     expect(history(away).every((each) => !each)).toBe(true);
     expect(history(loopback).every((each) => each)).toBe(true);
-    expect((await mac.away({ network: "all" })).status).toBe(200);
+    expect((await (await home.mac("aa43")).away({ network: "all" })).status).toBe(200);
     expect(limits(await home.needs()).map((need) => need[0])).toEqual(["metered"]);
 
     const before = ran().length;
@@ -183,10 +184,9 @@ describe("the home's network", () => {
     expect((await settled(4, "the fetch a day on")).slice(3)).toEqual(["fetch"]);
     expect((await row()).health.reason).toBe("metered");
 
-    expect((await mac.exchange({ network: "small" })).status).toBe(200);
-    expect(history(await phone.away()).every((each) => !each)).toBe(true);
     expect((await mac.exchange({ network: "low-data" })).status).toBe(200);
     expect(history(await phone.away()).every((each) => !each)).toBe(true);
+    expect(limits(await home.needs())).toEqual([["metered", "needs-you", "Low Data Mode is on", "History waits · turn Low Data Mode off in this Mac's network settings"]]);
     expect((await mac.exchange({ network: "all" })).status).toBe(200);
     expect(history(await phone.away()).every((each) => each)).toBe(true);
     await until("the home reads that the past moves", () => home.logs.some((line) => line.includes('"past":"moves"')) && home.logs.findLastIndex((line) => line.includes('"past":"moves"')) > home.logs.findIndex((line) => line.includes('"past":"waits"')));
@@ -238,6 +238,48 @@ describe("the home's network", () => {
   });
 });
 
+describe("why a photo has no picture, from what the devices stated through the door", () => {
+  it("names the home's own Mac on loopback as sending, a phone away by its own word, the home's hotspot for an away phone's older photos, keeps a statement left out and takes a word it does not know as none", async () => {
+    const home = await running("lifestream-limits-unheld-", { registry: FAKES, clocks: false, clock: () => Date.now() });
+    const mac = await home.mac();
+    const phone = await home.phone();
+    const { token } = mintPrincipal(openHomeFolder(home.root), { unit: "reader-stated", scopes: ["drive"], now_ms: Date.now() });
+    const source = (unit: string) => `apple-photos:${ACCOUNT}:${unit}`;
+    const units = new Map([[source(mac.unit), mac.unit], [source(phone.unit), phone.unit]]);
+    const names = new Map([[mac.unit, "MacBook Pro"], [phone.unit, "Example Phone"]]);
+    const view = {
+      source: (id: string) => (units.has(id) ? { copy: units.get(id) } : undefined),
+      tables: { meta: { get: () => undefined }, devices: { get: (unit: string) => (names.has(unit) ? { model: names.get(unit), retired_ms: null } : undefined) } },
+    } as unknown as OpenView;
+    const words = async (unit: string) => {
+      const stated = (await call(home.url, "GET", "/v1/stated", { authorization: `Bearer ${token}` })).body.stated as Stated;
+      return unheldWords(view, stated, { video: false, wanted: { at_ms: 0, missing: [], routes: [{ source: source(unit), asset: "asset-0001", files: ["photo"], refused: false }] } });
+    };
+    const seen: Record<string, unknown> = {};
+    report.unheld = seen;
+
+    expect((await mac.exchange({ network: "now" })).status).toBe(200);
+    seen.homeMac = await words(mac.unit);
+    seen.homeHotspot = await words(phone.unit);
+    expect([seen.homeMac, seen.homeHotspot]).toEqual(["no picture yet: on its way from MacBook Pro", "no picture yet: Lifestream is on a hotspot, so older photos from Example Phone wait for Wi-Fi"]);
+
+    expect((await phone.away({ network: "low-data" })).status).toBe(200);
+    const lowData = "no picture yet: Example Phone is on Low Data Mode, which holds its large sends";
+    expect(await words(phone.unit)).toBe(lowData);
+    expect((await phone.away()).status).toBe(200);
+    expect(await words(phone.unit)).toBe(lowData);
+
+    expect((await mac.exchange({ network: "all" })).status).toBe(200);
+    expect((await phone.away({ network: "now" })).status).toBe(200);
+    seen.phoneNow = await words(phone.unit);
+    expect(seen.phoneNow).toBe("no picture yet: on its way from Example Phone, and its older photos wait for Wi-Fi");
+    expect((await phone.away({ network: "slow" })).status).toBe(200);
+    expect(await words(phone.unit)).toBe("no picture yet: on its way from Example Phone");
+    expect((await phone.away({ room: "full" })).status).toBe(200);
+    expect(await words(phone.unit)).toBe("no picture yet: Example Phone is out of space");
+  });
+});
+
 describe("a device's mobile data", () => {
   it("answers each device its own choice, `now` while unset", async () => {
     const home = await running("lifestream-limits-mobile-", { registry: FAKES, clocks: false, clock: () => Date.now() });
@@ -249,9 +291,9 @@ describe("a device's mobile data", () => {
 
     expect([(await phone.exchange()).body.mobile_data, (await mac.exchange()).body.mobile_data]).toEqual(["now", "now"]);
     expect(await phone.set({ [own(phone.unit)]: "everything" })).toEqual({ status: 200, body: {} });
-    expect(await mac.set({ [own(mac.unit)]: "small" })).toEqual({ status: 200, body: {} });
+    expect((await mac.set({ [own(mac.unit)]: "small" })).status).toBe(422);
     seen.answers = { phone: (await phone.exchange()).body.mobile_data, mac: (await mac.exchange()).body.mobile_data };
-    expect(seen.answers).toEqual({ phone: "everything", mac: "small" });
+    expect(seen.answers).toEqual({ phone: "everything", mac: "now" });
   });
 });
 
