@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CallTrack } from "@lifestreamprotocol/core";
-import { callRule, isOpen, isQuiet, joins, loudSeconds, stoppedAt, stretchesOf, THRESHOLDS, unitOf, type Part, type Stretch } from "./rule.js";
+import { callRule, holderOf, isOpen, isQuiet, joins, loudSeconds, stoppedAt, stretchesOf, THRESHOLDS, unitOf, type Part, type Stretch } from "./rule.js";
 
 const T0 = Date.UTC(2026, 0, 5, 10, 0, 0);
 const MIN = 60;
@@ -20,14 +20,18 @@ const never = (): boolean => false;
 
 interface Shape {
   readonly holder?: string;
+  readonly holders?: readonly string[];
+  readonly players?: readonly string[];
   readonly session?: string | null;
   readonly camera?: boolean;
   readonly offset_ms?: number;
   readonly ended_by?: string;
+  readonly quiet_dbfs?: number;
 }
 
 function part(track: CallTrack, from_s: number, seconds: number, loud: Loud, shape: Shape = {}, index = 1): Part {
   const start_ms = T0 + from_s * 1_000 + (shape.offset_ms ?? 0);
+  const holders = shape.holders ?? [shape.holder ?? ZOOM];
   const made: Part = {
     kind: track === "mic" ? "mic-recording" : "sound-recording",
     key: `${track}-${from_s}`,
@@ -39,9 +43,10 @@ function part(track: CallTrack, from_s: number, seconds: number, loud: Loud, sha
     ms: seconds * 1_000,
     part: index,
     ended_by: shape.ended_by ?? "part_limit",
-    holders: [shape.holder ?? ZOOM],
+    holders,
+    players: shape.players ?? holders,
     camera: shape.camera ?? false,
-    loudness: loud === null ? null : { every_ms: 1_000, rms_dbfs: Array.from({ length: seconds }, (_, second) => (loud(from_s + second) ? -20 : -70)) },
+    loudness: loud === null ? null : { every_ms: 1_000, rms_dbfs: Array.from({ length: seconds }, (_, second) => (loud(from_s + second) ? -20 : shape.quiet_dbfs ?? -70)) },
     outputs: [],
   };
   const session = shape.session === undefined ? `${track}-session-${from_s}` : shape.session;
@@ -86,6 +91,13 @@ describe("callRule", () => {
     expect(verdicts(both(0, 1.5, talk.mic, talk.sound))).toEqual([false]);
   });
 
+  it("leaves a dictation app that mutes what plays while it listens a short use: between its sounds the sound side is digital silence, never a line, unless a call record says it was a call", () => {
+    expect(verdicts(both(0, 30, talk.mic, talk.sound, { holder: DICTATION, quiet_dbfs: -96 }))).toEqual([false]);
+    expect(callRule(only(track("sound", 0, 20, talk.sound, { camera: true, quiet_dbfs: -96 }))).call).toBe(false);
+    expect(verdicts(both(0, 30, talk.mic, talk.sound, { quiet_dbfs: -88 }))).toEqual([true]);
+    expect(verdicts(both(0, 30, talk.mic, talk.sound, { quiet_dbfs: -96 }), true)).toEqual([true]);
+  });
+
   it("leaves a Meet tab held six hours beside a playing video a short use", () => {
     const stretch = only(both(0, 6 * 60, never, always, { holder: CHROME }));
     expect(stretch.parts).toHaveLength(72);
@@ -98,13 +110,26 @@ describe("callRule", () => {
     expect(verdict).toEqual({ call: true, span: { start_ms: T0 + 5 * MIN * 1_000, end_ms: T0 + 20 * MIN * 1_000 }, two_way_ms: 15 * MIN * 1_000 });
   });
 
-  it("asks a crash-sealed part: one with no loudness counts its whole span", () => {
+  it("asks a crash-sealed part beside a heard two-way window or a joined call record: one with no loudness counts its whole span", () => {
     const sealed = [part("mic", 0, 10 * MIN, null), part("sound", 0, 10 * MIN, null)];
-    expect(callRule(only(sealed))).toEqual({ call: true, span: { start_ms: T0, end_ms: T0 + 10 * MIN * 1_000 }, two_way_ms: 0 });
+    expect(callRule(only(sealed))).toEqual({ call: false, two_way_ms: 0 });
+    expect(callRule(only(sealed), true)).toEqual({ call: true, span: { start_ms: T0, end_ms: T0 + 10 * MIN * 1_000 }, two_way_ms: 0 });
     const half = [part("mic", 0, 10 * MIN, null), part("sound", 0, 10 * MIN, talk.sound)];
-    expect(callRule(only(half)).call).toBe(true);
+    expect(callRule(only(half)).call).toBe(false);
+    expect(callRule(only(half), true).call).toBe(true);
+    const heardFirst = [...both(0, 1, talk.mic, talk.sound), part("mic", MIN, 10 * MIN, null), part("sound", MIN, 10 * MIN, null)];
+    expect(callRule(only(heardFirst))).toEqual({ call: true, span: { start_ms: T0, end_ms: T0 + 11 * MIN * 1_000 }, two_way_ms: MIN * 1_000 });
     expect(isQuiet(sealed[0]!)).toBe(false);
     expect(loudSeconds(sealed[0]!)).toBeNull();
+  });
+
+  it("names a call's app by the holder that plays its sound, never a dictation app that held the mic longer", () => {
+    const call = (players: readonly string[]) => [
+      ...both(0, 10, talk.mic, talk.sound, { holders: [ZOOM, DICTATION], players }),
+      ...track("mic", 10, 14, always, { holders: [DICTATION], players: [] }),
+    ];
+    expect(holderOf(only(call([ZOOM])))).toBe(ZOOM);
+    expect(holderOf(only(call([])))).toBe(DICTATION);
   });
 
   it("counts a sound-only stretch a call only when a call record joins it or the camera was on", () => {
@@ -134,12 +159,24 @@ describe("stretchesOf", () => {
     expect(stretches.map((stretch) => callRule(stretch).call)).toEqual([true, true]);
   });
 
-  it("keeps two meetings one stretch when music plays between them", () => {
+  it("cuts two meetings of one hold where no two-way window falls for the split gap, music between them a short use", () => {
     const parts = [
       ...track("mic", 0, 60, (t) => (t < 20 * MIN || t >= 40 * MIN) && talk.mic(t), { holder: CHROME }),
       ...track("sound", 0, 60, (t) => (t < 20 * MIN || t >= 40 * MIN ? talk.sound(t) : true), { holder: CHROME }),
     ];
-    expect(callRule(only(parts)).call).toBe(true);
+    const stretches = stretchesOf(parts);
+    expect(stretches.map((stretch) => unitOf(SOURCE, stretch))).toEqual([
+      `${SOURCE}/mic-recording/mic-0`, `${SOURCE}/mic-recording/mic-1200`, `${SOURCE}/mic-recording/mic-2400`,
+    ]);
+    expect(stretches.map((stretch) => callRule(stretch).call)).toEqual([true, false, true]);
+  });
+
+  it("cuts a dictation hold at every stretch of the split gap with no two-way window, and judges each piece alone", () => {
+    const parts = both(0, 120, always, (t) => t % (40 * MIN) < MIN && talk.sound(t), { holder: DICTATION, players: [CHROME] });
+    const stretches = stretchesOf(parts);
+    expect(stretches.map((stretch) => stretch.windows.length)).toEqual([2, 0, 2, 0, 2, 0]);
+    expect(stretches.map((stretch) => callRule(stretch).call)).toEqual([false, false, false, false, false, false]);
+    expect(stretches.flatMap((stretch) => stretch.parts).length).toBe(parts.length);
   });
 
   it("never cuts through a part with no loudness", () => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CallAudioPart, CallTrack, Json } from "@lifestreamprotocol/core";
+import type { CallContent, CallPart } from "./content.js";
+import { callTurns } from "./lines.js";
 import { THRESHOLDS } from "./rule.js";
 import { readTranscript, speakerSpans, turnsOf, whoOf, type Heard, type KeptSegment } from "./turns.js";
 
@@ -52,7 +54,7 @@ describe("speakerSpans", () => {
   it("holds the times the room played to the built-in speakers", () => {
     const part = (outputs: CallAudioPart["outputs"]): CallAudioPart => ({
       track: "mic", start_ms: T0, end_ms: T0 + PART_S * 1_000, sha256: "a".repeat(64), media_type: "audio/mp4", ms: PART_S * 1_000, part: 1,
-      ended_by: "part_limit", holders: ["us.zoom.xos"], camera: false, loudness: null, outputs,
+      ended_by: "part_limit", holders: ["us.zoom.xos"], players: ["us.zoom.xos"], camera: false, loudness: null, outputs,
     });
     expect(speakerSpans([part([
       { at_ms: T0, uid: "BuiltInSpeakerDevice", transport: "built_in" },
@@ -123,5 +125,19 @@ describe("turnsOf", () => {
     expect(whoOf(turn("sound", 100, 150), other)).toBe("Person A");
     expect(whoOf(turn("sound", 590, 640), other)).toBe("Them");
     expect(whoOf(turn("sound", 200, 210), null)).toBe("Them");
+  });
+});
+
+describe("callTurns", () => {
+  it("prints no turn that starts before the call's span", () => {
+    const mic: CallPart = {
+      kind: "mic-recording", key: "mic-0", track: "mic", sha256: "a".repeat(64), media_type: "audio/mp4", start_ms: T0, ms: PART_S * 1_000, loud_s: 300, quiet: false, asked: true,
+    };
+    const content: CallContent = {
+      short: false, source: "audio:local:macbook-pro-0001", span: { start_ms: T0 + 60_000, end_ms: T0 + PART_S * 1_000 }, mic: [mic], sound: [],
+      holder: "Zoom", camera: false, speakers: [], stopped_ms: null, open: false, joined: null,
+    };
+    const turns = callTurns(content, () => [kept(10, 12, "Before the call."), kept(70, 72, "In the call.")]);
+    expect(turns.map((turn) => turn.text)).toEqual(["In the call."]);
   });
 });

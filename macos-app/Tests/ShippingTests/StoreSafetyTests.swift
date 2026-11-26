@@ -313,8 +313,16 @@ final class StoreSafetyTests: XCTestCase {
             _ = Darwin.link(secret.path, file.path)
         }
         try linkFolder()
-        XCTAssertThrowsError(try road.open(file), "the folder put back, its path naming the file opened") {
-            XCTAssertEqual(($0 as? StoreFiles.Unsafe)?.reason, underSSH)
+        XCTAssertThrowsError(try road.open(file), "the folder put back, a second name for the file opened") {
+            XCTAssertEqual(($0 as? StoreFiles.Unsafe)?.reason, "a file the store names has more than one name, which is never opened")
+        }
+
+        try FileManager.default.removeItem(at: folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let permittedName = try DomainFixtures.write("synthetic", to: folder.appendingPathComponent("named-twice.db"))
+        XCTAssertEqual(Darwin.link(permittedName.path, folder.appendingPathComponent("named-again.db").path), 0)
+        XCTAssertThrowsError(try StoreFiles(home: home, lifestream: []).open(permittedName, spelled: nil), "a file of two names, both permitted") {
+            XCTAssertEqual(($0 as? StoreFiles.Unsafe)?.reason, "a file the store names has more than one name, which is never opened")
         }
 
         try FileManager.default.removeItem(at: folder)

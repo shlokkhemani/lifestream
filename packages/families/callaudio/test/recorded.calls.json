@@ -1,0 +1,50 @@
+[
+  {
+    "unit": "mic-recording/20261006T050000Z",
+    "short": false,
+    "holder": "com.example.app-1",
+    "span": [
+      "2026-10-06T05:01:00.000Z",
+      "2026-10-06T05:27:40.290Z"
+    ],
+    "mic": 3,
+    "sound": 3,
+    "quiet": 0,
+    "asked": 6,
+    "speakers": 2,
+    "camera": true,
+    "open": false
+  },
+  {
+    "unit": "mic-recording/20261006T063000Z",
+    "short": true
+  },
+  {
+    "unit": "sound-recording/20261006T033000Z",
+    "short": false,
+    "holder": "Chrome",
+    "span": [
+      "2026-10-06T03:30:00.000Z",
+      "2026-10-06T03:50:00.000Z"
+    ],
+    "mic": 2,
+    "sound": 2,
+    "quiet": 0,
+    "asked": 4,
+    "speakers": 0,
+    "camera": true,
+    "open": false
+  },
+  {
+    "unit": "sound-recording/20261006T080000Z",
+    "short": true
+  },
+  {
+    "unit": "sound-recording/20261006T085000.106Z",
+    "short": true
+  },
+  {
+    "unit": "sound-recording/20261006T094000.201Z",
+    "short": true
+  }
+]

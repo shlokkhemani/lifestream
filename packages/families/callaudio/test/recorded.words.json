@@ -1,0 +1,287 @@
+{
+ "3a927da854aaef51de4a70f0c5ebb3d55aeaf9532637205a122cef48d19f4507": {
+  "track": "mic",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 2,
+    "end_s": 5.5,
+    "text": "Can we move the budget to Monday morning?"
+   }
+  ]
+ },
+ "fcc4b42623b8468b299e087bc2c2cf5bb597ac4976af1313fb5ec2b35df84e5a": {
+  "track": "mic",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 0,
+    "end_s": 3.5,
+    "text": "Can we move the garden to Monday morning?"
+   }
+  ]
+ },
+ "0753b511a2371cff62b0fbd293d022cb9b42477d76044380f9849ff8c46db92f": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 10,
+    "end_s": 13.5,
+    "text": "The budget for Monday morning looks ready."
+   }
+  ]
+ },
+ "cfed010bafdae7b9a67828d55f0b1c066e748690dfb5f9c6e1073898e5a0bcaf": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 4,
+    "end_s": 6,
+    "text": "The garden for Monday morning looks ready."
+   }
+  ]
+ },
+ "e64090b0129b8368164b70a8a2bcd7ff9052a967535f7c05026d8b51b760951a": {
+  "track": "mic",
+  "echo": [
+   "The report for Monday morning looks ready. Right, go on.",
+   "The kitchen for Monday morning looks ready. Yes, I see."
+  ],
+  "segments": [
+   {
+    "start_s": 36.3,
+    "end_s": 39.3,
+    "text": "The report for Monday morning looks ready. Right, go on."
+   },
+   {
+    "start_s": 71.3,
+    "end_s": 75.8,
+    "text": "The kitchen for Monday morning looks ready. Yes, I see."
+   },
+   {
+    "start_s": 72,
+    "end_s": 75.5,
+    "text": "Can we move the report to Monday morning?"
+   },
+   {
+    "start_s": 78,
+    "end_s": 81.5,
+    "text": "Can we move the kitchen to Monday morning?"
+   }
+  ]
+ },
+ "0227087ea99bd0dfb091a8979164970d09879c6ec5440d9a06c34020cf3457db": {
+  "track": "mic",
+  "echo": [
+   "The schedule for Monday morning looks ready. Okay, sure.",
+   "The invoice for Monday morning looks ready. Hmm, true."
+  ],
+  "segments": [
+   {
+    "start_s": 0,
+    "end_s": 3.5,
+    "text": "Can we move the schedule to Monday morning?"
+   },
+   {
+    "start_s": 0.3,
+    "end_s": 4.8,
+    "text": "The schedule for Monday morning looks ready. Okay, sure."
+   },
+   {
+    "start_s": 58,
+    "end_s": 61.5,
+    "text": "Can we move the invoice to Monday morning?"
+   },
+   {
+    "start_s": 58.3,
+    "end_s": 62.8,
+    "text": "The invoice for Monday morning looks ready. Hmm, true."
+   }
+  ]
+ },
+ "3953f47ff62b86d1859a5e3ba8d4baafb77dfb4df9e0e9dacf0c33ef2307837c": {
+  "track": "mic",
+  "echo": [
+   "The roof for Monday morning looks ready. Right, go on.",
+   "The draft for Monday morning looks ready. Yes, I see."
+  ],
+  "segments": [
+   {
+    "start_s": 0,
+    "end_s": 3.5,
+    "text": "Can we move the roof to Monday morning?"
+   },
+   {
+    "start_s": 23.3,
+    "end_s": 26.3,
+    "text": "The roof for Monday morning looks ready. Right, go on."
+   },
+   {
+    "start_s": 30.3,
+    "end_s": 34.8,
+    "text": "The draft for Monday morning looks ready. Yes, I see."
+   },
+   {
+    "start_s": 50,
+    "end_s": 53.5,
+    "text": "Can we move the draft to Monday morning?"
+   }
+  ]
+ },
+ "9fec6312f2925a6f2903e6d4f234e9f7784de9fd20be70d4007d8e9d1eeca05d": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 36,
+    "end_s": 38,
+    "text": "The report for Monday morning looks ready."
+   },
+   {
+    "start_s": 71,
+    "end_s": 74.5,
+    "text": "The kitchen for Monday morning looks ready."
+   }
+  ]
+ },
+ "525ab67497ed3a2929a41d04fbfc16497924a31d076128426e316a4118b27eb2": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 0,
+    "end_s": 3.5,
+    "text": "The schedule for Monday morning looks ready."
+   },
+   {
+    "start_s": 58,
+    "end_s": 61.5,
+    "text": "The invoice for Monday morning looks ready."
+   }
+  ]
+ },
+ "ce34099259813b2cf61370a308f8cb12397baba10f62a1de3bf70c3554a52d16": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 23,
+    "end_s": 25,
+    "text": "The roof for Monday morning looks ready."
+   },
+   {
+    "start_s": 30,
+    "end_s": 33.5,
+    "text": "The draft for Monday morning looks ready."
+   }
+  ]
+ },
+ "67d887b1899dfbf41e5f8556f8897a8b022d5e65d42a3835293c0058d3d2bf57": {
+  "track": "mic",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 0,
+    "end_s": 3.5,
+    "text": "Can we move the ticket to Monday morning?"
+   }
+  ]
+ },
+ "98d62f262b1f9932a025930d6737e5532f4fc65f83dbe73cdf5aeb325f9b64ea": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "f2472cafa402208a6e9c218e5276facd30d3fa6f90c7f7b1800baff96d08bd3b": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 202,
+    "end_s": 205.5,
+    "text": "The ticket for Monday morning looks ready."
+   }
+  ]
+ },
+ "193e534e7757a3ec3c234212871b56b98124eace28de370d27cf5bc4f5f7aa85": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 270,
+    "end_s": 273.5,
+    "text": "The parcel for Monday morning looks ready."
+   }
+  ]
+ },
+ "fc38d091c63f20afff953ec3b4f271f9eda6c4dc3f9f84bbc9a768e230ef0230": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "77ccafaa2b95af35d2c9a500088362e6ab4ec937ef5dea790b3d3e862d90a200": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "1ca5b02eb017234437a890de2a63d4abe6b7af23a09eb47d449ffc8e1068d59a": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "cab99328fc0d3bacbf8e7a7f0256755a176d61865a567de077a80d62fd7340ae": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 536,
+    "end_s": 539.5,
+    "text": "The fence for Monday morning looks ready."
+   }
+  ]
+ },
+ "3da66c933078ef52329c1f9ffdc8a4c038d16d57133df14fc13d4f5764dab276": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 215,
+    "end_s": 218.5,
+    "text": "The lesson for Monday morning looks ready."
+   }
+  ]
+ },
+ "daab17f44d88936fd4dc0464d73d345203f54828dd40d92b139ff57bdc4ae1c1": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "ce744fbcd125910db31e72a6962d9728473d2e39961df8b44181f6cf40cbbb91": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "bbad8277cac39e872f1645adfab372d65a63872f826f8b65df607e9cd3898810": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ },
+ "5ec288ce7b7eee0047a909161df615f3eef6bda4e3c3f292805839ab5fc4a772": {
+  "track": "sound",
+  "echo": [],
+  "segments": [
+   {
+    "start_s": 344,
+    "end_s": 347.5,
+    "text": "The budget for Tuesday morning looks ready."
+   }
+  ]
+ },
+ "2713d88ac63ec85b9347a77e503fdb31655cddf21fb0cefe2e8027d3de9a9465": {
+  "track": "sound",
+  "echo": [],
+  "segments": []
+ }
+}

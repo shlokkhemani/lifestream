@@ -19,6 +19,7 @@ export { FOLDERS } from "./folders.js";
 export { FakeRelay } from "./test/station.js";
 export { fakeImap, loginRefused, refusedWith, type FakeImap, type ImapCommand } from "./test/imap.js";
 export * as imports from "./imports/index.js";
+export { audioCallAudio } from "./macos-app/audio/adapter.js";
 
 import { SourceNameError, sourceName } from "@lifestreamprotocol/core";
 import { roadsOf, withRoadDefaults, type Client, type Connector } from "./declaration.js";
