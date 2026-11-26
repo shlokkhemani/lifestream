@@ -14,13 +14,13 @@ final class StartTests: XCTestCase {
     }
 
     private static func home(_ start: Date?) -> PhotoPass.Home {
-        PhotoPass.Home(caughtUp: true, start: start, wanted: {
+        PhotoPass.Home(caughtUp: true, start: start, wanted: { _ in
             PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0))
         })
     }
 
     private static func mac(page: Int = 1_000) -> Device {
-        Device(metered: false, charging: true, spare: 95_000_000_000, changeRoom: nil, page: page)
+        Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000, changeRoom: nil, page: page)
     }
 
     private static func ids(_ store: MemoryStore, _ kind: PhotoEntry.Kind) -> [String] {
@@ -136,7 +136,7 @@ final class StartTests: XCTestCase {
 
         let moved = Self.earlier.addingTimeInterval(-86_400)
         let owed = await pass.run(.init(seconds: 60), device: Self.mac(), bringingIn: false, home: PhotoPass.Home(
-            caughtUp: false, start: moved, wanted: { PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) }))
+            caughtUp: false, start: moved, wanted: { _ in PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0)) }))
         XCTAssertEqual(owed?.paged, false, "the home has not caught up: the reread waits")
         XCTAssertEqual(owed?.stated?.start, moved)
         XCTAssertNil(owed?.stated?.left, "a reread is owed: no left goes out under the new start")

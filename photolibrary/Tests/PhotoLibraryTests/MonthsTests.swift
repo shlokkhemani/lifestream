@@ -33,8 +33,8 @@ final class MonthsTests: XCTestCase {
 
     private static func run(_ pass: PhotoPass, page: Int = 3, background: Bool = false,
                             from start: Date = start) async -> PhotoPass.Report? {
-        let mac = Device(metered: false, charging: true, spare: 95_000_000_000, changeRoom: nil, page: page)
-        let home = PhotoPass.Home(caughtUp: true, start: start, wanted: {
+        let mac = Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000, changeRoom: nil, page: page)
+        let home = PhotoPass.Home(caughtUp: true, start: start, wanted: { _ in
             PhotosWanted(photos: [], left: .init(wanted: 0, unavailable: 0, bytes: 0))
         })
         return await pass.run(.init(seconds: 60, background: background), device: mac, bringingIn: false, home: home)

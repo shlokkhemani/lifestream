@@ -32,8 +32,7 @@ public struct PhotoLibrary: Sendable {
         guard access.reads else { throw PhotoLibraryError.noAccess }
         var mark = mark?.access == access ? mark! : ReadMark(access: access, token: nil, backlog: nil, restating: false, sized: true)
         guard let token = mark.token else {
-            guard whole else { return ReadPage(snapshots: [], gone: [], whole: false, mark: mark) }
-            return try await begun(mark, restating: mark.restating, access: access, limit: limit)
+            return try await begun(mark, restating: mark.restating, access: access, whole: whole, limit: limit)
         }
         if let changes = try await source.changes(since: token, limit: limit) {
             if let last = changes.last {
@@ -55,15 +54,18 @@ public struct PhotoLibrary: Sendable {
         }
         guard whole else { return ReadPage(snapshots: [], gone: [], whole: false, mark: mark) }
         if mark.owesRestatement {
-            return try await begun(mark, restating: mark.backlog == nil || mark.restating, access: access, limit: limit)
+            return try await begun(mark, restating: mark.backlog == nil || mark.restating, access: access, whole: true,
+                                   limit: limit)
         }
-        if mark.rereads == true { return try await begun(mark, restating: mark.restating, access: access, limit: limit) }
+        if mark.rereads == true {
+            return try await begun(mark, restating: mark.restating, access: access, whole: true, limit: limit)
+        }
         return try await page(of: mark, limit: limit)
     }
 
-    private func begun(_ mark: ReadMark, restating: Bool, access: PhotoAccess, limit: Int) async throws -> ReadPage {
+    private func begun(_ mark: ReadMark, restating: Bool, access: PhotoAccess, whole: Bool, limit: Int) async throws -> ReadPage {
         let mark = try await begin(mark, restating: restating)
-        var first = try await page(of: mark, limit: limit)
+        var first = whole ? try await page(of: mark, limit: limit) : ReadPage(snapshots: [], gone: [], whole: false, mark: mark)
         first.begins = true
         if access == .full { first.listed = mark.backlog ?? [] }
         return first
@@ -98,6 +100,10 @@ public struct PhotoLibrary: Sendable {
         for resource in snapshot.resources {
             guard types?.contains(resource.type) ?? true else {
                 files.append(.unasked)
+                continue
+            }
+            guard resource.size != 0 else {
+                files.append(.later)
                 continue
             }
             guard left >= 0, (resource.size ?? 0) <= left else {

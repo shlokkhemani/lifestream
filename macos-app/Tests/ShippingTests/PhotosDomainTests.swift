@@ -309,9 +309,10 @@ final class PhotosDomainTests: XCTestCase {
 
         home.holdingBack = []
         await run()
+        XCTAssertEqual(home.asked, [Self.source], "the page's pass asks once, for the new photo it owes: the Mac fetches none inline")
         await run()
         await run()
-        XCTAssertEqual(home.asked, [Self.source])
+        XCTAssertEqual(home.asked, [Self.source, Self.source], "and the pass after the whole read once more, for the wanted list")
         try ShippingFixture.artifact("photos-held-back.json", ["shipped": ids, "asked_after_letting_go": home.asked])
     }
 

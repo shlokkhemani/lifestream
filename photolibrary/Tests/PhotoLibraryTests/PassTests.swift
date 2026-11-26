@@ -4,7 +4,7 @@ import XCTest
 
 final class PassTests: XCTestCase {
     private static let day = Date(timeIntervalSince1970: 1_780_000_000)
-    private static let wifi = Device(metered: false, charging: false, spare: 95_000_000_000)
+    private static let wifi = Device(pastMoves: true, iCloud: true, charging: false, spare: 95_000_000_000)
     private static let still = PhotoResource(typeRaw: 1, uti: "public.heic", originalFilename: "IMG_0001.HEIC")
 
     private static func photo(_ id: String) -> PhotoSnapshot {
@@ -19,7 +19,7 @@ final class PassTests: XCTestCase {
         func pass(_ build: String) -> PhotoPass {
             PhotoPass(library: PhotoLibrary(synthetic), store: store, build: build, now: { clock.now })
         }
-        let home = PhotoPass.Home(caughtUp: true, wanted: { Self.wanting(["GONE/L0/001"]) })
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in Self.wanting(["GONE/L0/001"]) })
         func run(_ pass: PhotoPass, bringingIn: Bool = false) async -> PhotoPass.Report? {
             await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: bringingIn, home: home)
         }
@@ -69,7 +69,7 @@ final class PassTests: XCTestCase {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("photo-exports-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let home = PhotoPass.Home(caughtUp: true, wanted: { Self.wanting(["A/L0/001"]) })
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in Self.wanting(["A/L0/001"]) })
         func exports(_ make: (PhotoLibrary, MemoryStore) -> PhotoPass) async -> Set<String> {
             let synthetic = SyntheticLibrary()
             synthetic.put(Self.photo("A/L0/001"))
@@ -88,7 +88,7 @@ final class PassTests: XCTestCase {
         let synthetic = SyntheticLibrary()
         synthetic.put(Self.photo("A/L0/001"))
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: MemoryStore())
-        let home = PhotoPass.Home(caughtUp: true, wanted: { Self.wanting([]) })
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in Self.wanting([]) })
         let stopped = await Task { () -> PhotoPass.Report? in
             withUnsafeCurrentTask { $0?.cancel() }
             return await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: true, home: home)
@@ -104,8 +104,8 @@ final class PassTests: XCTestCase {
         let synthetic = SyntheticLibrary()
         synthetic.put(Self.photo("SLOW/L0/001"), files: [.stalled])
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: MemoryStore())
-        let home = PhotoPass.Home(caughtUp: true, wanted: { Self.wanting(["SLOW/L0/001"]) })
-        let charging = Device(metered: false, charging: true, spare: 95_000_000_000)
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in Self.wanting(["SLOW/L0/001"]) })
+        let charging = Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000)
         _ = await pass.run(.init(seconds: 60), device: charging, bringingIn: false, home: home)
         let started = Date()
         let report = await pass.run(.init(seconds: 0.5), device: charging, bringingIn: false, home: home)
@@ -119,7 +119,7 @@ final class PassTests: XCTestCase {
         let synthetic = SyntheticLibrary()
         synthetic.put(Self.photo("A/L0/001"))
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: MemoryStore())
-        let home = PhotoPass.Home(caughtUp: true, wanted: {
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in
             try await Task.sleep(nanoseconds: 86_400 * 1_000_000_000)
             return Self.wanting([])
         })
@@ -138,12 +138,12 @@ final class PassTests: XCTestCase {
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
         let (entered, enter) = AsyncStream<Void>.makeStream()
         let (release, released) = AsyncStream<Void>.makeStream()
-        let home = PhotoPass.Home(caughtUp: true, wanted: {
+        let home = PhotoPass.Home(caughtUp: true, wanted: { _ in
             enter.yield()
             for await _ in release { break }
             return Self.wanting([])
         })
-        _ = await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: false, home: PhotoPass.Home(caughtUp: true, wanted: { Self.wanting([]) }))
+        _ = await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: false, home: PhotoPass.Home(caughtUp: true, wanted: { _ in Self.wanting([]) }))
         let running = Task { await pass.run(.init(seconds: 60), device: Self.wifi, bringingIn: false, home: home) }
         for await _ in entered { break }
         do {
@@ -166,10 +166,163 @@ extension PassTests {
     }
 
     static func home(history: Bool = true, asked: Asks, wanting wanted: PhotosWanted) -> PhotoPass.Home {
-        PhotoPass.Home(caughtUp: true, history: history, wanted: {
-            asked.count()
+        PhotoPass.Home(caughtUp: true, history: history, wanted: { owed in
+            asked.count(owed)
             return wanted
         })
+    }
+
+    func testOnMobileDataWhatIsTakenNowMovesWithItsFilesAndThePastWaits() async throws {
+        let synthetic = SyntheticLibrary()
+        for index in 0..<25 { synthetic.put(Self.photo("OLD\(index)/L0/001", at: -60 - Double(index))) }
+        let store = MemoryStore()
+        let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
+        let mobile = Device(pastMoves: false, iCloud: false, charging: false, spare: 95_000_000_000)
+        let asked = Asks()
+        let home = PhotoPass.Home(caughtUp: true, wanted: { owed in
+            asked.count(owed)
+            return Self.wanting(owed.filter { !asked.unnamed.contains($0) })
+        })
+        let run = { (device: Device) in await pass.run(.init(seconds: 60), device: device, bringingIn: false, home: home) }
+        var steps: [[String: Any]] = []
+        func step(_ name: String, _ report: PhotoPass.Report?) async {
+            let state = await pass.state()
+            steps.append(["step": name, "snapshots": report?.snapshots ?? -1, "files": report?.files ?? -1,
+                          "waits": report?.waits?.rawValue ?? "", "owed": state.owed.sorted(), "unread": state.mark?.unread ?? -1,
+                          "asked": synthetic.filesAsked])
+        }
+
+        let first = await run(mobile)
+        await step("first", first)
+        XCTAssertEqual(first?.paged, false, "the first pass pages nothing")
+        XCTAssertEqual(first?.snapshots, 0)
+        assertEqual(await pass.state().mark?.unread, 25, "but takes the token and lists the backlog")
+        XCTAssertNotNil(first?.stated?.months, "and counts it")
+        XCTAssertEqual(synthetic.snapshotsRead, 0, "no photo of the past is read")
+        XCTAssertEqual(first?.waits, .network)
+
+        for index in 0..<23 { synthetic.put(Self.photo("NOW\(index)/L0/001", at: Double(index))) }
+        synthetic.put(PhotoSnapshot(localIdentifier: "UNDATED/L0/001", creationDate: nil, modificationDate: Self.day,
+                                    resources: [Self.still]))
+        synthetic.put(Self.photo("WRITING/L0/001", at: 30), files: [.here(Data())])
+        let taken = await run(mobile)
+        await step("taken", taken)
+        XCTAssertEqual(taken?.snapshots, 25, "every photo the history names, stated now")
+        XCTAssertEqual(taken?.files, 24, "each with its files at once, the undated one too")
+        XCTAssertEqual(synthetic.filesAsked, 24, "the file still being written is not asked for")
+        XCTAssertEqual(taken?.waits, .network)
+        assertEqual(await pass.state().owed, ["WRITING/L0/001"], "the photo whose files did not land is owed")
+        XCTAssertEqual(asked.owed, [], "the home has not taken it yet: it is not asked for")
+
+        let retried = await run(mobile)
+        await step("retried", retried)
+        XCTAssertEqual(asked.owed, [["WRITING/L0/001"]], "the owed photo asked for by name")
+        XCTAssertEqual(retried?.files, 0)
+        XCTAssertEqual(synthetic.filesAsked, 24, "its file still states 0 bytes: no request")
+        assertEqual(await pass.state().owed, ["WRITING/L0/001"], "a retry that answers later while a file is written stays owed")
+        assertEqual(await pass.state().later, [], "an owed photo never enters later")
+
+        synthetic.finishWriting("WRITING/L0/001", files: [.here(Data("written".utf8))])
+        let landed = await run(mobile)
+        await step("landed", landed)
+        XCTAssertEqual(landed?.files, 1, "from the wanted list, as owed, over mobile data")
+        XCTAssertEqual(landed?.snapshots, 1, "with its snapshot as it stands")
+        assertEqual(await pass.state().owed, [], "landed, it leaves owed")
+
+        synthetic.put(Self.photo("ELSEWHERE/L0/001", at: 40), files: [.here(Data())])
+        synthetic.put(Self.photo("CLOUD/L0/001", at: 41), files: [.inCloud(Data("in iCloud".utf8))])
+        _ = await run(mobile)
+        assertEqual(await pass.state().owed, ["CLOUD/L0/001", "ELSEWHERE/L0/001"])
+        asked.unnamed = ["ELSEWHERE/L0/001"]
+        let answered = await run(mobile)
+        await step("answered", answered)
+        XCTAssertEqual(asked.owed.last, ["CLOUD/L0/001", "ELSEWHERE/L0/001"])
+        assertEqual(await pass.state().owed, [],
+                    "the one the answer does not name leaves, and the one only iCloud holds leaves for the past's rule")
+        XCTAssertEqual(synthetic.downloads, 0, "nothing comes from iCloud")
+        assertEqual(await pass.state().later, [])
+
+        let filesAsked = synthetic.filesAsked
+        synthetic.put(PhotoSnapshot(localIdentifier: "OLD3/L0/001", creationDate: Self.day.addingTimeInterval(-63 * 60),
+                                    modificationDate: Self.day.addingTimeInterval(600 * 60), isFavorite: true,
+                                    resources: [Self.still]))
+        let favourite = await run(mobile)
+        await step("backlog named again", favourite)
+        XCTAssertEqual([favourite?.snapshots, favourite?.files], [1, 0], "a backlog photo named again: its snapshot, no file")
+        XCTAssertEqual(synthetic.filesAsked, filesAsked)
+        assertEqual(await pass.state().owed, [])
+        assertEqual(await pass.state().mark?.unread, 25, "the backlog is not paged")
+        XCTAssertEqual(store.entries.filter { $0.kind == .availability && $0.replayKey.hasPrefix("photos:OLD") }.count, 0,
+                       "nor fetched")
+        XCTAssertEqual(favourite?.waits, .network)
+
+        let wifi = await run(Self.wifi)
+        await step("wifi", wifi)
+        XCTAssertEqual(wifi?.paged, true, "the past moves on a free network")
+
+        synthetic.put(PhotoSnapshot(localIdentifier: "OLD5/L0/001", creationDate: Self.day.addingTimeInterval(-65 * 60),
+                                    modificationDate: Self.day.addingTimeInterval(700 * 60), resources: [Self.still]))
+        let stated = await run(mobile)
+        await step("stated before without files", stated)
+        XCTAssertEqual([stated?.snapshots, stated?.files], [1, 0], "a photo stated before without files: its snapshot, no file")
+        XCTAssertEqual(synthetic.filesAsked, filesAsked)
+        XCTAssertEqual(stated?.waits, .network, "the wanted files wait")
+
+        synthetic.put(Self.photo("LOST/L0/001", at: 50))
+        synthetic.prune()
+        let pruned = await run(mobile)
+        await step("pruned", pruned)
+        XCTAssertEqual(pruned?.snapshots, 0, "a pruned history reads whole again: what it lost is past")
+        assertEqual(await pass.state().mark?.unread, try await PhotoLibrary(synthetic).count())
+        XCTAssertEqual(synthetic.filesAsked, filesAsked)
+        XCTAssertEqual(store.entries.filter { $0.replayKey.hasPrefix("photos:LOST/L0/001:") }.count, 0)
+        try Self.artifact("mobile-data.json", ["steps": steps])
+    }
+
+    func testAHeldPhotoNamedAgainFetchesOnlyTheFilesWhoseBindingChanged() async throws {
+        let video = PhotoResource(typeRaw: 9, uti: "com.apple.quicktime-movie", originalFilename: "IMG_0001.MOV")
+        let render = PhotoResource(typeRaw: 5, uti: "public.jpeg", originalFilename: "FullSizeRender.jpg")
+        let synthetic = SyntheticLibrary()
+        let store = MemoryStore()
+        let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
+        let mobile = Device(pastMoves: false, iCloud: false, charging: false, spare: 95_000_000_000)
+        let run = {
+            await pass.run(.init(seconds: 60), device: mobile, bringingIn: false, home: Self.home(asked: Asks(), wanting: Self.wanting([])))
+        }
+        func live(edited minutes: Double, favourite: Bool, _ resources: [PhotoResource]) -> PhotoSnapshot {
+            PhotoSnapshot(localIdentifier: "LIVE/L0/001", creationDate: Self.day, modificationDate: Self.day.addingTimeInterval(minutes * 60),
+                          isFavorite: favourite, resources: resources)
+        }
+        _ = await run()
+        synthetic.put(live(edited: 0, favourite: false, [Self.still, video]))
+        let taken = await run()
+        XCTAssertEqual([taken?.files, synthetic.filesAsked], [1, 2], "taken now: both files")
+
+        synthetic.put(live(edited: 10, favourite: true, [Self.still, video]))
+        let favourite = await run()
+        XCTAssertEqual([favourite?.snapshots, favourite?.files, synthetic.filesAsked], [1, 0, 2], "a favourite changes no file: none asked for")
+        assertEqual(await pass.state().owed, [])
+
+        synthetic.put(live(edited: 20, favourite: true, [Self.still, video, render]))
+        let edited = await run()
+        XCTAssertEqual([edited?.snapshots, edited?.files, synthetic.filesAsked], [1, 1, 3], "an edit: its render alone")
+        let more = try XCTUnwrap(store.entries.last { $0.kind == .availability })
+        let resources = try XCTUnwrap((try JSONSerialization.jsonObject(with: more.payload) as? [String: Any])?["resources"] as? [[String: Any]])
+        XCTAssertEqual(resources.map { $0["blob"] is NSNull }, [true, true, false])
+        assertEqual(await pass.state().owed, [])
+
+        synthetic.put(live(edited: 30, favourite: false, [Self.still, video, render]))
+        let unfavourite = await run()
+        XCTAssertEqual([unfavourite?.snapshots, unfavourite?.files, synthetic.filesAsked], [1, 0, 3],
+                       "an edited photo's favourite changes no file: its render is not asked for again")
+
+        let rendered = ["LIVE/L0/001/IMG_0001.HEIC", "LIVE/L0/001/IMG_0001.MOV", "a render edited again, of other bytes"]
+        synthetic.put(live(edited: 40, favourite: false, [Self.still, video, render]), files: rendered.map { .here(Data($0.utf8)) })
+        let reedited = await run()
+        XCTAssertEqual([reedited?.snapshots, reedited?.files, synthetic.filesAsked], [1, 1, 4],
+                       "an edit again writes its render under the same name: it is fetched")
+        assertEqual(await pass.state().owed, [])
+        try Self.artifact("held-named-again.json", ["availability": String(decoding: more.payload, as: UTF8.self)])
     }
 
 
@@ -181,7 +334,7 @@ extension PassTests {
                       files: [.inCloud(Data("the still".utf8)), .inCloud(Data("the video".utf8))])
         let store = MemoryStore()
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
-        let charging = Device(metered: false, charging: true, spare: 95_000_000_000, changeRoom: nil)
+        let charging = Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000, changeRoom: nil)
         let asked = Asks()
         let home = Self.home(asked: asked, wanting: Self.wanting(["LIVE/L0/001"], files: ["pairedVideo"]))
         _ = await pass.run(.init(seconds: 60), device: charging, bringingIn: false, home: home)
@@ -258,7 +411,7 @@ extension PassTests {
     }
 
 
-    func testOnALowDiskOrAMeteredNetworkTheWantedFilesWaitAndTheReportSaysWhy() async throws {
+    func testOnALowDiskOrWhileThePastMayNotMoveTheWantedFilesWaitAndTheReportSaysWhy() async throws {
         let synthetic = SyntheticLibrary()
         synthetic.put(Self.photo("P0/L0/001", at: 0))
         let store = MemoryStore()
@@ -278,7 +431,7 @@ extension PassTests {
         XCTAssertEqual(full?.waits, .space)
         XCTAssertEqual(full?.files, 1, "the photo taken now ships with its file")
         XCTAssertEqual(full?.done, false)
-        let away = await run(Device(metered: true, charging: false, spare: Self.wifi.spare))
+        let away = await run(Device(pastMoves: false, iCloud: false, charging: false, spare: Self.wifi.spare))
         XCTAssertEqual(away?.waits, .network)
         XCTAssertEqual(asked.asks, fetchedFirst, "neither asks the home for its wanted files")
 
@@ -295,17 +448,16 @@ extension PassTests {
         synthetic.put(Self.photo("CLOUD/L0/001"), files: [.inCloud(Data("in iCloud".utf8))])
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: MemoryStore())
         let asked = Asks()
-        let run = { (internetMetered: Bool, wanted: [String]) in
+        let run = { (iCloud: Bool, wanted: [String]) in
             await pass.run(.init(seconds: 60),
-                           device: Device(homeMetered: false, internetMetered: internetMetered, charging: true,
-                                          spare: 95_000_000_000, changeRoom: nil),
+                           device: Device(pastMoves: true, iCloud: iCloud, charging: true, spare: 95_000_000_000, changeRoom: nil),
                            bringingIn: false, home: Self.home(asked: asked, wanting: Self.wanting(wanted)))
         }
-        _ = await run(false, [])
-        let hotspot = await run(true, ["DISK/L0/001", "CLOUD/L0/001"])
+        _ = await run(true, [])
+        let hotspot = await run(false, ["DISK/L0/001", "CLOUD/L0/001"])
         XCTAssertEqual(hotspot?.files, 1, "the file on disk crosses no network to a home on loopback")
-        XCTAssertEqual(synthetic.downloads, 0, "nothing comes from iCloud on a metered internet")
-        let free = await run(false, ["CLOUD/L0/001"])
+        XCTAssertEqual(synthetic.downloads, 0, "nothing comes from iCloud while iCloud may not move")
+        let free = await run(true, ["CLOUD/L0/001"])
         XCTAssertEqual(free?.files, 1, "a free internet brings iCloud's file")
         XCTAssertEqual(synthetic.downloads, 1)
         XCTAssertNil(free?.waits)
@@ -412,10 +564,10 @@ extension PassTests {
         XCTAssertEqual(report?.waits, .space, "50 does not fit the 40 the changed file left")
         XCTAssertEqual(store.entries.count, stated + 2, "the new photo's snapshot and availability, no file of the wanted one")
 
-        var metered = Device(metered: true, charging: false, spare: tight.spare)
-        metered.changeRoom = 10
+        var mobile = Device(pastMoves: false, iCloud: false, charging: false, spare: tight.spare)
+        mobile.changeRoom = 10
         synthetic.put(Self.photo("LATER/L0/001", at: 1), files: [.here(Data(repeating: 0x4c, count: 60))])
-        let away = await run(metered)
+        let away = await run(mobile)
         XCTAssertEqual([away?.snapshots, away?.files], [1, 0], "stated without its file")
         XCTAssertEqual(away?.waits, .space, "the changed stage's wait on space stays")
     }
@@ -479,7 +631,7 @@ extension PassTests {
         for (index, id) in ids.enumerated() { synthetic.put(Self.photo(id, at: -Double(index))) }
         let store = MemoryStore()
         let pass = PhotoPass(library: PhotoLibrary(synthetic), store: store)
-        var mac = Device(metered: false, charging: true, spare: 95_000_000_000, changeRoom: nil)
+        var mac = Device(pastMoves: true, iCloud: true, charging: true, spare: 95_000_000_000, changeRoom: nil)
         mac.page = 2
         let asked = Asks()
         let run = { await pass.run(.init(seconds: 60), device: mac, bringingIn: false, home: Self.home(asked: asked, wanting: Self.wanting([]))) }
@@ -548,9 +700,15 @@ final class UnindexedStore: PhotoPassStore, @unchecked Sendable {
 
 final class Asks: @unchecked Sendable {
     private let lock = NSLock()
-    private var made = 0
-    var asks: Int { lock.withLock { made } }
-    func count() { lock.withLock { made += 1 } }
+    private var made: [[String]] = []
+    private var notNamed: Set<String> = []
+    var asks: Int { lock.withLock { made.count } }
+    var owed: [[String]] { lock.withLock { made.filter { !$0.isEmpty } } }
+    var unnamed: Set<String> {
+        get { lock.withLock { notNamed } }
+        set { lock.withLock { notNamed = newValue } }
+    }
+    func count(_ owed: [String] = []) { lock.withLock { made.append(owed) } }
 }
 
 final class MemoryStore: PhotoPassStore, @unchecked Sendable {

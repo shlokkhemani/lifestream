@@ -69,6 +69,15 @@ public final class SyntheticLibrary: PhotoSource, @unchecked Sendable {
         }
     }
 
+    public func finishWriting(_ id: String, files: [File]) {
+        lock.withLock {
+            guard var photo = photos[id] else { return }
+            precondition(files.count == photo.files.count, "one file per resource")
+            photo.files = files
+            photos[id] = photo
+        }
+    }
+
     public func delete(_ id: String) {
         lock.withLock {
             let seen = visible(id)

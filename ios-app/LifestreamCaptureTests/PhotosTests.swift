@@ -161,20 +161,37 @@ final class PhotosTests: XCTestCase {
 
     func testAnEditShipsAsANewSnapshotAndAnUntouchedPhotoNeverAgain() async throws {
         let photos = try await photos()
-        photos.synthetic.put(Self.photo("P0/L0/001", minutes: 0))
         _ = try await photos.wake(.foreground)
         photos.synthetic.put(Self.photo("P0/L0/001", minutes: 0))
         var report = try await photos.wake()
+        XCTAssertEqual(report?.files, 1, "taken now, its file ships with it")
+        photos.synthetic.put(Self.photo("P0/L0/001", minutes: 0))
+        report = try await photos.wake()
         XCTAssertEqual(report?.snapshots, 0)
         XCTAssertEqual(report?.files, 0, "a snapshot it holds is never fetched again")
 
-        photos.synthetic.put(Self.photo("P0/L0/001", minutes: 0, edited: 30))
+        var favourite = Self.photo("P0/L0/001", minutes: 0, edited: 10)
+        favourite.isFavorite = true
+        photos.synthetic.put(favourite)
         report = try await photos.wake()
         XCTAssertEqual(report?.snapshots, 1)
-        XCTAssertEqual(report?.files, 1, "the edit's file ships with it")
+        XCTAssertEqual(report?.files, 0, "a favourite changes no file")
+
+        var edit = Self.photo("P0/L0/001", minutes: 0, edited: 30)
+        edit.isFavorite = true
+        edit.resources += [PhotoResource(typeRaw: 5, uti: "public.heic", originalFilename: "FullSizeRender.HEIC"),
+                           PhotoResource(typeRaw: 7, uti: "com.apple.photo.adjustment-data", originalFilename: "Adjustments.plist")]
+        photos.synthetic.put(edit)
+        report = try await photos.wake()
+        XCTAssertEqual(report?.snapshots, 1)
+        XCTAssertEqual(report?.files, 1, "the edit's render ships with it")
         let assets = try await photos.entries(kind: "asset")
-        XCTAssertEqual(assets.map { modification($0) }, ["2026-05-28T20:26:40.000000000Z", "2026-05-28T20:56:40.000000000Z"])
-        assertEqual(try await photos.entries(kind: "resource_availability").count, 1, "the edit's file, beside its snapshot")
+        XCTAssertEqual(assets.map { modification($0) },
+                       ["2026-05-28T20:26:40.000000000Z", "2026-05-28T20:36:40.000000000Z", "2026-05-28T20:56:40.000000000Z"])
+        let more = try await photos.entries(kind: "resource_availability")
+        XCTAssertEqual(more.count, 2, "the photo's file, then the edit's, beside its snapshot")
+        XCTAssertEqual(more.last.map { resources($0).map { $0["blob"] == .null } }, [true, false, false],
+                       "the original held already is not fetched again")
     }
 
     func testACloudIdLearntLaterShipsOnceWithoutItsFilesAgain() async throws {
@@ -212,6 +229,9 @@ final class PhotosTests: XCTestCase {
 
         photos.rig.home.wanted = PhotoRig.wanting(["LIVE/L0/001"], files: ["photo", "pairedVideo"], left: (1, 0))
         _ = try await photos.wake()
+        assertEqual(await photos.pass.state().owed, [], "retried once as owed, its video only in iCloud: it leaves owed for the past's rule")
+        _ = try await photos.wake()
+        assertEqual(await photos.pass.state().later, ["LIVE/L0/001"], "the past's rule asks it once and finds it waiting for a download")
         let read = photos.synthetic.snapshotsRead
         let asked = photos.rig.home.wantedAsked
         _ = try await photos.wake()
