@@ -89,7 +89,7 @@ export default defineConfig({
     pool: forksNamingDeath,
     maxWorkers: Number(process.env.LIFESTREAM_TEST_WORKERS) || Math.max(1, Math.floor(availableParallelism() / 4)),
     exclude: [...configDefaults.exclude, ...FULL],
-    passWithNoTests: true,
+    passWithNoTests: !NAMED.some((arg) => /\.test\.m?ts$/u.test(arg)),
     provide: { googleChrome: googleChrome(), chromeForTesting: chromeForTesting() },
     globalSetup: [RUN, fileURLToPath(new URL("./packages/home/test/bundle.ts", import.meta.url))],
     setupFiles: [SORTS],

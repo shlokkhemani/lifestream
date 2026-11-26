@@ -35,7 +35,8 @@ fi
 if [ -n "$feed" ]; then
   key="${SPARKLE_PUBLIC_ED_KEY:-}"
   if [ -z "$key" ]; then
-    key="$("$(bash sparkle-tools.sh)/generate_keys" --account lifestream -p 2>/dev/null || true)"
+    tools="$(bash sparkle-tools.sh)"
+    key="$("$tools/generate_keys" --account lifestream -p 2>/dev/null || true)"
   fi
   if ! python3 -c 'import base64, sys; sys.exit(len(base64.b64decode(sys.argv[1], validate=True)) != 32)' "$key" 2>/dev/null; then
     echo "build-app.sh --feed needs the update key: none in SPARKLE_PUBLIC_ED_KEY, and generate_keys --account lifestream -p found none in the login Keychain" >&2

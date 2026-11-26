@@ -12,6 +12,9 @@ case ${1:-} in
     exit 64
     ;;
 esac
+case "${IOS_UNIT_TESTS:-}${IOS_UI_TESTS:-}" in
+  *" "*) echo "check.sh: IOS_UNIT_TESTS and IOS_UI_TESTS name classes by commas, with no space" >&2; exit 2 ;;
+esac
 case ",${IOS_UI_TESTS:-}," in
   *,SpeedUITests,* | *,SpeedUITests/*)
     echo "IOS_UI_TESTS names SpeedUITests: the check never runs them; ./speed.py does, by hand (SPEED.md)" >&2

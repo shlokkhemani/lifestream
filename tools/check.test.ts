@@ -4,7 +4,7 @@ import { basename, dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FULL } from "../vitest.config.mjs";
-import { BY_HAND, commandsOf, given, holding, hungIn, keys, label, lines, mainReds, overran, plan, readUiClasses, reds, swiftDurations, swiftJobs, uncached, unended, units, unreported, waitsFor } from "./check.js";
+import { BY_HAND, commandsOf, given, holding, hungIn, keys, label, lines, mainReds, overran, plan, readUiClasses, reds, redSince, swiftDurations, swiftJobs, uncached, unended, units, unreported, waitsFor } from "./check.js";
 
 function planned(paths: readonly string[], options: Parameters<typeof plan>[1] = {}, by = false): string[] {
   const printed = lines(plan(paths, options));
@@ -112,6 +112,11 @@ describe("pages", () => {
 
   it("runs static alone for a Mac module's README.md: the Mac's test only finds it", () => {
     expect(planned(["macos-app/Sources/Spool/README.md"])).toEqual(["static"]);
+  });
+
+  it("runs static alone for a script that only ships or installs the iPhone's build", () => {
+    for (const name of ["testflight.py", "upload-testflight.sh", "install-phone.sh"]) expect(planned([`ios-app/${name}`])).toEqual(["static"]);
+    expect(planned(["ios-app/check.sh"])).toEqual(["static", "ios app-hosted"]);
   });
 
   it("runs the home for a connector's page, which its conformance test holds each declaration to", () => {
@@ -441,6 +446,16 @@ describe("the case a killed test process hung in", () => {
     expect(unended(cut)).toEqual(["LifestreamCaptureTests/LifeReaderTests/testHung"]);
   });
 
+  it("closes a case whose own name an app's log line cut in two", () => {
+    const cut = [
+      "Test Case '-[LifestreamCaptureTests.PersistenceFailureTests testStartingAgain]' started.",
+      "Test Case '-[LifestreamCaptureTests.PersistenceFailureTests testStar2026-11-24 12:54:40.154003+0530 Lifestream[14628:27284186] [logging] a line of the app's",
+      "tingAgain]' passed (0.012 seconds).",
+      "Test Case '-[LifestreamCaptureTests.PersistenceFailureTests testHung]' started.",
+    ].join("\n");
+    expect(unended(cut)).toEqual(["LifestreamCaptureTests/PersistenceFailureTests/testHung"]);
+  });
+
   it("says so when the output names no open case", () => {
     expect(hungIn("homelink", ps, log.split("\n").slice(0, 4).join("\n"))).toBe("HomeLinkTests.xctest (process 4242), whose output names no case started and never ended");
   });
@@ -467,6 +482,14 @@ describe("main's own reds", () => {
   it("names each red of the run once", () => {
     const log = ["plan: vitest", "  red: packages/home/now.e2e.test.ts", "  red: packages/home/now.e2e.test.ts", "main-run: FAIL b5cc"];
     expect(mainReds(log)).toEqual(["  red: packages/home/now.e2e.test.ts"]);
+  });
+
+  it("stand since the oldest run of the unbroken row that names them", () => {
+    const run = (commit: string, ...names: string[]): { commit: string; log: string[] } => ({ commit, log: names.map((name) => `  red: ${name}`) });
+    const since = redSince([run("d", "old", "new"), run("c", "old"), run("b", "old"), run("a"), run("z", "new")]);
+    expect([...since]).toEqual([["  red: old", "b"], ["  red: new", "d"]]);
+    expect([...redSince([run("a", "kept")])]).toEqual([["  red: kept", "a"]]);
+    expect([...redSince([])]).toEqual([]);
   });
 });
 
