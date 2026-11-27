@@ -92,6 +92,7 @@ const PROVIDER_CITING = /[ \t]*\uE200[^\uE201]*$/u;
 const SPACES = /[ \t]+$/u;
 const SENTENCE_END = /[.!?…]\s+/u;
 const QUIET_MS = 900;
+const PARAGRAPH_END = /\n[ \t]*\n\s*$/u;
 const THINKING = 'medium';
 const MOST_LIVE = 12;
 const LIVE_MS = 60 * 60_000;
@@ -2393,6 +2394,7 @@ export function voiced(turn, restore, handles, log, quietMs = QUIET_MS) {
         clearTimeout(quiet);
         const narration = answering ? '' : pending;
         pending = '';
+        if (answering && written.trim() !== '' && !PARAGRAPH_END.test(written)) await say('\n\n');
         answering = false;
         round += 1;
         const [words = event.words, said = ''] = await back([event.words, ...(narration === '' ? [] : [narration])]);

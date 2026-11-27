@@ -21,9 +21,9 @@ final class LaunchWindowTests: XCTestCase {
     }
 
     func testAnOpenShowsTheFirstRunThenAStandingNeedThenTheDashboard() {
-        func shown(_ opening: LaunchWindow.Opening, _ world: SetupWorld, needs: Bool,
+        func shown(_ opening: LaunchWindow.Opening, _ world: SetupWorld, open: Bool = false, needs: Bool,
                    onboarding: Bool = false, resume: String? = nil) -> LaunchWindow? {
-            LaunchWindow.shown(opening, world: world, needs: needs, onboarding: onboarding, resume: resume)
+            LaunchWindow.shown(opening, world: world, open: open, needs: needs, onboarding: onboarding, resume: resume)
         }
         XCTAssertNil(shown(.atLogin, done, needs: false), "a login opens no window")
         XCTAssertNil(shown(.atLogin, done, needs: true), "a login opens a window for a need")
@@ -41,6 +41,10 @@ final class LaunchWindowTests: XCTestCase {
         XCTAssertEqual(shown(.byPerson, done, needs: true, resume: "view=onboarding&seg=found"), .page("view=onboarding&seg=found"))
         XCTAssertEqual(shown(.byPerson, done, needs: false, onboarding: true, resume: "view=connectors"), .page("view=connectors"))
         XCTAssertEqual(shown(.byPerson, done, needs: false), .dashboard)
+        XCTAssertEqual(shown(.byPerson, done, open: true, needs: true), .front, "a reopen moved an open window to Connectors for a need")
+        XCTAssertEqual(shown(.byPerson, done, open: true, needs: false, resume: "view=connectors"), .front, "a reopen moved an open window")
+        XCTAssertEqual(shown(.byPerson, due, open: true, needs: false), .setup, "an open window hid a due first run")
+        XCTAssertNil(shown(.atLogin, done, open: true, needs: true))
     }
 
     func testAMissingGrantIsCountedInOneMenuLineAndIsARowNeverAnOpen() {
@@ -136,7 +140,7 @@ final class LaunchWindowTests: XCTestCase {
 
         for world in [done, due] {
             for needs in [false, true] {
-                XCTAssertNotNil(LaunchWindow.shown(.byPerson, world: world, needs: needs, onboarding: false, resume: nil),
+                XCTAssertNotNil(LaunchWindow.shown(.byPerson, world: world, open: false, needs: needs, onboarding: false, resume: nil),
                                 "a person's open or a click on the Dock icon showed no window")
             }
         }

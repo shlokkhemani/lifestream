@@ -1566,7 +1566,7 @@ button.ck-week__day { cursor: pointer; }
 .ck-answer__words pre { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--well); white-space: pre-wrap; }
 .ck-answer__words hr { border: 0; border-top: var(--stroke-border) solid var(--hairline); }
 .ck-answer__words table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.ck-answer__words :is(th, td) { padding: var(--space-1) var(--space-4) var(--space-1) 0; border-bottom: var(--stroke-border) solid var(--hairline); text-align: left; vertical-align: top; }
+.ck-answer__words :is(th, td) { padding: var(--space-1) var(--space-4) var(--space-1) 0; border-bottom: var(--stroke-border) solid var(--hairline); text-align: left; vertical-align: top; overflow-wrap: break-word; }
 .ck-answer__words th { color: var(--text-secondary); font-weight: 500; }
 .ck-answer__words a:not([class]) { text-decoration: underline; text-decoration-color: var(--data-3); text-decoration-thickness: var(--stroke-border); text-underline-offset: 3px; }
 .ck-answer__words a:not([class]):hover { text-decoration-color: currentColor; }

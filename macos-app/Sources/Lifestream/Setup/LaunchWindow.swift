@@ -1,7 +1,7 @@
 import AppKit
 
 enum LaunchWindow: Equatable {
-    case setup, connectors, dashboard
+    case setup, connectors, dashboard, front
     case page(String)
 
     enum Opening: Equatable, CustomStringConvertible {
@@ -29,9 +29,10 @@ enum LaunchWindow: Equatable {
         }
     }
 
-    static func shown(_ opening: Opening, world: SetupWorld, needs: Bool, onboarding: Bool, resume: String?) -> LaunchWindow? {
+    static func shown(_ opening: Opening, world: SetupWorld, open: Bool, needs: Bool, onboarding: Bool, resume: String?) -> LaunchWindow? {
         if world.opensAt != nil { return .setup }
         guard opening == .byPerson else { return nil }
+        if open { return .front }
         if let resume { return .page(resume) }
         return needs && !onboarding ? .connectors : .dashboard
     }

@@ -42,6 +42,13 @@ enum Need: Equatable, Identifiable {
         }
     }
 
+    var steers: Bool {
+        switch self {
+        case .password(let need, _), .connect(let need, _), .notice(let need): return need.weight != .advice
+        default: return true
+        }
+    }
+
     var page: String? {
         switch self {
         case .connect: return "dialog=settings/chrome&flow=browser"

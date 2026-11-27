@@ -158,9 +158,10 @@ enum HomeReport {
     }
 
     static func need(_ id: String, _ words: String, since: Int64? = 1_760_252_400_000, connector: String? = nil,
-                     reason: String? = nil, acts: [[String: Any]] = [], kind: String = "notice", about: String? = nil) -> HomeLink.Need {
+                     reason: String? = nil, acts: [[String: Any]] = [], kind: String = "notice", about: String? = nil,
+                     weight: String = "stopped") -> HomeLink.Need {
         let like = (fixture["needs"] as! [[String: Any]])[0]
-        let need = like.merging(["id": id, "words": words, "since_ms": since as Any? ?? NSNull(), "connector": connector as Any? ?? NSNull(),
+        let need = like.merging(["id": id, "weight": weight, "words": words, "since_ms": since as Any? ?? NSNull(), "connector": connector as Any? ?? NSNull(),
                                  "copy": NSNull(), "reason": reason as Any? ?? NSNull(), "acts": acts,
                                  "kind": kind, "about": about as Any? ?? NSNull()]) { $1 }
         return try! JSONDecoder().decode(HomeLink.Need.self, from: JSONSerialization.data(withJSONObject: need))
