@@ -1,6 +1,6 @@
 import {
-  daysOf, digest, GONE, handleId, handleOf,
-  type CallsAdapter, type DaySettings, type ExtractRow, type Json, type MessagesAdapter, type RecordRef, type View,
+  daysOf, digest, GONE, handleId, handleOf, phoneOfJid,
+  type CallsAdapter, type DaySettings, type ExtractRow, type Json, type MessagesAdapter, type RecordRef, type Version, type View,
 } from "@lifestreamprotocol/core";
 import { factId, OPS, type Change, type Collection, type DayFact, type DayInput, type DayLine, type DayProjection, type Extracted, type Family, type FamilyInput, type Given, type Labels, type Touched } from "../family.js";
 import { chatTitle, joined, nameId, nameParty, printed, type Named, type Party, type Printed, type Printable } from "../shared/cast.js";
@@ -39,10 +39,14 @@ function callsOver(settings: CallsSettings, given: readonly Given<CallsAdapter>[
     ...given.map((each): FamilyInput => ({ sources: { product: [each.product] }, kinds: [...each.adapter.kinds], role: "evidence" })),
     ...labelInputs(settings),
   ];
-  const fedOf = (view: View, source: string) => {
-    const row = view.source(source);
+  const readCall = (record: RecordRef, version: Version, view: View) => {
+    const row = view.source(record.source);
     const fed = row === undefined ? undefined : byProduct.get(row.product);
-    return row === undefined || fed === undefined ? undefined : { row, fed };
+    const call = row === undefined || fed === undefined ? null : callOf(record.source, fed.adapter.call({ source: row, version }));
+    if (call === null) return null;
+    const ids = call.parties.map((party) => party.id);
+    const shown = call.parties.find((party) => party.provider !== undefined && party.provider !== null)?.provider;
+    return { call, services: fed!.adapter.services, ids, title: shown ?? (ids.length > 0 ? ids.join(", ") : call.group) };
   };
   return {
     name: CALLS_FAMILY,
@@ -93,25 +97,18 @@ function callsOver(settings: CallsSettings, given: readonly Given<CallsAdapter>[
       version: "1",
       kinds: [...new Set(given.flatMap((each) => each.adapter.kinds))],
       of(record, version, _files, view) {
-        const found = fedOf(view, record.source);
-        const call = found === undefined ? null : callOf(record.source, found.fed.adapter.call({ source: found.row, version }));
-        if (call === null) return null;
-        const ids = call.parties.map((party) => party.id);
-        const shown = call.parties.find((party) => party.provider !== undefined && party.provider !== null)?.provider;
-        return recordText({ title: shown ?? (ids.length > 0 ? ids.join(", ") : call.group), who: ids });
+        const got = readCall(record, version, view);
+        return got === null ? null : recordText({ title: got.title, who: got.ids });
       },
     },
 
     read: {
       of(record, version, _files, view) {
-        const found = fedOf(view, record.source);
-        const call = found === undefined ? null : callOf(record.source, found.fed.adapter.call({ source: found.row, version }));
-        if (call === null) return null;
-        const ids = call.parties.map((party) => party.id);
-        const shown = call.parties.find((party) => party.provider !== undefined && party.provider !== null)?.provider;
-        const title = shown ?? (ids.length > 0 ? ids.join(", ") : call.group);
-        if (call.direction === "outgoing") return recordRead({ title, from: null, to: ids });
-        return ids.length === 1 ? recordRead({ title, from: ids[0]! }) : recordRead({ title, who: ids });
+        const got = readCall(record, version, view);
+        if (got === null) return null;
+        const text = callLine(got.call, got.services, got.call.parties.map((party) => phoneOfJid(party.id) ?? party.id), got.call.group).text;
+        if (got.call.direction === "outgoing") return recordRead({ title: got.title, text, from: null, to: got.ids });
+        return got.ids.length === 1 ? recordRead({ title: got.title, text, from: got.ids[0]! }) : recordRead({ title: got.title, text, who: got.ids });
       },
     },
   };
@@ -220,8 +217,13 @@ function callOf(source: string, said: ReturnType<CallsAdapter["call"]>): Call | 
 
 function callWords(call: Call, services: Readonly<Record<string, string>>, labels: Labels): Printed {
   const names = call.parties.map((party) => partyName(party, labels));
-  const where: Printable = call.group === undefined ? "" : printed` in ${chatTitle({ id: call.group, group: true, name: labels.provider?.(call.group)?.name ?? null }, names)}`;
-  const who: Printable | null = names.length > 0 ? joined(names, ", ") : call.group === undefined ? "an unknown number" : null;
+  const group = call.group === undefined ? undefined : chatTitle({ id: call.group, group: true, name: labels.provider?.(call.group)?.name ?? null }, names);
+  return callLine(call, services, names, group);
+}
+
+function callLine(call: Call, services: Readonly<Record<string, string>>, parties: readonly Printable[], group?: Printable): Printed {
+  const where: Printable = group === undefined ? "" : printed` in ${group}`;
+  const who: Printable | null = parties.length > 0 ? joined(parties, ", ") : group === undefined ? "an unknown number" : null;
   const party = (preposition: string) => printed`${who === null ? "" : printed` ${preposition} ${who}`}${where}`;
   const service = services[call.service] ?? "Call";
   const outgoing = call.direction === "outgoing";

@@ -446,4 +446,40 @@ describe("calls family: what must be impossible for WhatsApp calls", () => {
     expect(home.extracts("calls")).toEqual(before);
     home.artifact("whatsapp-ticks.json", { changedPaths: ticked.landed.changedPaths, touched: ticked.touched, written: ticked.written });
   });
+
+  it("read of a call record keeps the raw handle and call details in text even when a caller-ID name titles it", () => {
+    const home = newHome(true);
+    const caller = { id: "CALL-READ-1", at: at("2026-09-20T19:00:00Z"), seconds: 280, answered: true, handle: "+15550000099", name: "Synthetic Caller" };
+    home.deliver(MAC, SNAPSHOT_1, [...CALLS, caller].map((input) => call(input)));
+    home.deliver(WA_MAC, SNAPSHOT_1, [whatsappCall(WHATSAPP_CALLS[0]!)]);
+    const opened = (source: string, key: string) => home.read((view) => {
+      const head = view.head({ source, kind: "call", key })!;
+      return calls.read!.of({ source, kind: "call", key }, view.version(head.version), undefined as never, view);
+    });
+    expect(opened(MAC, "CALL-READ-1")).toEqual({
+      title: "Synthetic Caller",
+      from: "+15550000099",
+      text: "Phone call with +15550000099, they called, 5 min",
+    });
+    expect(opened(MAC, "CALL-0004")).toEqual({
+      title: "Synthetic Clinic",
+      from: null,
+      to: ["+15550000009"],
+      text: "Phone call to +15550000009, no answer",
+    });
+    expect(opened(MAC, "CALL-0003")).toEqual({
+      title: "person-a@example.com",
+      from: "person-a@example.com",
+      text: "FaceTime video call with person-a@example.com, they called, 42 s",
+    });
+    expect(opened(MAC, "CALL-0005")).toEqual({
+      text: "Missed phone call from an unknown number",
+    });
+    expect(opened(WA_MAC, WHATSAPP_CALLS[0]!.id)).toEqual({
+      title: "15550000001@s.whatsapp.net",
+      from: null,
+      to: ["15550000001@s.whatsapp.net", "+15550000001"],
+      text: "WhatsApp voice call with +15550000001, the user called, 3 min",
+    });
+  });
 });

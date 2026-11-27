@@ -41,7 +41,7 @@ const reads = new Map<string, number>();
 
 export const fakeRows: Reader = {
   name: "fake-rows",
-  kinds: { note, frame, contact, pushname: object, place: object, msg: object, img: object, fix: object },
+  kinds: { note, frame, contact, pushname: object, place: object, msg: object, img: object, fix: object, call: object },
   async *read(delivery, files): AsyncIterable<ReaderOutput> {
     try {
       yield* fakeRowsOf(delivery, files);

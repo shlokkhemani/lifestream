@@ -5,7 +5,7 @@ import { labelsFrom } from "../shared/labels.js";
 import { cardParts, calledId, readCard, suggestionId, type Card, type RecordState } from "../shared/people.js";
 import { networksOf } from "./networks.js";
 import {
-  NO_GROUP_SETTINGS, peopleOf, rejoin, whoNow, type FacesSaid, type JoinedPerson, type MailDayPart, type PeopleAnswer, type PeopleChanged, type PeopleInput, type PeopleNow,
+  callPeoplePart, findPeople, NO_GROUP_SETTINGS, peopleOf, rejoin, whoNow, type CallPeoplePart, type FacesSaid, type JoinedPerson, type MailDayPart, type PeopleAnswer, type PeopleChanged, type PeopleInput, type PeopleNow,
   type PeopleRun, type StatedDetails, type StatedPhoto,
 } from "./people.js";
 
@@ -187,5 +187,28 @@ describe("the People join: who a person is, decided once", () => {
     const stood = run.alias("phone:+15550000861");
     expect([held.stands("person:person-kp"), held.stands("phone:+15550000861"), held.stands("email:person-kp@example.com"), stood?.startsWith("person:")])
       .toEqual([stood, stood, stood, false]);
+  });
+
+  it("a call-only caller is searchable by caller-ID name and phone without entering the People list, and merges when a card holds the number", () => {
+    const calls = [
+      callPeoplePart({ start_ms: T, parties: [{ id: "+15550000991", kind: "phone", provider: "Synthetic Caller" }] }),
+      callPeoplePart({ start_ms: T + 1_000, parties: [{ id: "+15550000992", kind: "phone", provider: "+15550000992" }] }),
+      callPeoplePart({ start_ms: T + 2_000, parties: [{ id: "15550000993@s.whatsapp.net", kind: "jid" }] }),
+      callPeoplePart({ start_ms: T + 3_000, parties: [{ id: "+15550000801", kind: "phone", provider: "Ka Caller Id" }] }),
+      callPeoplePart({ start_ms: T + 4_000, parties: [] }),
+    ].filter((part): part is CallPeoplePart => part !== null);
+    expect(calls).toHaveLength(4);
+    const answer = peopleOf({ ...inputOf(start), calls });
+    const byId = new Map(answer.persons.map((person) => [person.id, person]));
+    const caller = byId.get("phone:+15550000991")!;
+    expect(caller.handles.map((handle) => handle.id)).toEqual(["phone:+15550000991"]);
+    expect(caller.names_seen).toEqual(["Synthetic Caller"]);
+    expect(answer.list.people.some((entry) => entry.id === caller.id)).toBe(false);
+    expect(findPeople(answer.searched, "Synthetic Caller")).toEqual([caller.id]);
+    expect(findPeople(answer.searched, "5550000991")).toEqual([caller.id]);
+    expect(byId.get("phone:+15550000992")!.names_seen).toEqual([]);
+    expect(byId.get("phone:+15550000993")!.handles.map((handle) => handle.id)).toEqual(["phone:+15550000993"]);
+    expect(byId.get("person:person-ka")!.names_seen).toContain("Ka Caller Id");
+    expect(byId.get("person:person-ka")!.last_30).toBe(peopleOf(inputOf(start)).persons.find((person) => person.id === "person:person-ka")!.last_30);
   });
 });

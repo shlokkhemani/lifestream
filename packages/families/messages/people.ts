@@ -1,4 +1,5 @@
-import { addDays, civilDay, foldName, handleId, handleOf, isObject, parseFaceKey, type DaySettings, type Entity, type ExtractRow, type Handle, type Json, type MessageParty, type PartyKind, type PersonRecord } from "@lifestreamprotocol/core";
+import { addDays, civilDay, foldName, handleId, handleOf, isObject, isPhoneShaped, parseFaceKey, type DaySettings, type Entity, type ExtractRow, type Handle, type Json, type MessageParty, type PartyKind, type PersonRecord } from "@lifestreamprotocol/core";
+import type { Call } from "../calls/family.js";
 import type { Family, Labels, PersonLabel, ProviderLabel } from "../family.js";
 import type { MailDayContent } from "../mail/family.js";
 import { handleOfId, resolvedChat } from "../shared/labels.js";
@@ -10,7 +11,7 @@ import { shownChatDay, type ChatDay } from "./family.js";
 import { chatMembers, isGroupChat, partyHandle, providerUnit, resolveChat, type Networks } from "./networks.js";
 import { spans, quiet, why, type GroupRule, type Span, type Why } from "./groups.js";
 
-export const PEOPLE_CODE = "8";
+export const PEOPLE_CODE = "9";
 
 export const WISHES: readonly string[] = ["happy birthday", "happy bday", "happy b'day", "hbd", "many happy returns", "happiest birthday", "janamdin mubarak", "janmdin mubarak"];
 const WISH_WORDS = WISHES.map((phrase) => phrase.split(" "));
@@ -54,6 +55,11 @@ export interface MailAddressPart {
   readonly last_ms: number;
 }
 
+export interface CallPeoplePart {
+  readonly at_ms: number;
+  readonly parties: readonly { readonly handle: Handle; readonly name: string | null }[];
+}
+
 export interface NamedFace {
   readonly face: string;
   readonly at_ms: number | null;
@@ -71,6 +77,7 @@ export interface PeopleInput {
   readonly networks: Networks;
   readonly chats: Iterable<ChatDayPart>;
   readonly mail: Iterable<MailDayPart>;
+  readonly calls?: Iterable<CallPeoplePart>;
   readonly labels: Labels;
   readonly cards: readonly Card[];
   readonly records: readonly RecordState[];
@@ -389,6 +396,21 @@ export function mailDayPart(content: Json, owner: string, day: DaySettings): Mai
   return { addresses: [...addresses.values()].map(({ names, ...address }) => ({ ...address, names: { from: [...names.from].sort(compare), to: [...names.to].sort(compare) } })) };
 }
 
+export function callPeoplePart(content: Json): CallPeoplePart | null {
+  if (!isObject(content) || typeof content.start_ms !== "number" || !Array.isArray(content.parties)) return null;
+  const call = content as unknown as Call;
+  const parties: { handle: Handle; name: string | null }[] = [];
+  for (const party of call.parties) {
+    if (NOT_PEOPLE.has(party.kind)) continue;
+    const handle = handleOf(party.id, party.network);
+    if (handle === null) continue;
+    const raw = party.provider?.trim();
+    const name = raw !== undefined && raw.length > 0 && !isPhoneShaped(raw) ? raw : null;
+    parties.push({ handle, name });
+  }
+  return parties.length === 0 ? null : { at_ms: call.start_ms, parties };
+}
+
 interface HandleSeen {
   networks: Set<string>;
   chats: Map<string, number>;
@@ -404,6 +426,7 @@ interface HandleSeen {
   machine: number;
   names_from: Set<string>;
   names_to: Set<string>;
+  call_names: Set<string>;
   service: Service | null;
   days: Map<string, number>;
   wished: Set<string>;
@@ -411,7 +434,7 @@ interface HandleSeen {
   last_ms: number;
 }
 
-interface Folded extends Omit<HandleSeen, "replies" | "quick" | "theirs" | "groups" | "mine" | "mail_from" | "mail_to" | "machine" | "names_from" | "names_to" | "service" | "wished"> {
+interface Folded extends Omit<HandleSeen, "replies" | "quick" | "theirs" | "groups" | "mine" | "mail_from" | "mail_to" | "machine" | "names_from" | "names_to" | "call_names" | "service" | "wished"> {
   seen: Seen;
 }
 
@@ -429,7 +452,7 @@ export function peopleOf(input: PeopleInput): PeopleAnswer {
     if (found === undefined) {
       handles.set(id, found = { handle, seen: {
         networks: new Set(), chats: new Map(), received: 0, sent: 0, replies: 0, quick: 0, theirs: new Map(), groups: new Map(), mine: new Map(),
-        mail_from: new Map(), mail_to: new Map(), machine: 0, names_from: new Set(), names_to: new Set(), service: null, days: new Map(), wished: new Set(), first_ms: Infinity, last_ms: -Infinity,
+        mail_from: new Map(), mail_to: new Map(), machine: 0, names_from: new Set(), names_to: new Set(), call_names: new Set(), service: null, days: new Map(), wished: new Set(), first_ms: Infinity, last_ms: -Infinity,
       } });
     }
     return found.seen;
@@ -513,6 +536,13 @@ export function peopleOf(input: PeopleInput): PeopleAnswer {
       for (const name of address.names.from) seen.names_from.add(name);
       for (const name of address.names.to) seen.names_to.add(name);
       touch(seen, address.first_ms, address.last_ms);
+    }
+  }
+  for (const part of input.calls ?? []) {
+    for (const party of part.parties) {
+      const seen = at(party.handle);
+      if (party.name !== null) seen.call_names.add(party.name);
+      touch(seen, part.at_ms, part.at_ms);
     }
   }
   for (const { handle, seen } of handles.values()) {
@@ -901,6 +931,7 @@ function foldSeen(theirs: readonly HandleSeen[], photos: readonly ReadonlyMap<st
   };
   const out = { networks: new Set<string>(), chats: new Map<string, number>(), received: 0, sent: 0, days: new Map<string, number>(), first_ms: Infinity, last_ms: -Infinity };
   const names = new Set<string>();
+  const callNames = new Set<string>();
   const wished = new Set<string>();
   for (const seen of theirs) {
     for (const network of seen.networks) out.networks.add(network);
@@ -918,6 +949,7 @@ function foldSeen(theirs: readonly HandleSeen[], photos: readonly ReadonlyMap<st
     counts.replies += seen.replies;
     counts.quick += seen.quick;
     for (const civil of seen.wished) wished.add(civil);
+    for (const name of seen.call_names) callNames.add(name);
     if (seen.service !== null) continue;
     for (const name of [...seen.names_from, ...seen.names_to]) names.add(name);
   }
@@ -925,7 +957,14 @@ function foldSeen(theirs: readonly HandleSeen[], photos: readonly ReadonlyMap<st
   const service = services.length > 0 && services.every((each) => each !== null);
   const sender = services.length > 0 && services.every((each) => each === "no-reply" || each === "relay") ? (services.includes("relay") ? "relay" : "no-reply") : null;
   const senders = addresses.filter((_, index) => services[index] === "no-reply" || services[index] === "relay");
-  return { ...out, seen: { counts: counts satisfies Counts, mail_names: [...names].sort(compare), photo_labels: labels, service, sender, senders, wished: [...wished].sort(compare) } };
+  return {
+    ...out,
+    seen: {
+      counts: counts satisfies Counts, mail_names: [...names].sort(compare),
+      ...(callNames.size === 0 ? {} : { call_names: [...callNames].sort(compare) }),
+      photo_labels: labels, service, sender, senders, wished: [...wished].sort(compare),
+    },
+  };
 }
 
 interface Faces {

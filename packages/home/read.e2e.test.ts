@@ -24,6 +24,7 @@ const READER = "synthetic-token-read-route".padEnd(43, "r");
 const WHATSAPP = "whatsapp:local:iphone-aa01";
 const NOTES = "apple-notes:local:device-a";
 const BROWSER = "claude:org-0001:browser";
+const CALLS = "apple-calls:local:iphone-aa01";
 const ADA = "15550000142@s.whatsapp.net";
 const RAJ = "15550000143@s.whatsapp.net";
 const OLD = "15550000144@s.whatsapp.net";
@@ -169,7 +170,7 @@ describe("read: refs and chats", () => {
   };
 
   beforeAll(async () => {
-    root = makeRoot("lifestream-read-", { sources: { [WHATSAPP]: "fake-rows", [NOTES]: "fake-rows", [BROWSER]: "fake-rows" } });
+    root = makeRoot("lifestream-read-", { sources: { [WHATSAPP]: "fake-rows", [NOTES]: "fake-rows", [BROWSER]: "fake-rows", [CALLS]: "fake-rows" } });
     mintPrincipal(openHomeFolder(root), { unit: "read-route-aa01", scopes: ["read"], token: READER, now_ms: 0 });
     home = await startHome(root, { stopGraceMs: 50, registry: REGISTRY, log: () => undefined, tickMs: TICK_MS, lookMs: LOOK_MS });
     await send({ source: NOTES, fetched_ms: Date.now(), rows: [{ kind: "note", key: "n1", at: T, content: { text: "synthetic note, first words", at: T } }] });
@@ -528,6 +529,45 @@ describe("read: refs and chats", () => {
     await send({ source: WHATSAPP, fetched_ms: Date.now() + 20, rows: [{ kind: "msg", key: `${vox}:v1`, content: null, gone: true }] });
     await until("the index caught up with the erasure", () => caughtUp(root));
     expect(await described("voice-erased", [m1.voice.record])).toEqual([{ ref: v1, kind: "gone", why: expect.stringContaining("no longer held") }]);
+  });
+
+  it("a call-only caller with a caller-ID name is found in People with their phone number, and reading the call through a model turn still returns the phone number", async () => {
+    const phone = "+15550000199";
+    const handle = { ZTYPE: 2, ZNORMALIZEDVALUE: phone, ZVALUE: phone };
+    await send({
+      source: CALLS, fetched_ms: Date.now() + 25,
+      rows: [{
+        kind: "call", key: "call-only-1", at: T + 4 * HOUR,
+        content: {
+          type: "apple.call", initiator: handle, handles: [handle], emergency_media: [],
+          call: { ZUNIQUE_ID: "call-only-1", ZDATE: (T + 4 * HOUR) / 1000 - APPLE_EPOCH_S, ZDURATION: 300, ZORIGINATED: 0, ZANSWERED: 1, ZSERVICE_PROVIDER: "com.apple.Telephony", ZCALL_CATEGORY: 1, ZNAME: "Nikhil Caller" },
+        },
+      }],
+    });
+    await until("the index caught up with the call", () => caughtUp(root));
+    const asking = await fetch(`http://127.0.0.1:${door.port}/v1/ask`, {
+      method: "POST", signal: leaving.signal, headers: { authorization: `Bearer ${READER}`, "content-type": "application/json" },
+      body: JSON.stringify({ question: "Synthetic call?", chat: "1790000000000-call", level: "none" }),
+    });
+    expect(asking.status).toBe(200);
+    const turn = turnPasses.at(-1)!;
+    const asTurn = async (route: RoutePath, args: Record<string, string | readonly string[]>) => {
+      const response = await fetch(`http://127.0.0.1:${door.port}${route}`, {
+        method: "POST", headers: { authorization: `Bearer ${turn}`, "content-type": "application/json" }, body: JSON.stringify({ args, to: FAKE_ROUTE, shown: [] }),
+      });
+      const body = await response.json() as any;
+      answerOf(route, response.status, body);
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      return body;
+    };
+    const people = await asTurn("/v1/people/search", { name: "Nikhil" });
+    expect(people.matches).toHaveLength(1);
+    expect(people.matches[0]).toMatchObject({ handles: [phone], reach: { calls: [1, expect.any(String), expect.any(String)] } });
+    const found = await asTurn("/v1/search", { lists: ["record"], query: "Nikhil" });
+    const hit = found.record.hits.find((each: any) => each.family === "calls");
+    expect(hit, JSON.stringify(found)).toBeDefined();
+    const record = await asTurn("/v1/read", { ref: hit.ref });
+    expect(record).toMatchObject({ what: "record", family: "calls", from: "Nikhil Caller", text: `Phone call with ${phone}, they called, 5 min` });
   });
 
   it("answers each contract route NOT_NOW while the index's writer holds it, as the contract holds; what describe gave is drawn whole without the home", async () => {

@@ -5,8 +5,8 @@ import type Database from "better-sqlite3";
 import { digest, duration, foldName, GONE, handleId, isObject, isSqliteError, openMemo, type BlobReader, type DaySettings, type HomeFolder, type Json, type JsonObject, type Memo, type OpenView, type SourceSelector } from "@lifestreamprotocol/core";
 import type { NamedPerson, NameTable } from "@lifestreamprotocol/privacy";
 import {
-  AI_FAMILY, assistantsOf, CAMERA_UNIT, cardParts, chatDayPart, CONTACT_KIND, contactPhotoBytes, FACES_SOURCES, GROUP_UNIT, isName, LABELS_FAMILY, labelsFrom, MAIL_FAMILY, mailDayPart, MESSAGES_FAMILY, ownCountry,
-  handleOfId, ownHandles, PEOPLE_CODE, networksIn, NO_GROUP_SETTINGS, PEOPLE_SOURCES, peopleOf, PLACES_UNIT, ownProductsIn, productNames, readCard, readPeople, rejoin, sameIdOf, shownPart, shownUnit, spelledId, whoNow, type Card, type CardParts,
+  AI_FAMILY, assistantsOf, callPeoplePart, CALLS_FAMILY, CAMERA_UNIT, cardParts, chatDayPart, CONTACT_KIND, contactPhotoBytes, FACES_SOURCES, GROUP_UNIT, isName, LABELS_FAMILY, labelsFrom, MAIL_FAMILY, mailDayPart, MESSAGES_FAMILY, ownCountry,
+  handleOfId, ownHandles, PEOPLE_CODE, networksIn, NO_GROUP_SETTINGS, PEOPLE_SOURCES, peopleOf, PLACES_UNIT, ownProductsIn, productNames, readCard, readPeople, rejoin, sameIdOf, shownPart, shownUnit, spelledId, whoNow, type CallPeoplePart, type Card, type CardParts,
   type ChatDayPart, type Details, type FacesSaid, type Family, type GroupSettings, type JoinedList, type JoinedPerson, type LabelRow, type MailDayPart, type NamedFace, type Networks, type PeopleAnswer,
   type People, type PeopleNow, type PeopleRun, type PersonDetail, type ProviderLabel, type Rejoined, type Searched, type StatedDetails, type StatedPhoto, type Talk, type Who,
 } from "@lifestreamprotocol/families";
@@ -43,12 +43,12 @@ export function whoProducts(families: readonly Pick<Family, "name" | "adapters">
   return new Set([...Object.keys(WHO), ...books.map((given) => given.product)]);
 }
 
+export const PEOPLE_FAMILIES: readonly string[] = [MESSAGES_FAMILY, MAIL_FAMILY, CALLS_FAMILY, LABELS_FAMILY];
+
 export function peopleProducts(families: readonly Pick<Family, "name" | "adapters">[]): ReadonlySet<string> {
-  const fed = families.filter((family) => family.name === MESSAGES_FAMILY || family.name === MAIL_FAMILY);
+  const fed = families.filter((family) => PEOPLE_FAMILIES.includes(family.name));
   return new Set([...whoProducts(families), ...fed.flatMap((family) => (family.adapters ?? []).map((given) => given.product))]);
 }
-
-export const PEOPLE_FAMILIES: readonly string[] = [MESSAGES_FAMILY, MAIL_FAMILY, LABELS_FAMILY];
 
 interface PeopleData {
   off: readonly string[];
@@ -227,6 +227,7 @@ function prepare(folder: HomeFolder, view: OpenView, memo: Memo, dir: string, { 
   }
   const owner = (unit: string) => view.source(unit.slice(0, unit.lastIndexOf("/")))?.account ?? "";
   const mails = parts<MailDayPart>(view, memo, MAIL_FAMILY, () => true, (row) => mailDayPart(row.content, owner(row.unit), day), counts);
+  const calls = parts<CallPeoplePart | null>(view, memo, CALLS_FAMILY, () => true, (row) => callPeoplePart(row.content), counts);
 
   const photoAt = new Map<string, string>();
   const cards: Card[] = [];
@@ -259,7 +260,7 @@ function prepare(folder: HomeFolder, view: OpenView, memo: Memo, dir: string, { 
   }
 
   const answer = peopleOf({
-    networks, chats, mail: mails.values(), labels, cards, records, providers, faces, photos, details, day, names: productNames(registry.families),
+    networks, chats, mail: mails.values(), calls: [...calls.values()].filter((part): part is CallPeoplePart => part !== null), labels, cards, records, providers, faces, photos, details, day, names: productNames(registry.families),
     own: ownHandles(view, ownProductsIn(registry.families), networks),
     groups: { words: new Map([...words].map(([key, word]) => [key, word.quiet])), rules: groups },
     country: ownCountry(view, networks),
