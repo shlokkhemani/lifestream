@@ -422,7 +422,7 @@ test('11: ChatGPT\'s failures said in the person\'s words: the plan used up, the
     [{ offline: true }],
     [{ exit: true }],
     [{ say: 'Back.' }], [{ say: 'Back' }],
-    [{ say: 'Thinking ' }, { hold: true }],
+    [{ say: 'Thinking.\n\n' }, { hold: true }],
     [{ warning: 'Code Mode is unavailable because failed to spawn code-mode host /release/codex/codex-code-mode-host: host executable was not found.' }, { say: 'I can\'t access your records right now.' }],
   ]);
   const used = await asked(url, { question: 'One?' });
@@ -454,7 +454,7 @@ test('11: ChatGPT\'s failures said in the person\'s words: the plan used up, the
   while (await turn.next() !== null) {}
   const ended = turn.seen.find(event => event.type === 'done')?.message;
   note({ stopped: { end: ended?.end, text: ended?.text } });
-  assert.deepEqual([ended?.end, ended?.text], ['stopped', 'Thinking ']);
+  assert.deepEqual([ended?.end, ended?.text], ['stopped', 'Thinking.\n\n']);
   assert.equal(await interruptsOf(codex, 'Five?'), 1);
 
   const toolless = await asked(url, { question: 'Six?' });

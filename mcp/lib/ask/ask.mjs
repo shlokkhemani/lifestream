@@ -91,8 +91,7 @@ const CITING = /\[[r0-9 \t,\-–—to]*$/u;
 const PROVIDER_CITING = /[ \t]*\uE200[^\uE201]*$/u;
 const SPACES = /[ \t]+$/u;
 const SENTENCE_END = /[.!?…]\s+/u;
-const QUIET_MS = 900;
-const PARAGRAPH_END = /\n[ \t]*\n\s*$/u;
+const PARAGRAPH_BREAK = /\n[ \t]*\n\s*/gu;
 const THINKING = 'medium';
 const MOST_LIVE = 12;
 const LIVE_MS = 60 * 60_000;
@@ -2298,18 +2297,13 @@ export function narrated(text) {
  * @param {{ many: (texts: string[]) => Promise<string[]>, cited: (text: string) => Promise<{ text: string, refs: Record<string, import('./conversations.mjs').Cited> }> }} restore
  * @param {Handles} handles
  * @param {(line: Record<string, unknown>) => void} log
- * @param {number} [quietMs]
  */
-export function voiced(turn, restore, handles, log, quietMs = QUIET_MS) {
-  /** @type {(AskEvent | { type: 'quiet', round: number })[]} */
+export function voiced(turn, restore, handles, log) {
+  /** @type {AskEvent[]} */
   const queue = [];
   let arrived = '';
   let pending = '';
-  let round = 0;
-  let answering = false;
   let written = '';
-  /** @type {NodeJS.Timeout | undefined} */
-  let quiet;
   /** @type {Promise<void>} */
   let pumping = Promise.resolve();
   let running = false;
@@ -2353,28 +2347,21 @@ export function voiced(turn, restore, handles, log, quietMs = QUIET_MS) {
     written += text;
     turn.send({ type: 'text', delta: await cite(text) });
   };
-  const release = async () => {
-    clearTimeout(quiet);
-    answering = true;
-    const out = pending;
-    pending = '';
-    await say(out);
-  };
   /** @param {string} text */
   const heard = async text => {
     if (text === '') return;
-    if (answering) return say(text);
-    if (pending === '') {
-      const now = round;
-      quiet = setTimeout(() => push({ type: 'quiet', round: now }), quietMs);
-    }
     pending += text;
-    if (pending.includes('\n\n')) await release();
+    const open = [...pending.matchAll(PARAGRAPH_BREAK)].at(-1);
+    if (open === undefined) return;
+    const begins = open.index + open[0].length;
+    const out = pending.slice(0, begins);
+    pending = pending.slice(begins);
+    await say(out);
   };
   const pump = async () => {
     running = true;
     while (queue.length > 0) {
-      const event = /** @type {AskEvent | { type: 'quiet', round: number }} */ (queue.shift());
+      const event = /** @type {AskEvent} */ (queue.shift());
       if (event.type === 'text') {
         arrived += event.delta;
         while (queue[0]?.type === 'text') arrived += /** @type {{ delta: string }} */ (queue.shift()).delta;
@@ -2384,19 +2371,11 @@ export function voiced(turn, restore, handles, log, quietMs = QUIET_MS) {
         await heard(canonical(out));
         continue;
       }
-      if (event.type === 'quiet') {
-        if (event.round === round && !answering && pending !== '') await release();
-        continue;
-      }
       if (event.type === 'step' && !('ms' in event)) {
         await heard(canonical(arrived));
         arrived = '';
-        clearTimeout(quiet);
-        const narration = answering ? '' : pending;
+        const narration = pending;
         pending = '';
-        if (answering && written.trim() !== '' && !PARAGRAPH_END.test(written)) await say('\n\n');
-        answering = false;
-        round += 1;
         const [words = event.words, said = ''] = await back([event.words, ...(narration === '' ? [] : [narration])]);
         const phrase = narrated(said);
         turn.send({ ...event, words, ...(phrase === '' ? {} : { said: phrase }) });
@@ -2412,7 +2391,7 @@ export function voiced(turn, restore, handles, log, quietMs = QUIET_MS) {
     }
     running = false;
   };
-  /** @param {AskEvent | { type: 'quiet', round: number }} event */
+  /** @param {AskEvent} event */
   const push = event => {
     queue.push(event);
     if (!running) pumping = pumping.then(pump);
@@ -2423,7 +2402,9 @@ export function voiced(turn, restore, handles, log, quietMs = QUIET_MS) {
       await pumping;
       await heard(canonical(arrived));
       arrived = '';
-      await release();
+      const out = pending;
+      pending = '';
+      await say(out);
     },
     written: () => written,
     /**

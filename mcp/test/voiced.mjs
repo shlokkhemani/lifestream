@@ -10,16 +10,16 @@ const citation = n => /** @type {const} */ ({ ref: `record.synthetic-${n}`, kind
 const handles = openHandles(Object.fromEntries([1, 2, 3].map(n => [`r${n}`, citation(n)])));
 
 /**
- * @param {{ cited?: (text: string) => Promise<{ text: string, refs: Record<string, any> }>, quietMs?: number }} [given]
+ * @param {{ cited?: (text: string) => Promise<{ text: string, refs: Record<string, any> }> }} [given]
  */
-function voice({ cited, quietMs = 60_000 } = {}) {
+function voice({ cited } = {}) {
   /** @type {any[]} */
   const events = [];
   const restore = {
     many: async (/** @type {string[]} */ texts) => texts,
     cited: cited ?? (async (/** @type {string} */ text) => ({ text, refs: Object.fromEntries([...text.matchAll(/r(\d)/gu)].map(([handle, n]) => [handle, citation(Number(n))])) })),
   };
-  const made = voiced(/** @type {any} */ ({ send: (/** @type {any} */ event) => events.push(event) }), restore, handles, () => undefined, quietMs);
+  const made = voiced(/** @type {any} */ ({ send: (/** @type {any} */ event) => events.push(event) }), restore, handles, () => undefined);
   const said = () => events.filter(event => event.type === 'text').map(event => event.delta).join('');
   return { ...made, events, said, send: made.turn.send };
 }
@@ -38,7 +38,7 @@ test('narration: words the model writes before a step are the step\'s `said`, it
   assert.equal(turn.events.filter(event => event.type === 'ref').length, 0, 'a handle only narration cites is never told');
 });
 
-test('a stretch released before a step, by its paragraph break or the quiet, is answer: sent, kept in order with the last, a step ending its paragraph, its handles told', async () => {
+test('a paragraph ended before a step is answer, sent and kept in order with the last, its handles told; the paragraph a step starts under is narration, however long it took', async () => {
   const turn = voice();
   turn.send({ type: 'text', delta: 'So far [r1].\n\n' });
   turn.send({ type: 'step', call: 1, name: 'read', words: 'Reading' });
@@ -50,16 +50,31 @@ test('a stretch released before a step, by its paragraph break or the quiet, is 
   assert.equal(turn.said(), turn.written());
   assert.deepEqual(turn.events.filter(event => event.type === 'ref').map(event => event.handle), ['r1', 'r2']);
 
-  const quiet = voice({ quietMs: 0 });
-  quiet.send({ type: 'text', delta: 'Here is a first part' });
-  await until('the quiet releases the held words', () => quiet.said() === 'Here is a first part');
-  quiet.send({ type: 'step', call: 1, name: 'read', words: 'Reading' });
-  await until('the step is told', () => quiet.events.some(event => event.type === 'step'));
-  assert.equal(quiet.said(), 'Here is a first part\n\n', 'the paragraph ends before the step, so a reader shows its last word while the step runs');
-  quiet.send({ type: 'text', delta: 'And more.' });
-  await quiet.flush();
-  assert.equal(quiet.events.find(event => event.type === 'step')?.said, undefined);
-  assert.equal(quiet.written(), 'Here is a first part\n\nAnd more.');
+  const long = voice();
+  long.send({ type: 'text', delta: 'The Dec 6 and Dec 10 flights are confirmed [r1]. ' });
+  long.send({ type: 'waiting', words: 'Still writing' });
+  await until('the words before the wait are heard', () => long.events.some(event => event.type === 'waiting'));
+  long.send({ type: 'text', delta: 'Now I am checking whether anything is booked in between (stays or trains).' });
+  long.send({ type: 'waiting', words: 'Still writing' });
+  await until('the words after the wait are heard', () => long.events.filter(event => event.type === 'waiting').length === 2);
+  assert.equal(long.said(), '', 'an unfinished paragraph is never sent while the model may yet call a tool');
+  long.send({ type: 'step', call: 1, name: 'search', words: 'Searching bookings' });
+  long.send({ type: 'step', call: 1, words: 'Searched bookings', ms: 4 });
+  long.send({ type: 'text', delta: 'Your parents land at 13:15 [r2].' });
+  await long.flush();
+  assert.equal(long.events.find(event => event.type === 'step')?.said, 'Now I am checking whether anything is booked in between (stays or trains)');
+  assert.equal(long.written(), 'Your parents land at 13:15 [r2].');
+  assert.deepEqual(long.events.filter(event => event.type === 'ref').map(event => event.handle), ['r2']);
+
+  const mixed = voice();
+  mixed.send({ type: 'text', delta: 'Both flights are booked [r1].\n\nNow checking the stay' });
+  await until('the finished paragraph is sent', () => mixed.said() !== '');
+  assert.equal(mixed.said(), 'Both flights are booked [r1].\n\n');
+  mixed.send({ type: 'step', call: 1, name: 'search', words: 'Searching stays' });
+  mixed.send({ type: 'text', delta: 'Nothing else is booked.' });
+  await mixed.flush();
+  assert.equal(mixed.events.find(event => event.type === 'step')?.said, 'Now checking the stay');
+  assert.equal(mixed.written(), 'Both flights are booked [r1].\n\nNothing else is booked.');
 });
 
 test('the stream is the kept text: a range is spelled out and told like any citation, a provider\'s mark is dropped, a partial of either held whole', async () => {
@@ -70,7 +85,7 @@ test('the stream is the kept text: a range is spelled out and told like any cita
   assert.equal(turn.said(), 'Intro.\n\nSee [r1, r2, r3] and more [r2].');
   assert.equal(turn.written(), turn.said());
   const told = turn.events.map(event => event.type === 'ref' ? event.handle : event.type);
-  assert.deepEqual(told, ['r1', 'r2', 'r3', 'text']);
+  assert.deepEqual(told, ['text', 'r1', 'r2', 'r3', 'text']);
 });
 
 test('the better ref wins: an early tell that fails is tried again at the next citing stretch; a bare early ref gives way to done\'s citation, a full one stays', async () => {

@@ -115,7 +115,7 @@ test('3: a sign-in abandoned (cancel, its fifteen minutes, the server closing) e
   await login(second.url, 'POST', { do: 'start', of: 'claude' });
   await fake.approve();
   await until('signed in', async () => (await claudeState(second.url)).state === 'signed_in');
-  await fake.script([[{ say: 'Partly ' }, { hold: true }]]);
+  await fake.script([[{ say: 'Partly.\n\n' }, { hold: true }]]);
   const turn = await streaming(second.url, { question: 'Hold on?', model: OPUS });
   for (let event = await turn.next(); event !== null && event.type !== 'text'; event = await turn.next()) {}
   await login(second.url, 'POST', { do: 'sign_out', of: 'claude' });
@@ -215,7 +215,7 @@ test('11: a sign-out while a turn runs: the turn ends as it would have, and its 
   const machine = await plansOn({ claude: 'in' }, { chat: OPUS });
   const fake = fakeClaude(machine);
   const { url, close } = await askServer({ machine });
-  await fake.script([[{ say: 'Partly ' }, { waitFor: 'go' }, { say: 'Whole.' }], [{ say: 'After.' }]]);
+  await fake.script([[{ say: 'Partly.\n\n' }, { waitFor: 'go' }, { say: 'Whole.' }], [{ say: 'After.' }]]);
   const turn = await streaming(url, { question: 'Under way?' });
   for (let event = await turn.next(); event !== null && event.type !== 'text'; event = await turn.next()) {}
   const [running] = await conversationPids(fake);
@@ -223,7 +223,7 @@ test('11: a sign-out while a turn runs: the turn ends as it would have, and its 
   assert.equal(gone(/** @type {number} */ (running)), false, 'the turn\'s process runs on through the sign-out');
   await fake.touch('go');
   while (await turn.next() !== null) {}
-  assert.deepEqual([doneOf(turn.seen)?.end, doneOf(turn.seen)?.text], ['done', 'Partly Whole.'], JSON.stringify(turn.seen));
+  assert.deepEqual([doneOf(turn.seen)?.end, doneOf(turn.seen)?.text], ['done', 'Partly.\n\nWhole.'], JSON.stringify(turn.seen));
   await until('the turn\'s process ended', () => gone(/** @type {number} */ (running)));
   await signInAgain(url, fake);
   const follow = await asked(url, { question: 'After?', chat: doneOf(turn.seen).chat });

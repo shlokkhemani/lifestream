@@ -154,7 +154,7 @@ test('5: Claude\'s failures said in the person\'s words: a stop mid-answer keeps
   const resets = Math.floor(Math.max(home.now_ms, Date.now()) / 1000) + 3 * 3600;
   await fake.script([
     [{ say: 'Thinking ' }, { call: { tool: 'search_people', args: { name: 'Person A' } } }, { say: 'Never said.' }],
-    [{ say: 'Partly ' }, { waitFor: 'go' }, { exit: true }],
+    [{ say: 'Partly.\n\n' }, { waitFor: 'go' }, { exit: true }],
     [{ say: 'Part ' }, { limit: resets }],
     [{ limit: resets, by: 'event' }],
     [{ limit: resets, by: 'status' }],
@@ -184,7 +184,7 @@ test('5: Claude\'s failures said in the person\'s words: a stop mid-answer keeps
   const died = next.seen;
   note({ died: errorOf(died) });
   assert.deepEqual(errorOf(died), { type: 'error', error: 'model', message: 'Claude didn\'t answer: Chat\'s Claude Code stopped. Ask again.' });
-  assert.equal(doneOf(died)?.text, 'Partly ');
+  assert.equal(doneOf(died)?.text, 'Partly.\n\n');
   assert.deepEqual(died.filter(event => event.type === 'step'), []);
 
   const limited = await asked(url, { question: 'Three?' });
