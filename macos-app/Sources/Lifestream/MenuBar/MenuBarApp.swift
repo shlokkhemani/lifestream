@@ -199,7 +199,8 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
         gate.opens(world)
         firstRunDue = world.opensAt != nil
         await needs.read()
-        let window = LaunchWindow.shown(opening, world: world, needs: !needs.list.isEmpty,
+        let window = LaunchWindow.shown(opening, world: world, open: openWindow != nil,
+                                        needs: needs.list.contains(where: \.steers),
                                         onboarding: WebContent.leftInOnboarding(), resume: resume?.page)
         refreshGrantsLine()
         let agents = world.agents.map { "\($0.key.rawValue) \($0.value.rawValue)" }.sorted().joined(separator: ", ")
@@ -208,7 +209,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
         switch window {
         case .setup?: showSetup(world)
         case .connectors?: openMain(.connectors)
-        case .dashboard?: openMain(nil)
+        case .dashboard?, .front?: openMain(nil)
         case .page(let hash)?: openMain(hash: hash)
         case nil: break
         }
@@ -251,7 +252,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
         for need in begun where NeedNotification.calls(need) && !inFront {
             Task { await NeedNotification.notify(need) }
         }
-        guard openWindow == nil, begun.contains(where: { !NeedNotification.calls($0) }) else { return }
+        guard openWindow == nil, begun.contains(where: { $0.steers && !NeedNotification.calls($0) }) else { return }
         Task { await openConnectors(byNeed: true) }
     }
 

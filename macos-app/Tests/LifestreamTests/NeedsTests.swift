@@ -81,6 +81,14 @@ import XCTest
         XCTAssertEqual(Needs.list(vault: state(), keyMayOpen: true, update: nil, ready: nil, needs: [notice("vault:other", words: "x", acts: [["do": "vault", "label": "Unlock"]])]), [])
     }
 
+    func testAnAdviceNeverMovesTheWindowAndAStoppedNeedDoes() {
+        let advice = HomeReport.need("disk", "Your home's disk fills up in about 25 days", weight: "advice")
+        let stopped = HomeReport.need("poll:gmail-imap", "Gmail has failed: the app password was refused", weight: "stopped")
+        XCTAssertFalse(Need.notice(advice).steers, "a disk advice moved the window to Connectors")
+        XCTAssertTrue(Need.notice(stopped).steers)
+        XCTAssertTrue(Need.filesRefused.steers)
+    }
+
     func testTheWindowOpensWhenANeedBeginsAndNotAgainWhileItStands() {
         var watch = NeedWatch()
         XCTAssertFalse(watch.began(["vault:locked"]), "the first read opened the window")

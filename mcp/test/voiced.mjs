@@ -38,7 +38,7 @@ test('narration: words the model writes before a step are the step\'s `said`, it
   assert.equal(turn.events.filter(event => event.type === 'ref').length, 0, 'a handle only narration cites is never told');
 });
 
-test('a stretch released before a step, by its paragraph break or the quiet, is answer: sent, kept in order with the last, its handles told', async () => {
+test('a stretch released before a step, by its paragraph break or the quiet, is answer: sent, kept in order with the last, a step ending its paragraph, its handles told', async () => {
   const turn = voice();
   turn.send({ type: 'text', delta: 'So far [r1].\n\n' });
   turn.send({ type: 'step', call: 1, name: 'read', words: 'Reading' });
@@ -54,10 +54,12 @@ test('a stretch released before a step, by its paragraph break or the quiet, is 
   quiet.send({ type: 'text', delta: 'Here is a first part' });
   await until('the quiet releases the held words', () => quiet.said() === 'Here is a first part');
   quiet.send({ type: 'step', call: 1, name: 'read', words: 'Reading' });
-  quiet.send({ type: 'text', delta: ' and more.' });
+  await until('the step is told', () => quiet.events.some(event => event.type === 'step'));
+  assert.equal(quiet.said(), 'Here is a first part\n\n', 'the paragraph ends before the step, so a reader shows its last word while the step runs');
+  quiet.send({ type: 'text', delta: 'And more.' });
   await quiet.flush();
   assert.equal(quiet.events.find(event => event.type === 'step')?.said, undefined);
-  assert.equal(quiet.written(), 'Here is a first part and more.');
+  assert.equal(quiet.written(), 'Here is a first part\n\nAnd more.');
 });
 
 test('the stream is the kept text: a range is spelled out and told like any citation, a provider\'s mark is dropped, a partial of either held whole', async () => {
