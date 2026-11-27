@@ -18,7 +18,7 @@ export { ACCOUNT as SCREEN_ACCOUNT } from "./screen/account.js";
 export * from "./messages/family.js";
 export { chatMembers, isGroupChat, networksIn, networksOf, partyHandle, resolveChat, type Networks } from "./messages/networks.js";
 export {
-  chatDayPart, findPeople, mailDayPart, NO_GROUP_SETTINGS, PEOPLE_CODE, peopleOf, productNames, productWords, searchedBy, shownPart, spelledId, type ChatDayPart, type FacesSaid, type GroupRow, type GroupSettings, type GroupsInput,
+  callPeoplePart, chatDayPart, findPeople, mailDayPart, NO_GROUP_SETTINGS, PEOPLE_CODE, peopleOf, productNames, productWords, searchedBy, shownPart, spelledId, type CallPeoplePart, type ChatDayPart, type FacesSaid, type GroupRow, type GroupSettings, type GroupsInput,
   type MailDayPart, type NamedFace, type PeopleAnswer, type PersonDetail, type PersonEntry, type Searched, type ServedPhoto, type StatedDetails, type Talk,
   listEntry, rejoin, whoNow, type JoinedList, type JoinedPerson, type PeopleChanged, type PeopleNow, type PeopleRun, type Rejoined, type StatedPhoto, type Who,
 } from "./messages/people.js";

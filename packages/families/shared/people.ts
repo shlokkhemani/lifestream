@@ -707,6 +707,7 @@ export function score(counts: Counts, newest: string): number {
 export interface Seen {
   counts: Counts;
   mail_names: readonly string[];
+  call_names?: readonly string[];
   service: boolean;
   sender: "no-reply" | "relay" | null;
   senders: readonly string[];
@@ -1098,6 +1099,7 @@ function namesSeen(person: Person, labels: readonly ProviderLabel[], seen: Seen 
     add(label.pushName);
   }
   for (const name of seen?.mail_names ?? []) add(name);
+  for (const name of seen?.call_names ?? []) add(name);
   for (const name of seen?.photo_labels ?? []) add(name);
   return [...out.values()];
 }

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addDays, civilDay, dayBounds, NEWEST, openHome, openHomeFolder, walkPlace, type AskRow, type Guard, type HomeDb, type JsonObject, type Tx } from "@lifestreamprotocol/core";
-import { LABELS_FAMILY, labelsFamily, messagesFamily } from "@lifestreamprotocol/families";
+import { callsFamily, LABELS_FAMILY, labelsFamily, messagesFamily } from "@lifestreamprotocol/families";
 import { openLedger } from "@lifestreamprotocol/model";
 import { extractCursor, keptFingerprint, readDays, rebuildCursor, rebuildExtracts, renderKind } from "./derive.js";
 import { Due, fingerprintParts, LEDGER_CURSOR } from "./due.js";
@@ -436,12 +436,15 @@ describe("a commit queues exactly the work what it moved makes due", () => {
     }
   });
 
-  it("the products People reads are its who-is-who's, every address book's and every product the messages family is made over, none it is not", () => {
+  it("the products People reads are its who-is-who's, every address book's and every product the messages and calls families are made over, none it is not", () => {
     const books = labelsFamily({ home: null, messages: [], mail: [] })(RELEASE_FED.labels);
     const without = peopleProducts([notesFamily(), books]);
     const made = peopleProducts([messagesFamily({ books: RELEASE_FED.labels })(RELEASE_FED.messages), books]);
+    const withCalls = peopleProducts([callsFamily({ books: RELEASE_FED.labels, messages: RELEASE_FED.messages })(RELEASE_FED.calls), books]);
     expect([...made].filter((product) => !without.has(product)).sort()).toEqual(RELEASE_FED.messages.map((given) => given.product).sort());
+    expect([...withCalls].filter((product) => !without.has(product)).sort()).toEqual(RELEASE_FED.calls.map((given) => given.product).sort());
     expect(without.has("whatsapp")).toBe(false);
+    expect(without.has("apple-calls")).toBe(false);
     expect([without.has("apple-contacts"), peopleProducts([notesFamily()]).has("apple-contacts")]).toEqual([true, false]);
   });
 
