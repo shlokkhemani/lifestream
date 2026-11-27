@@ -1424,7 +1424,7 @@ test('two new conversations at once that see each other, or a question mangled: 
   assert.deepEqual(seen, [[`user: ${question}`], ['user: And who?']]);
 });
 
-test('a turn that loses its first words, or one that cannot be stopped: words a partial already holds are sent once, in order, "Hello" then " world"; /ask/stop stops the model and keeps the words written so far, `stopped`', async () => {
+test('a turn that loses its first words, or one that cannot be stopped: words a partial already holds are sent once, in order, a finished paragraph at once and the rest after; /ask/stop stops the model and keeps the words written so far, `stopped`', async () => {
   named('ask streams and stops');
   /** @type {(value?: unknown) => void} */
   let release = () => undefined;
@@ -1433,30 +1433,30 @@ test('a turn that loses its first words, or one that cannot be stopped: words a 
     const at = (/** @type {string} */ text, stopReason = 'pending') => ({ ...base, content: [{ type: 'text', text }], stopReason });
     out.push({ type: 'start', partial: { ...base, content: [], stopReason: 'pending' } });
     out.push({ type: 'text_start', contentIndex: 0, partial: at('') });
-    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Hello', partial: at('Hello') });
+    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Hello.\n\n', partial: at('Hello.\n\n') });
     await gate;
-    out.push({ type: 'text_delta', contentIndex: 0, delta: ' world', partial: at('Hello world') });
-    out.push({ type: 'text_end', contentIndex: 0, content: 'Hello world', partial: at('Hello world') });
-    const message = at('Hello world', 'stop');
+    out.push({ type: 'text_delta', contentIndex: 0, delta: 'World.', partial: at('Hello.\n\nWorld.') });
+    out.push({ type: 'text_end', contentIndex: 0, content: 'Hello.\n\nWorld.', partial: at('Hello.\n\nWorld.') });
+    const message = at('Hello.\n\nWorld.', 'stop');
     out.push({ type: 'done', reason: 'stop', message });
     out.end(message);
   }, pacedTitle('Saying hello'));
   const ask = await asking({ question: 'Say hello.' }, { at: pacedUrl });
   assert.equal((await ask.next()).type, 'chat');
-  assert.deepEqual(await ask.next(), { type: 'text', delta: 'Hello' });
+  assert.deepEqual(await ask.next(), { type: 'text', delta: 'Hello.\n\n' });
   release();
   const rest = await ask.rest();
-  assert.deepEqual(rest.map(event => event.type === 'text' ? event.delta : event.type), [' world', 'done', 'title']);
-  assert.equal(rest[1].message.text, 'Hello world');
+  assert.deepEqual(rest.map(event => event.type === 'text' ? event.delta : event.type), ['World.', 'done', 'title']);
+  assert.equal(rest[1].message.text, 'Hello.\n\nWorld.');
 
   /** @type {(value?: unknown) => void} */
   let stopped = () => undefined;
   const modelStopped = new Promise(done => { stopped = done; });
   paced.push(async (out, base, signal) => {
-    const partial = { ...base, content: [{ type: 'text', text: 'Thinking' }], stopReason: 'pending' };
+    const partial = { ...base, content: [{ type: 'text', text: 'Thinking.\n\n' }], stopReason: 'pending' };
     out.push({ type: 'start', partial: { ...base, content: [], stopReason: 'pending' } });
     out.push({ type: 'text_start', contentIndex: 0, partial });
-    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Thinking', partial });
+    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Thinking.\n\n', partial });
     await new Promise(done => signal?.addEventListener('abort', done, { once: true }));
     stopped();
     const aborted = { ...partial, stopReason: 'aborted' };
@@ -1465,14 +1465,14 @@ test('a turn that loses its first words, or one that cannot be stopped: words a 
   });
   const long = await asking({ question: 'Take your time.' }, { at: pacedUrl });
   const { chat } = await long.next();
-  assert.deepEqual(await long.next(), { type: 'text', delta: 'Thinking' });
+  assert.deepEqual(await long.next(), { type: 'text', delta: 'Thinking.\n\n' });
   assert.deepEqual((await posting('/ask/stop', { chat }, { at: pacedUrl })).body, { stopped: true });
   await modelStopped;
   const end = await long.rest();
   assert.deepEqual(end.map(event => event.type), ['done']);
-  assert.deepEqual([end[0].message.end, end[0].message.text, end[0].message.error], ['stopped', 'Thinking', undefined]);
+  assert.deepEqual([end[0].message.end, end[0].message.text, end[0].message.error], ['stopped', 'Thinking.\n\n', undefined]);
   const kept = (await getting(`/ask/chats/${chat}`, { at: pacedUrl })).body;
-  assert.deepEqual(kept.messages.map((/** @type {any} */ each) => [each.role, each.text, each.end]), [['user', 'Take your time.', undefined], ['assistant', 'Thinking', 'stopped']]);
+  assert.deepEqual(kept.messages.map((/** @type {any} */ each) => [each.role, each.text, each.end]), [['user', 'Take your time.', undefined], ['assistant', 'Thinking.\n\n', 'stopped']]);
   assert.equal(kept.title, 'Take your time.');
   assert.deepEqual((await posting('/ask/stop', { chat }, { at: pacedUrl })).body, { stopped: false });
 });
@@ -1482,10 +1482,10 @@ test('a restart mid-answer (a release, launchd\'s SIGTERM) that loses the turn, 
   const handler = createHandler({ door: home.url, ask: { ...pacedAsk, machine, now: homeClock }, log: () => undefined });
   const at = await listen(handler);
   paced.push(async (out, base, signal) => {
-    const partial = { ...base, content: [{ type: 'text', text: 'Reading' }], stopReason: 'pending' };
+    const partial = { ...base, content: [{ type: 'text', text: 'Reading.\n\n' }], stopReason: 'pending' };
     out.push({ type: 'start', partial: { ...base, content: [], stopReason: 'pending' } });
     out.push({ type: 'text_start', contentIndex: 0, partial });
-    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Reading', partial });
+    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Reading.\n\n', partial });
     await new Promise(done => signal?.addEventListener('abort', done, { once: true }));
     const aborted = { ...partial, stopReason: 'aborted' };
     out.push({ type: 'error', reason: 'aborted', error: aborted });
@@ -1493,7 +1493,7 @@ test('a restart mid-answer (a release, launchd\'s SIGTERM) that loses the turn, 
   });
   const long = await asking({ question: 'Read it all.' }, { at });
   const { chat } = await long.next();
-  assert.deepEqual(await long.next(), { type: 'text', delta: 'Reading' });
+  assert.deepEqual(await long.next(), { type: 'text', delta: 'Reading.\n\n' });
   const closing = handler.close(10_000);
   const refused = await asking({ question: 'One more.' }, { at });
   assert.deepEqual([refused.status, refused.refused?.error], [503, 'Chat is restarting: ask again in a moment.']);
@@ -1501,7 +1501,7 @@ test('a restart mid-answer (a release, launchd\'s SIGTERM) that loses the turn, 
   assert.deepEqual(end.map(event => event.type), ['error', 'done']);
   assert.deepEqual(end[0], { type: 'error', error: 'restart', message: 'Chat restarted before this answer finished.' });
   const { message } = end[1];
-  assert.deepEqual([message.end, message.text, message.failed, message.error], ['failed', 'Reading', 'restart', 'Chat restarted before this answer finished.']);
+  assert.deepEqual([message.end, message.text, message.failed, message.error], ['failed', 'Reading.\n\n', 'restart', 'Chat restarted before this answer finished.']);
   assert.equal(await closing, true);
   /** @type {{ status: number, body: any }} */
   let kept = { status: 0, body: null };
@@ -1509,7 +1509,7 @@ test('a restart mid-answer (a release, launchd\'s SIGTERM) that loses the turn, 
     kept = await doorRead('/v1/record', { source: home.ask.source, kind: 'msg', key: `${chat}:0002` });
     return kept.status === 200;
   });
-  assert.deepEqual([kept.body.version.content.end, kept.body.version.content.failed, kept.body.version.content.text], ['failed', 'restart', 'Reading']);
+  assert.deepEqual([kept.body.version.content.end, kept.body.version.content.failed, kept.body.version.content.text], ['failed', 'restart', 'Reading.\n\n']);
 });
 
 test('a locked phone that loses its answer: the asker drops the stream mid-answer, the turn runs on, the conversation says it is running, /events follows it from its start to its end, and it is kept', async () => {
@@ -1521,29 +1521,29 @@ test('a locked phone that loses its answer: the asker drops the stream mid-answe
     const at = (/** @type {string} */ text, stopReason = 'pending') => ({ ...base, content: [{ type: 'text', text }], stopReason });
     out.push({ type: 'start', partial: { ...base, content: [], stopReason: 'pending' } });
     out.push({ type: 'text_start', contentIndex: 0, partial: at('') });
-    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Hello', partial: at('Hello') });
+    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Hello.\n\n', partial: at('Hello.\n\n') });
     await gate;
-    out.push({ type: 'text_delta', contentIndex: 0, delta: ' again', partial: at('Hello again') });
-    const message = at('Hello again', 'stop');
+    out.push({ type: 'text_delta', contentIndex: 0, delta: 'Again.', partial: at('Hello.\n\nAgain.') });
+    const message = at('Hello.\n\nAgain.', 'stop');
     out.push({ type: 'done', reason: 'stop', message });
     out.end(message);
   }, pacedTitle('Hello again'));
   const leaving = new AbortController();
   const ask = await asking({ question: 'Say hello slowly.' }, { at: pacedUrl, signal: leaving.signal });
   const { chat } = await ask.next();
-  assert.deepEqual(await ask.next(), { type: 'text', delta: 'Hello' });
+  assert.deepEqual(await ask.next(), { type: 'text', delta: 'Hello.\n\n' });
   leaving.abort();
   await ask.rest();
   const during = (await getting(`/ask/chats/${chat}`, { at: pacedUrl })).body;
   assert.deepEqual([during.running, during.title, during.messages.map((/** @type {any} */ each) => each.text)], [{ n: 2 }, 'Say hello slowly.', ['Say hello slowly.']]);
   const response = await fetch(`${pacedUrl}/ask/chats/${chat}/events`, { headers: { authorization: `Bearer ${home.tokens.reader}` } });
   const followed = reading(response, `GET /ask/chats/${chat}/events`, null);
-  assert.deepEqual([(await followed.next()).type, await followed.next()], ['chat', { type: 'text', delta: 'Hello' }]);
+  assert.deepEqual([(await followed.next()).type, await followed.next()], ['chat', { type: 'text', delta: 'Hello.\n\n' }]);
   release();
   const rest = await followed.rest();
-  assert.deepEqual(rest.map(event => event.type === 'text' ? event.delta : event.type), [' again', 'done', 'title']);
+  assert.deepEqual(rest.map(event => event.type === 'text' ? event.delta : event.type), ['Again.', 'done', 'title']);
   const kept = (await getting(`/ask/chats/${chat}`, { at: pacedUrl })).body;
-  assert.deepEqual([kept.running, kept.title, kept.messages.at(-1).text, kept.messages.at(-1).end], [undefined, 'Hello again', 'Hello again', 'done']);
+  assert.deepEqual([kept.running, kept.title, kept.messages.at(-1).text, kept.messages.at(-1).end], [undefined, 'Hello again', 'Hello.\n\nAgain.', 'done']);
   assert.equal((await getting(`/ask/chats/${chat}/events`, { at: pacedUrl })).status, 204);
 });
 
