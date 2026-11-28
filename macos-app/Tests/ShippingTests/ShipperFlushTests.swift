@@ -33,7 +33,7 @@ final class ShipperFlushTests: XCTestCase {
         let link = try await ShippingFixture.link(home, folder: folder)
         let shipper = Shipper(Shipper.Dependencies(
             state: state, link: link, domains: { _ in [domain] },
-            clock: clock.read, record: { _ in }, rotateBatches: {}, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
+            clock: clock.read, record: { _ in }, scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
 
         let prefix = folder.path
         let seen = Collected<(path: String, level: DeviceFiles.Flush, scheduleRunAt: Date?)>()

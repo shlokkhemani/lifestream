@@ -43,6 +43,7 @@ final class UploadLane: ShippingDomain {
 
     var behindLive: Bool { imports != nil }
     var owes: Bool { imports?.owes ?? false }
+    var unsettled: Bool { folder?.unsettled ?? false }
 
     func seal(_ request: SealRequest) throws -> [SealedBundle] {
         var sealed = try folder?.seal(request) ?? []

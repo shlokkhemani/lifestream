@@ -14,6 +14,7 @@ export interface RefreshDoor {
   readonly custody: Pick<Custody, "askRefresh" | "delivers">;
   relay(request: JsonObject): Promise<unknown>;
   body(request: IncomingMessage): Promise<JsonObject>;
+  notifyMacRefresh?(connector: string, excludeUnit: string | null): void;
 }
 
 export function refreshRoute(door: RefreshDoor): (principal: Principal, request: IncomingMessage, reach: string | null) => Promise<[number, JsonObject]> {
@@ -26,6 +27,7 @@ export function refreshRoute(door: RefreshDoor): (principal: Principal, request:
     const asking = principal.kind === "mac" ? principal.unit : null;
     const macs = macRefreshes(declared);
     const asked = macs ? door.custody.askRefresh(declared.id, asking) : [];
+    if (macs) door.notifyMacRefresh?.(declared.id, asking);
     const catalog = catalogOf(door.connectors);
     const own = macs && asking !== null && door.custody.delivers(principal).some((source) => catalog.delivered("mac", source)?.id === declared.id);
     const answer: RefreshAnswer | null = home.state === "queued" ? { state: "queued" } : asked.length > 0 || own ? { state: "asked" } : home.state === "blocked" ? home : null;

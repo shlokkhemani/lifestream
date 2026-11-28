@@ -155,7 +155,6 @@ const SYNTHETIC = [
     id: "apple-photos", product: "apple-photos", name: "Photos", vendor: "apple", type: "photos", noun: ["photo", "photos"], counts: ["photo"], mirror: true, ...releaseWords("apple-photos"),
     sources: [{ id: "apple-photos:<account>:<unit>", read: "photos-mac", arrives: "mac" }, { id: "apple-photos:<account>:<unit>", read: "photos-ios", arrives: "phone" }],
     mac: { grants: ["photos"] }, phone: { grants: ["photos"] }, backfill: { about: release("apple-photos").backfill!.about! },
-    refresh: { default: "5m", min: "1m", max: "5m" },
   },
   {
     id: "faces", product: "faces", name: "Faces", vendor: "lifestream", noun: ["photo", "photos"], ...releaseWords("faces"),
@@ -460,6 +459,7 @@ describe("the streams report", () => {
     const LOCATION = `location:local:${PHONE}`;
     const PHOTOS_MAC = `apple-photos:person-a@example.com:${MAC_B}`;
     const PHOTOS_PHONE = `apple-photos:person-a@example.com:${PHONE}`;
+    const SCREEN_TIME_MAC = `screen-time:local:${MAC_B}`;
     const FACES = "faces:local:labels";
     const WHOOP = "whoop:10000001:cloud";
     const GITHUB = "github:person-a:cloud";
@@ -469,7 +469,7 @@ describe("the streams report", () => {
       [`checkin:local:${PHONE}`, "checkin-ios-bundle", "report"], [`notes:local:${PHONE}`, "notes-ios-bundle", "note"],
     ] as const;
     at.device(MAC_A, "MacBook Pro").device(MAC_B, "MacBook Air").device(PHONE, "iPhone 17 Pro").device(OLD_PHONE, "iPhone 12").device(BROWSER, "Chrome")
-      .pass(MAC_A, "mac", [SCREEN]).pass(MAC_B, "mac", [WHATSAPP, PHOTOS_MAC]).pass(PHONE, "phone", [LOCATION, PHOTOS_PHONE, ...PHONE_COPIES.map(([copy]) => copy)])
+      .pass(MAC_A, "mac", [SCREEN]).pass(MAC_B, "mac", [WHATSAPP, PHOTOS_MAC, SCREEN_TIME_MAC]).pass(PHONE, "phone", [LOCATION, PHOTOS_PHONE, ...PHONE_COPIES.map(([copy]) => copy)])
       .pass(OLD_PHONE, "phone", [`location:local:${OLD_PHONE}`]).revoke(OLD_PHONE)
       .pass(BROWSER, "extension");
     const replacedMac = at.passOf(MAC_A);
@@ -494,6 +494,7 @@ describe("the streams report", () => {
       .pause("pause:google-takeout", "the Takeout is read again after the deploy", "terminal", NOW - 2 * DAY_MS);
     at.source(SCREEN, "screen-recorder").land(SCREEN, [item("frame", "f1", NOW - 3 * HOUR)]).delivery(SCREEN, NOW - 3 * HOUR, {}, { pass: at.passOf(MAC_A), seal: 1 });
     for (const [copy, read, kind] of PHONE_COPIES) at.source(copy, read).land(copy, [item(kind, `${kind}-1`, NOW - 2 * HOUR)]).delivery(copy, NOW - 5 * MINUTE, { left: 0, start_ms: null });
+    at.source(SCREEN_TIME_MAC, "app-timeline-mac").land(SCREEN_TIME_MAC, [item("usage", "mac-usage-1", NOW - 2 * HOUR)]).delivery(SCREEN_TIME_MAC, NOW - 5 * MINUTE, { left: 0, start_ms: null });
     at.source(LOCATION, "location-ios-bundle").land(LOCATION, [item("fix", "p1", NOW - 14 * DAY_MS)]).delivery(LOCATION, NOW - MINUTE, { left: 0 });
     for (const [copy, read] of [[PHOTOS_MAC, "photos-mac"], [PHOTOS_PHONE, "photos-ios"]] as const) {
       at.source(copy, read).land(copy, Array.from({ length: 5 }, (_, index) => item("photo", `ph${index}`, NOW - (index + 1) * HOUR))).delivery(copy, NOW - 3 * MINUTE, { left: 0, start_ms: null });
@@ -542,7 +543,7 @@ describe("the streams report", () => {
     at.done();
     const stated: Stated = {
       [MAC_B]: { ...said(at.passOf(MAC_B), { fullDiskAccess: "on", photos: "on" }, NOW - 2 * MINUTE, ["apple-photos", "screen", "whatsapp"], [TAKEOUT_MAC]),
-        settings: { "apple-photos": { refresh: "5m", start_ms: null } } },
+        settings: { "apple-photos": { start_ms: null }, "screen-time": { refresh: "5m", start_ms: null } } },
       [PHONE]: said(at.passOf(PHONE), { location: "on", photos: "off", motion: "on", health: "on", contacts: "on", "screen-time": "on", notifications: "on" }, NOW - 5 * MINUTE),
     } as Stated;
     const disk: Raised = { id: "disk", state: "needs-you", reason: null, words: "Lifestream's disk fills in about 21 days", since_ms: null, next_ms: null, acts: [{ do: "storage", label: "Free up space" }], detail: null, connector: null, copy: null, unit: null, at: null };
@@ -568,7 +569,7 @@ describe("the streams report", () => {
       .toEqual([["clones", "Code", true]]);
     const precision = connectorOf(report, "location").members.find((each) => each.key === "precision");
     expect(JSON.stringify(precision)).toContain('"battery"');
-    expect(connectorOf(report, "apple-photos").members.map((each) => [each.key, each.panel, each.only])).toEqual([["refresh", "settings", "On MacBook Air"], ["start", "backfill", undefined]]);
+    expect(connectorOf(report, "apple-photos").members.map((each) => [each.key, each.panel, each.only])).toEqual([["start", "backfill", undefined]]);
     expect(report.connectors.filter((each) => each.phone_screen !== null).sort((one, other) => one.phone_screen! - other.phone_screen!)
       .map((each) => [each.id, each.phone_screen])).toEqual([["location", 0], ["motion", 1], ["apple-health", 2], ["apple-photos", 3], ["apple-contacts", 4], ["screen-time", 5]]);
     expect([connectorOf(report, "checkin").phone_screen, connectorOf(report, "notes").phone_screen, connectorOf(report, "whatsapp").phone_screen]).toEqual([null, null, null]);

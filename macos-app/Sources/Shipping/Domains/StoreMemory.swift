@@ -23,7 +23,12 @@ struct StoreMemory {
         "CREATE INDEX IF NOT EXISTS rows_seal ON rows (seal)",
         "CREATE TABLE IF NOT EXISTS blobs (hash TEXT PRIMARY KEY, seal INTEGER NOT NULL) WITHOUT ROWID",
         "CREATE INDEX IF NOT EXISTS blobs_seal ON blobs (seal)",
+        "CREATE TABLE IF NOT EXISTS examined (tbl TEXT PRIMARY KEY, through INTEGER NOT NULL, seal INTEGER NOT NULL) WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS pending_media (tbl TEXT NOT NULL, key INTEGER NOT NULL, added_at INTEGER NOT NULL, "
+            + "seal INTEGER NOT NULL, PRIMARY KEY (tbl, key)) WITHOUT ROWID",
     ]
+
+    static let pendingSpan = 86_400
 
     struct Begun: Equatable {
         let identity: String?
@@ -31,24 +36,59 @@ struct StoreMemory {
         let owed: Int
         let months: Months?
         let countedAt: Int?
+        var coldDueAt: Int? = nil
+        var schemaVersion: Int? = nil
+        var hadFastPass = false
+        var hasPendingMedia = false
+        var start: String? = nil
 
         func countDue(at now: Date) -> Bool {
             countedAt.map { now.timeIntervalSince1970 - TimeInterval($0) >= Months.recount } ?? true
         }
+
+        func coldDue(at now: Int, forced: Bool, within interval: Int) -> Bool {
+            let due = coldDueAt ?? 0
+            return forced || now >= due || due > now + interval
+        }
+    }
+
+    struct Pass: Equatable {
+        let fast: Bool
+        let schemaVersion: Int?
+        let coldDueAt: Int?
+        let at: Date
+        var start: Int64? = nil
+    }
+
+    static func started(_ start: Int64?) -> String {
+        start.map { "start \($0)" } ?? "no start"
     }
 
     func begin(received: Int) throws -> Begun {
         try writing { handle in
-            try SQLite.exec("DELETE FROM rows WHERE seal > \(received)", on: handle)
-            var forgot = sqlite3_changes(handle) > 0
-            try SQLite.exec("DELETE FROM blobs WHERE seal > \(received)", on: handle)
-            forgot = forgot || sqlite3_changes(handle) > 0
-            if forgot { try set("stamp", nil, on: handle) }
+            var forgot = false
+            for table in ["rows", "blobs", "examined", "pending_media"] {
+                try SQLite.exec("DELETE FROM \(table) WHERE seal > \(received)", on: handle)
+                forgot = forgot || sqlite3_changes(handle) > 0
+            }
+            if forgot { try forgetPasses(on: handle) }
             let months = try text("months", on: handle).flatMap { try Months(spelled: files.values().decrypt($0)) }
-            return Begun(identity: try text("identity", on: handle), stamp: forgot ? nil : try text("stamp", on: handle),
-                         owed: try SQLite.integer("SELECT value FROM meta WHERE name = 'owed'", on: handle) ?? 0,
-                         months: months, countedAt: months == nil ? nil : try SQLite.integer("SELECT value FROM meta WHERE name = 'counted_at'", on: handle))
+            return Begun(identity: try text("identity", on: handle), stamp: try text("stamp", on: handle),
+                         owed: try integer("owed", on: handle) ?? 0,
+                         months: months, countedAt: months == nil ? nil : try integer("counted_at", on: handle),
+                         coldDueAt: try integer("cold_due_at", on: handle), schemaVersion: try integer("schema_version", on: handle),
+                         hadFastPass: try integer("had_fast_pass", on: handle) == 1,
+                         hasPendingMedia: try SQLite.integer("SELECT 1 FROM pending_media LIMIT 1", on: handle) != nil,
+                         start: try text("start", on: handle))
         }
+    }
+
+    private func forgetPasses(on handle: OpaquePointer) throws {
+        try set("stamp", nil, on: handle)
+        try set("cold_due_at", integer: 0, on: handle)
+        try set("schema_version", integer: nil, on: handle)
+        try set("had_fast_pass", integer: 0, on: handle)
+        try set("start", nil, on: handle)
     }
 
     @discardableResult
@@ -62,12 +102,16 @@ struct StoreMemory {
                 return false
             }
             try SQLite.exec("DELETE FROM rows", on: handle)
+            try SQLite.exec("DELETE FROM examined", on: handle)
+            try SQLite.exec("DELETE FROM pending_media", on: handle)
             try set("identity", identity, on: handle)
             try set("declared", declared, on: handle)
             try set("stamp", nil, on: handle)
-            try set("owed", nil, on: handle)
+            try set("owed", integer: nil, on: handle)
             try set("months", nil, on: handle)
             try set("counted_at", nil, on: handle)
+            try set("start", nil, on: handle)
+            for name in ["cold_due_at", "schema_version", "had_fast_pass"] { try set(name, integer: nil, on: handle) }
             return true
         }
     }
@@ -80,17 +124,26 @@ struct StoreMemory {
         }
     }
 
-    func settle(stamp: String, owed: Int) throws {
+    func settle(stamp: String, owed: Int, pass: Pass? = nil) throws {
         try writing { handle in
             try set("stamp", named(stamp), on: handle)
-            try SQLite.exec("INSERT OR REPLACE INTO meta (name, value) VALUES ('owed', \(owed))", on: handle)
+            try set("owed", integer: owed, on: handle)
+            guard let pass else { return }
+            let now = Int(pass.at.timeIntervalSince1970.rounded(.down))
+            try set("schema_version", integer: pass.schemaVersion, on: handle)
+            try set("cold_due_at", integer: pass.coldDueAt, on: handle)
+            try set("had_fast_pass", integer: pass.fast ? 1 : 0, on: handle)
+            try set("start", named(Self.started(pass.start)), on: handle)
+            try SQLite.exec("DELETE FROM pending_media WHERE added_at < \(now - Self.pendingSpan)", on: handle)
         }
     }
 
     func refused(page seal: Int, reason: String) throws -> Bool {
         try writing { handle in
-            try SQLite.exec("DELETE FROM rows WHERE seal >= \(seal)", on: handle)
-            try SQLite.exec("DELETE FROM blobs WHERE seal >= \(seal)", on: handle)
+            for table in ["rows", "blobs", "examined", "pending_media"] {
+                try SQLite.exec("DELETE FROM \(table) WHERE seal >= \(seal)", on: handle)
+            }
+            try forgetPasses(on: handle)
             let reason = named(reason)
             guard try text("page_refused", on: handle) != reason else { return false }
             try set("page_refused", reason, on: handle)
@@ -121,8 +174,10 @@ struct StoreMemory {
         }
     }
 
-    func record(files index: BlobIndex, from database: URL, schema: (Set<String>) -> StoreSchema, seal: Int) throws {
+    func record(files index: BlobIndex, from database: URL, schema: (Set<String>) -> StoreSchema, seal: Int, at now: Date,
+                root: URL) throws {
         try writing { handle in
+            StatedFile.registerPlaced(on: handle, root: root)
             try SQLite.exec("ATTACH \(SQLiteDelta.literal(database.path)) AS source", on: handle)
             let declared = try StoreSQL.declared(on: handle)
             let sizes = JSONText.object(index.entries.map { ($0.key, .int($0.value.bytes)) }).data
@@ -135,6 +190,18 @@ struct StoreMemory {
                                 + "WHERE \(SQLiteDelta.quoted(table.key ?? "rowid")) = rows.key) "
                                 + "WHERE tbl = \(SQLiteDelta.literal(table.name)) AND (seal = \(seal) OR key IN "
                                 + "(SELECT \(SQLiteDelta.quoted(table.key ?? "rowid")) FROM source.\(SQLiteDelta.quoted(table.name))))", on: handle)
+                guard let key = table.key else { continue }
+                let name = SQLiteDelta.literal(table.name)
+                let uncarried = table.files.map {
+                    "(typeof((\($0))) = 'text' AND (\($0)) <> '' AND \(StatedFile.placed)((\($0))) IS NOT NULL "
+                        + "AND (SELECT bytes FROM temp.carried_files WHERE locator = (\($0))) IS NULL)"
+                }.joined(separator: " OR ")
+                let rows = "FROM source.\(SQLiteDelta.quoted(table.name)) WHERE typeof(\(SQLiteDelta.quoted(key))) = 'integer'"
+                try SQLite.exec("DELETE FROM pending_media WHERE tbl = \(name) AND key IN "
+                                + "(SELECT \(SQLiteDelta.quoted(key)) \(rows) AND NOT (\(uncarried)))", on: handle)
+                try SQLite.exec("INSERT OR IGNORE INTO pending_media (tbl, key, added_at, seal) "
+                                + "SELECT \(name), \(SQLiteDelta.quoted(key)), \(Int(now.timeIntervalSince1970.rounded(.down))), \(seal) "
+                                + "\(rows) AND (\(uncarried))", on: handle)
             }
         }
     }
@@ -150,6 +217,7 @@ struct StoreMemory {
             for statement in Self.schema { try SQLite.exec(statement, on: handle) }
             if try SQLite.integer("SELECT 1 FROM pragma_table_info('rows') WHERE name = 'files'", on: handle) == nil {
                 try SQLite.exec("ALTER TABLE rows ADD COLUMN files TEXT", on: handle)
+                try forgetPasses(on: handle)
             }
             let value = try body(handle)
             try SQLite.exec("COMMIT", on: handle)
@@ -166,6 +234,17 @@ struct StoreMemory {
             if case .text(let value) = cells.first { found = value }
         }
         return found
+    }
+
+    private func integer(_ name: String, on handle: OpaquePointer) throws -> Int? {
+        try SQLite.integer("SELECT value FROM meta WHERE name = \(SQLiteDelta.literal(name))", on: handle)
+    }
+
+    private func set(_ name: String, integer value: Int?, on handle: OpaquePointer) throws {
+        guard let value else {
+            return try SQLite.exec("DELETE FROM meta WHERE name = \(SQLiteDelta.literal(name))", on: handle)
+        }
+        try SQLite.exec("INSERT OR REPLACE INTO meta (name, value) VALUES (\(SQLiteDelta.literal(name)), \(value))", on: handle)
     }
 
     private func set(_ name: String, _ value: String?, on handle: OpaquePointer) throws {

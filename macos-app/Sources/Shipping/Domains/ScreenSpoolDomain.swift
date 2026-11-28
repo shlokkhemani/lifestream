@@ -54,12 +54,18 @@ public final class ScreenSpoolDomain: ShippingDomain {
         var shipped = Set(held?.blobs ?? [])
         let live = try sealBundle(newest, listings: listings, mark: mark, followed: false, request: request,
                                   custody: custody, shipped: shipped, lost: lost, ledger: ledger)
+        guard !live.yielded else {
+            historyOwed.value = older.count > 0
+            stated.value = nil
+            return []
+        }
         if let bundle = live.bundle {
             bundles.append(bundle)
             shipped.formUnion(live.blobs)
             custody = SealCustody(pass: custody.pass, received: custody.seal, imported: custody.imported, history: custody.history)
         }
         var paged = 0
+        var yielded = false
         if let recent, older.count > 0, HistoryPage.paced(request.custody) {
             let followed = newest.count > 0 || (mark ?? "") >= recent
             let page = try sealBundle(older, listings: listings, mark: mark, followed: followed, request: request,
@@ -67,9 +73,10 @@ public final class ScreenSpoolDomain: ShippingDomain {
                                       history: true)
             if let bundle = page.bundle { bundles.append(bundle) }
             paged = page.carried
+            yielded = page.yielded
         }
         historyOwed.value = older.count > paged
-        stated.value = bundles.isEmpty && request.owesThrough ? request.through(readThrough: live.settledThrough) : nil
+        stated.value = bundles.isEmpty && !yielded && request.owesThrough ? request.through(readThrough: live.settledThrough) : nil
         return bundles
     }
 
@@ -83,8 +90,8 @@ public final class ScreenSpoolDomain: ShippingDomain {
 
     private func sealBundle(_ owed: Owed, listings: [String: Spool.Listing], mark: String?, followed: Bool,
                             request: SealRequest, custody: SealCustody, shipped: Set<String>, lost: [Lost],
-                            ledger: SealLedger<ScreenEntry>, history: Bool = false)
-        throws -> (bundle: SealedBundle?, blobs: [String], settledThrough: Date, carried: Int) {
+                            ledger: SealLedger<ScreenEntry>, history: Bool = false, cut: String? = nil, heldKnown: Set<String>? = nil)
+        throws -> (bundle: SealedBundle?, blobs: [String], settledThrough: Date, carried: Int, yielded: Bool) {
         let lines = request.workDirectory.appendingPathComponent("screen-observations-\(UUID().uuidString).jsonl")
         let writer: Writer
         do { writer = try ledgers.files.writer(lines, flush: .data) } catch { throw ScreenSpoolDomainError.work(lines.path) }
@@ -93,14 +100,43 @@ public final class ScreenSpoolDomain: ShippingDomain {
                               maximumObservations: maximumObservations, maximumBytes: maximumObservationBytes, spoolRoot: spoolRoot)
         let settledThrough: Date
         do {
-            settledThrough = try walk(owed, listings: listings, mark: mark, followed: followed, at: request.fetchedAt, into: &sealing)
+            settledThrough = try walk(owed, listings: listings, mark: mark, followed: followed, at: request.fetchedAt, until: cut,
+                                      into: &sealing)
             try writer.finish()
         } catch {
             writer.abandon()
             throw error
         }
-        guard let first = sealing.carried.first, let last = sealing.carried.last else { return (nil, [], settledThrough, 0) }
+        guard let first = sealing.carried.first, let last = sealing.carried.last else { return (nil, [], settledThrough, 0, cut != nil) }
         let blobs = try sealing.segmentBlobs()
+        var held = heldKnown.map { known in { @Sendable asked in known.intersection(asked) } } ?? request.held
+        var staged: Set<String> = []
+        if let staging = request.staged {
+            let large = blobs.compactMap { blob -> StagedBlobs.Large? in
+                guard let file = blob.file, let bytes = sealing.sizes[blob.sha256], bytes > staging.thresholdBytes else { return nil }
+                return StagedBlobs.Large(sha256: blob.sha256, file: file, bytes: bytes)
+            }
+            if !large.isEmpty {
+                let named = Set(blobs.map(\.sha256))
+                let heldNow = (heldKnown ?? request.held(named)).intersection(named)
+                held = { heldNow.intersection($0) }
+                let owedLarge = large.filter { !heldNow.contains($0.sha256) }
+                let unready = owedLarge.filter { !staging.isReady($0.sha256) }
+                if !unready.isEmpty {
+                    for file in unready { staging.enqueue(file.sha256, file.file, file.bytes, true, history ? .later : .new) }
+                    let waiting = Set(unready.map(\.sha256))
+                    guard let blocked = sealing.carried.firstIndex(where: { observation in
+                        [observation.video?.sha256, observation.text?.sha256].contains { $0.map(waiting.contains) ?? false }
+                    }), blocked > 0 else {
+                        return (nil, [], settledThrough, 0, true)
+                    }
+                    return try sealBundle(owed, listings: listings, mark: mark, followed: followed, request: request, custody: custody,
+                                          shipped: shipped, lost: lost, ledger: ledger, history: history, cut: sealing.carried[blocked].path,
+                                          heldKnown: heldNow)
+                }
+                staged = Set(owedLarge.map(\.sha256))
+            }
+        }
         let fetchedAt = history ? request.fetchedAt.addingTimeInterval(0.001) : request.fetchedAt
         var facts: [(String, JSONText)] = [
             ("observations", .int(sealing.observations - sealing.unreadable)),
@@ -120,12 +156,12 @@ public final class ScreenSpoolDomain: ShippingDomain {
         let bundle = try BundleWriter.write(
             into: request.workDirectory, sourceId: sourceId, feeder: Self.feeder, fetchedAt: fetchedAt,
             files: [.init(name: Self.observationsFile, content: .kept(lines))],
-            blobs: blobs, held: request.held, facts: facts,
+            blobs: blobs.filter { !staged.contains($0.sha256) }, stagedBlobs: staged.sorted(), held: held, facts: facts,
             custody: (custody, lost), through: ledgers.files)
         try ledger.record(ScreenEntry(carrying: sealing.carried, blobs: bundle.named, deleted: lost.reduce(0) { $0 + $1.items }),
                           at: custody.seal)
-        let sidecar = BundleSidecar(id: bundle.id, sourceId: sourceId, custody: custody, history: history)
-        return (SealedBundle(file: bundle.file, sidecar: sidecar), bundle.named, settledThrough, sealing.carried.count)
+        let sidecar = BundleSidecar(id: bundle.id, sourceId: sourceId, custody: custody, history: history, stagedBlobs: bundle.staged)
+        return (SealedBundle(file: bundle.file, sidecar: sidecar), bundle.named, settledThrough, sealing.carried.count, false)
     }
 
     public func applied(_ answer: FreshAnswer) {
@@ -277,13 +313,13 @@ public final class ScreenSpoolDomain: ShippingDomain {
     }
 
     private func walk(_ owed: Owed, listings: [String: Spool.Listing], mark: String?, followed: Bool,
-                      at fetchedAt: Date, into sealing: inout Sealing) throws -> Date {
+                      at fetchedAt: Date, until cut: String? = nil, into sealing: inout Sealing) throws -> Date {
         let days = try Spool.days(in: spoolRoot)
         let newest = fetchedAt.addingTimeInterval(-Self.grace)
         let stale = fetchedAt.addingTimeInterval(-Self.pendingLimit)
         let firstStaleDay = String(UTCInstant.rfc3339(stale.addingTimeInterval(-1)).prefix(10))
-        var blocker: String?
-        var settledThrough = newest
+        var blocker = cut
+        var settledThrough = cut.flatMap { Spool.capturedDate(($0 as NSString).lastPathComponent) }.map { min(newest, $0) } ?? newest
         for day in days where day >= firstStaleDay {
             guard let listing = listings[day] ?? (try? Spool.listing(of: day, in: spoolRoot, after: mark)) else { continue }
             for staged in listing.staging {
@@ -428,6 +464,7 @@ public final class ScreenSpoolDomain: ShippingDomain {
         var framesText = 0, textUnproven = 0, runs = 0
         var videoSegments: [String: SegmentReference] = [:]
         var textSegments: [String: SegmentReference] = [:]
+        var sizes: [String: Int64] = [:]
 
         init(writer: Writer, files: DeviceFiles, request: SealRequest, shipped: Set<String>, maximumObservations: Int, maximumBytes: Int,
              spoolRoot: URL) {
@@ -513,10 +550,12 @@ public final class ScreenSpoolDomain: ShippingDomain {
                     continue
                 }
                 blobs[reference.sha256] = .init(sha256: reference.sha256, file: file, kept: true)
+                sizes[reference.sha256] = Int64(measured.bytes)
             }
             for reference in textSegments.values where !shipped.contains(reference.sha256) {
                 guard let file = Spool.segmentFile(reference.segment, in: spoolRoot) else { continue }
                 blobs[reference.sha256] = .init(sha256: reference.sha256, file: file, kept: true)
+                if let bytes = try? files.size(of: file) { sizes[reference.sha256] = Int64(bytes) }
             }
             return blobs.keys.sorted().compactMap { blobs[$0] }
         }

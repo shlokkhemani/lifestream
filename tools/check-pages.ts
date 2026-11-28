@@ -95,6 +95,7 @@ export const ALLOWED: readonly Allowed[] = [
   allow("/v1/connectors/", "a connector write"),
   allow("/v1/pair", "the device's own wire: pairing"),
   allow("/v1/exchange", "the device's own wire: the exchange"),
+  allow("/v1/mac/exchange", "the device's own wire: the Mac peer's long-poll exchange"),
   allow("/v1/bundles/", "the device's own wire: a bundle sent"),
   allow("/v1/acquisitions/", "the device's own wire: an acquisition sent"),
   allow("/v1/files/", "the device's own wire: a file a bundle names, sent on its own"),

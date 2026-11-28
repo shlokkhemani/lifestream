@@ -5,6 +5,7 @@ import { isIPv4, Server as NetServer, type AddressInfo, type Socket } from "node
 import { join, resolve } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
 import { pathToFileURL } from "node:url";
 import {
   canonical, civilDay, diskFailed, fits, freeOf, GENERATION, instant, isObject, KeyError, LEVEL_NAMES, lineOf, makeUnder, outOfRoom, readExif, RECHECK_BYTES, RELEASE, roomAt, TimeError, tryLock, trySharedLock,
@@ -66,6 +67,7 @@ import { bodyOf, LINGER_MS, moving, refuseCut, refusedOn } from "./silence.js";
 import { openStations, type Stations } from "./stations.js";
 import type { PeerWire } from "./peers.js";
 import { openRunners, wantedOn } from "./runners.js";
+import { openMacPeers, MAC_EXCHANGE, MAC_PEERS, type MacFlushResult } from "./mac-peers.js";
 import { hidingFile, openDetector } from "./detector.js";
 import { EmbedderError, openEmbedder } from "./embedder.js";
 import { askedOf, ASK_CHARS, type AskedMeaning, type HeldMeaning } from "./screen-reads.js";
@@ -116,6 +118,16 @@ export interface DoorOptions {
   readonly tellMs?: number;
   readonly feedbackOpen?: boolean;
   readonly hiding?: { readonly pictures?: HidingPictures; readonly engine?: string; readonly boundMs?: number; readonly writes?: (writer: Writer) => Writer; readonly match?: Match };
+  readonly macPeers?: { readonly poll_ms?: number; readonly presence_ms?: number };
+  readonly askBarrierMs?: { readonly lan?: number; readonly wan?: number };
+  readonly askBarrierCooldownMs?: number;
+}
+
+export type AskBarrierState = "skipped_offline" | "clean" | "settled" | "timeout";
+
+export interface AskBarrier {
+  readonly state: AskBarrierState;
+  readonly barrier_ms: number;
 }
 
 export type Match = (path: string, signal: AbortSignal) => Promise<{ width: number; height: number; faces: Face[] } | { cannot: true } | null>;
@@ -175,6 +187,7 @@ const OWN_ACTS = {
   "GET /v1/agents/address": { again: true, wait_ms: WAIT_MS },
   "POST /v1/agents/address": { again: true, wait_ms: WAIT_MS },
   "POST /v1/agents/keys": { again: false, wait_ms: WAIT_MS },
+  "POST /v1/ask wait_readable": { again: true, wait_ms: WAIT_MS },
 } as const satisfies Record<string, Relayed>;
 const AGENT_ROUTES = {
   "POST /v1/agents/request": { call: "request", again: false, wait_ms: WAIT_MS },
@@ -195,6 +208,9 @@ const PHONE_ROUTE = /^\/v1\/bundles\/(sha256:[a-f0-9]{64})$/u;
 const FILE_ROUTE = /^\/v1\/files\/(sha256:[a-f0-9]{64})$/u;
 const OFFSET_HEADER = "upload-offset";
 const OFFSET = /^(?:0|[1-9][0-9]{0,15})$/u;
+const UNPACKED_HEADER = "lifestream-uncompressed-length";
+const UNPACKED = /^[1-9][0-9]{0,15}$/u;
+const SOURCE_HEADER = "lifestream-source";
 const STREAM_ROUTE = /^\/v1\/connectors\/([^/]+)$/u;
 const DELIVERING = (method: string | undefined, pathname: string): boolean =>
   (method === "POST" && (pathname === "/v1/exchange" || pathname === HELD_ROUTE || pathname === IMPORTS_HELD_ROUTE)) || (method === "PUT" && (PHONE_ROUTE.test(pathname) || FILE_ROUTE.test(pathname) || ACQUISITION_ROUTE.test(pathname)));
@@ -231,6 +247,9 @@ const DAY_NAME = /^\d{4}-\d{2}-\d{2}$/u;
 const SUGGEST_ROUTE = "/v1/places/suggest";
 const MEANING_ASK_MS = 15_000;
 const MAC_QUIET_MS = 3_600_000;
+const ASK_BARRIER_LAN_MS = 1_000;
+const ASK_BARRIER_WAN_MS = 2_000;
+const ASK_BARRIER_COOLDOWN_MS = 3_000;
 const ASK_ROUTE = /^\/v1\/ask(?:\/stop|\/login|\/chats(?:\/[^/]+(?:\/events)?)?)?$/u;
 const ASK_FILES_ROUTE = "/v1/ask/files";
 const ASK_FILE_ROUTE = /^\/v1\/ask\/files\/([^/]+)$/u;
@@ -360,6 +379,69 @@ const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})$/iu;
 function isLoopbackHost(host: string | undefined, port: number | undefined): boolean {
   const named = LOOPBACK_HOST.exec(host ?? "");
   return named !== null && Number(named[1]) === port;
+}
+
+function gzipOf(request: IncomingMessage, most: number): number | undefined {
+  const coding = request.headers["content-encoding"]?.trim().toLowerCase();
+  if (coding === undefined || coding === "" || coding === "identity") return undefined;
+  if (coding !== "gzip") refuse(415, "BUNDLE_ENCODING", `a bundle is sent as it is or as gzip, never ${JSON.stringify(coding)}`);
+  const said = request.headers[UNPACKED_HEADER];
+  if (typeof said !== "string" || !UNPACKED.test(said) || !Number.isSafeInteger(Number(said))) {
+    refuse(422, "UPLOAD_HEADERS", "a gzip bundle states its length unpacked (Lifestream-Uncompressed-Length), a decimal integer from 1");
+  }
+  const unpacked = Number(said);
+  if (unpacked > most) refuse(413, "BUNDLE_TOO_LARGE", `the bundle states ${unpacked} bytes unpacked; the door takes at most ${most}`);
+  return unpacked;
+}
+
+function zlibFault(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.startsWith("Z_");
+}
+
+async function* inflated(packed: AsyncIterable<Buffer>, unpacked: number): AsyncGenerator<Buffer> {
+  const gunzip = createGunzip();
+  const ready: Buffer[] = [];
+  let out = 0;
+  let fault: unknown;
+  let wake: (() => void) | undefined;
+  const woken = (): void => {
+    const waiting = wake;
+    wake = undefined;
+    waiting?.();
+  };
+  gunzip.on("data", (piece: Buffer) => {
+    out += piece.byteLength;
+    if (out <= unpacked) return void ready.push(piece);
+    fault ??= new Refusal(413, "BUNDLE_TOO_LARGE", `the bundle unpacks past the ${unpacked} bytes it states`);
+    gunzip.destroy();
+  });
+  gunzip.on("error", (error) => { fault ??= error; woken(); });
+  gunzip.on("close", woken);
+  gunzip.on("end", woken);
+  const fed = (chunk: Buffer | null): Promise<void> => new Promise((resolve) => {
+    wake = resolve;
+    if (chunk === null) gunzip.end();
+    else gunzip.write(chunk, woken);
+  });
+  const drained = function* (): Generator<Buffer> {
+    if (fault !== undefined) {
+      if (zlibFault(fault)) refuse(422, "BUNDLE_ENCODING", `the bundle is no whole gzip: ${(fault as Error).message}`);
+      throw fault;
+    }
+    yield* ready.splice(0);
+  };
+  try {
+    for await (const chunk of packed) {
+      await fed(chunk);
+      yield* drained();
+    }
+    await fed(null);
+    yield* drained();
+  } finally {
+    gunzip.destroy();
+  }
+  if (out < unpacked) refuse(422, "BUNDLE_ENCODING", `the bundle unpacks to ${out} bytes; it states ${unpacked}`);
 }
 
 function isJsonType(type: string | undefined): boolean {
@@ -576,6 +658,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
   let stations: Stations;
   const replacedPass = (pass: Principal): boolean => (pass.kind === "phone" || pass.kind === "mac") && custody.replaced(pass);
   const runners = opening(() => openRunners({ wanted: (runner) => wantedOn(read(), runner) }), (opened) => opened.close());
+  const macPeers = opening(() => openMacPeers(options.macPeers ?? {}), (opened) => opened.close());
   const marks = opening(() => openMarks(handle, marksFileOf(folder, at.dir)), (opened) => opened.close());
   const detector = openDetector({ chosen: () => chosenFor(read(), "hiding"), line: "hide", drive: { place: (placed, signal, handed) => runners.place(placed, signal, handed), list: async () => runners.listing() } });
   const embedder = openEmbedder({
@@ -801,7 +884,47 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       drives: (principal) => principal.scopes.includes("drive") || principal.scopes.includes("call") || principal.scopes.includes("find"),
       below: async (unit, version) => runners.below(unit, version),
     },
+    {
+      wire: macPeers, noun: "mac", alone: false, exchange: `POST ${MAC_EXCHANGE}`, listing: `GET ${MAC_PEERS}`,
+      peer: (principal) => principal.kind === "mac",
+      drives: (principal) => principal.scopes.includes("drive"),
+    },
   ];
+
+  const askBarrierLanMs = options.askBarrierMs?.lan ?? ASK_BARRIER_LAN_MS;
+  const askBarrierWanMs = options.askBarrierMs?.wan ?? ASK_BARRIER_WAN_MS;
+  const askBarrierCooldownMs = options.askBarrierCooldownMs ?? ASK_BARRIER_COOLDOWN_MS;
+  let barrierFlight: Promise<AskBarrier> | null = null;
+  let barrierEnded = Number.NEGATIVE_INFINITY;
+  const readableAfter = async (flushed: MacFlushResult, budget_ms: number, request: IncomingMessage): Promise<AskBarrierState> => {
+    try {
+      const asked = { verb: "wait_readable", seals: { ...flushed.seals }, passes: { ...flushed.passes }, budget_ms };
+      const { state } = await relay(asked, "POST /v1/ask wait_readable", request) as { state?: unknown };
+      return state === "settled" ? "settled" : "timeout";
+    } catch {
+      return "timeout";
+    }
+  };
+  const askBarrier = (reach: Reach, request: IncomingMessage): Promise<AskBarrier> => {
+    if (!macPeers.present()) return Promise.resolve({ state: "skipped_offline", barrier_ms: 0 });
+    if (barrierFlight !== null) return barrierFlight;
+    if (performance.now() - barrierEnded < askBarrierCooldownMs) return Promise.resolve({ state: "clean", barrier_ms: 0 });
+    const budget = reach === "tailscale" ? askBarrierWanMs : askBarrierLanMs;
+    const started = performance.now();
+    const flight = (async (): Promise<AskBarrier> => {
+      const flushed = await macPeers.flush({ budget_ms: budget, signal: stopping.signal });
+      const remaining = Math.floor(budget - (performance.now() - started));
+      const sealed = Object.keys(flushed.seals).length > 0;
+      const state: AskBarrierState = !sealed ? (flushed.state === "flushed" ? "clean" : flushed.state)
+        : remaining > 0 ? await readableAfter(flushed, remaining, request) : "timeout";
+      return { state, barrier_ms: Math.round(performance.now() - started) };
+    })().finally(() => {
+      barrierFlight = null;
+      barrierEnded = performance.now();
+    });
+    barrierFlight = flight;
+    return flight;
+  };
 
   const device = (pass: Principal["kind"], request: IncomingMessage): void => {
     const kind = deviceOf({ kind: pass });
@@ -900,32 +1023,40 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     if (!custody.delivers(principal).includes(source)) refuse(403, "PRINCIPAL_SCOPE", `${source} is turned off: the home takes none of it`);
   };
 
-  const admit = (request: IncomingMessage): AdmittedBody => {
+  const admit = (request: IncomingMessage, gzip: number | undefined): AdmittedBody => {
     const length = request.headers["content-length"];
     if (length === undefined) refuse(411, "LENGTH_REQUIRED", "an upload states its length (Content-Length)");
     const stated = Number(length);
     if (stated > settings.max_bundle_bytes) refuse(413, "BUNDLE_TOO_LARGE", `the bundle states ${stated} bytes; the door takes at most ${settings.max_bundle_bytes}`);
     const kind: WriteKind = request.headers[KIND_HEADER] === "new" ? "new" : "later";
-    room(kind, 2 * stated);
-    const body: AdmittedBody = { kind, need: 2 * stated, landed: 0 };
+    const need = 2 * (gzip ?? stated);
+    room(kind, need);
+    const body: AdmittedBody = { kind, need, landed: 0 };
     admitted.add(body);
     return body;
   };
 
-  const receive = async (request: IncomingMessage, path: string, body: AdmittedBody): Promise<{ sha256: string; bytes: number }> => {
+  const receive = async (request: IncomingMessage, path: string, body: AdmittedBody, gzip: number | undefined): Promise<{ sha256: string; bytes: number }> => {
     const file = handle.file(UPLOAD, path);
     file.remove();
     const digest = createHash("sha256");
     let checked = 0;
+    let read = 0;
     let silent = false;
+    const arriving = (async function* () {
+      for await (const chunk of moving(request.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>, silentMs, () => { silent = true; request.destroy(); })) {
+        read += chunk.byteLength;
+        received.set(request, read);
+        yield chunk;
+      }
+    })();
     inBody.add(request);
     mark();
     try {
       await file.writing((async function* () {
         try {
-          for await (const chunk of moving(request.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>, silentMs, () => { silent = true; request.destroy(); })) {
+          for await (const chunk of gzip === undefined ? arriving : inflated(arriving, gzip)) {
             body.landed += chunk.byteLength;
-            received.set(request, body.landed);
             if (body.landed - checked >= recheckBytes) {
               checked = body.landed;
               room(body.kind, 0);
@@ -971,9 +1102,9 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     }
   };
 
-  const upload = async <T>(id: string, partial: string, request: IncomingMessage, work: (body: AdmittedBody) => Promise<T>): Promise<T> => {
+  const upload = async <T>(id: string, partial: string, request: IncomingMessage, gzip: number | undefined, work: (body: AdmittedBody) => Promise<T>): Promise<T> => {
     if (active.has(id)) refuse(409, "UPLOAD_ACTIVE", "bundle upload is active", RETRY_S);
-    const body = admit(request);
+    const body = admit(request, gzip);
     active.add(id);
     try {
       return await work(body);
@@ -1016,6 +1147,11 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     }
     const pass = readPrincipals(handle).principals.find((row) => row.id === redeemed.pass)!;
     return [200, { unit: redeemed.unit, answer: await custody.pairing(pass, reach) }];
+  };
+
+  const settingsMoved = (principal: Principal, answered: [number, JsonObject]): [number, JsonObject] => {
+    if (answered[0] === 200) macPeers.notifySettings(principal.kind === "mac" ? principal.unit : null);
+    return answered;
   };
 
   const act = async (principal: Principal, request: IncomingMessage): Promise<[number, JsonObject]> => {
@@ -1153,7 +1289,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       admitted.add(body);
       const partial = join(uploads, `ask-file-${randomUUID()}.partial`);
       try {
-        const { sha256 } = await receive(request, partial, body);
+        const { sha256 } = await receive(request, partial, body, undefined);
         const landed = `sha256:${sha256}`;
         const kept = handle.file(UPLOAD, partial);
         if (!rule.kind(headOf(kept, rule.head))) refuse(415, "FILE_KIND", rule.kindWords);
@@ -1594,6 +1730,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
   const statements = async (connector: OwnerReader, principal: Principal, bundle: AcquisitionBundle, id: string, hash: string | undefined): Promise<Stated> => {
     const { manifest } = bundle;
     if (manifest.custody !== undefined) refuse(422, "ACQUISITION_MANIFEST", `${manifest.source_id} is the owner's: a bundle of its statements states no custody`);
+    if (manifest.staged_blobs !== undefined) refuse(422, "ACQUISITION_MANIFEST", `${manifest.source_id} is the owner's: a bundle of its statements names no staged blob`);
     if (hash !== undefined && !manifest.files.some((file) => file.sha256.startsWith(hash))) {
       refuse(422, "ACQUISITION_ID_MISMATCH", `the id's ${hash} is not the start of the SHA-256 of the statements the bundle lists`);
     }
@@ -1705,14 +1842,16 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     const name = owner === undefined ? basic : `${basic}.${hash}`;
     const id = `${source}/${name}`;
     if (readSealed(handle, deliveryDirectory(handle, source, name)) !== null) return [200, await custody.answer(principal, reach)];
+    const gzip = gzipOf(request, settings.max_bundle_bytes);
     const partial = join(uploads, `${randomUUID()}.zip.partial`);
-    await upload(id, partial, request, async (body) => {
-      await receive(request, partial, body);
+    await upload(id, partial, request, gzip, async (body) => {
+      await receive(request, partial, body, gzip);
       const bundle = openAcquisitionBundle(handle.file(UPLOAD, partial));
       try {
         if (bundle.id !== `${source}/${basic}`) refuse(422, "ACQUISITION_ID_MISMATCH", `path id ${id} differs from manifest ${bundle.id}`);
         const members = [...bundle.files.values(), ...bundle.blobs.values()];
-        if (members.length === 0 && principal.kind !== null && owner === undefined) refuse(422, "ACQUISITION_MANIFEST", `${id} holds no file and no blob: a device's bundle carries what it seals`);
+        const staged = bundle.manifest.staged_blobs ?? [];
+        if (members.length === 0 && staged.length === 0 && principal.kind !== null && owner === undefined) refuse(422, "ACQUISITION_MANIFEST", `${id} holds no file and no blob: a device's bundle carries what it seals`);
         lands(body, members.reduce((sum, member) => sum + member.size, 0));
         const { manifest } = bundle;
         if (Object.hasOwn(manifest.facts, "archive")) refuse(422, "ACQUISITION_MANIFEST", "Update Lifestream on this Mac to go on");
@@ -1720,7 +1859,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
         await custody.seal(principal, reach, {
           lane: source, name, custody: manifest.custody, only: source, carried: [source], quiet: [],
           stated_ms: statedMs(manifest), write: (stamp) => sealing(async () => {
-            if (owned === undefined) return void await sealAcquisitionBundle(handle, bundle, stamp, { name, facts: manifest.facts });
+            if (owned === undefined) return void await sealAcquisitionBundle(handle, bundle, stamp, { name, facts: manifest.facts }, { home: stored, files });
             if (owned.chats.some((chat) => stage.erased(chat))) refuse(422, "CHAT_ERASED", "This conversation was erased.");
             const carried = await stage.carry(owned.files, inboxLane(handle, source), owned.kept);
             if (carried.missing.length > 0) {
@@ -1728,7 +1867,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
               missingFiles({ photos: carried.missing.filter((blob) => !owned.audio.includes(blob)), audio: carried.missing.filter((blob) => owned.audio.includes(blob)) }, QUESTION_FILES);
             }
             try {
-              await sealAcquisitionBundle(handle, bundle, stamp, { name, facts: { ...owned.facts, blobs_carried: bundle.blobs.size + carried.carried.length } });
+              await sealAcquisitionBundle(handle, bundle, stamp, { name, facts: { ...owned.facts, blobs_carried: bundle.blobs.size + carried.carried.length } }, { home: stored, files });
             } catch (error) {
               carried.undo();
               throw error;
@@ -1748,8 +1887,8 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     const id = `${lane}/${bundleId}`;
     if (readSealed(handle, deliveryDirectory(handle, lane, bundleId)) !== null) return [200, await custody.answer(principal, reach)];
     const partial = join(uploads, `${randomUUID()}.zip.partial`);
-    await upload(id, partial, request, async (body) => {
-      await receive(request, partial, body);
+    await upload(id, partial, request, undefined, async (body) => {
+      await receive(request, partial, body, undefined);
       const bundle = await readers.bundle(partial);
       if (bundle.bundle_id !== bundleId) refuse(422, "IOS_BUNDLE_ID_MISMATCH", `path id ${bundleId} differs from manifest ${bundle.bundle_id}`);
       lands(body, Object.values(bundle.files).reduce((sum, file) => sum + file.bytes, 0));
@@ -1782,9 +1921,16 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
     return [201, await custody.answer(principal, reach)];
   };
 
+  const stagedFor = (request: IncomingMessage): string => {
+    const source = request.headers[SOURCE_HEADER];
+    if (typeof source !== "string" || !isSegment(source)) refuse(422, "UPLOAD_HEADERS", "a Mac names the source a file is for (Lifestream-Source)");
+    return source;
+  };
+
   const putFile = async (principal: Principal, name: string, request: IncomingMessage): Promise<Put> => {
-    const lane = principal.kind === "phone" ? laneOf("phone", principal.unit)! : refuse(403, "PRINCIPAL_SCOPE", `pass ${principal.id} is no phone's: a phone sends its files on their own`);
-    assertAllowed(principal, "deliver", lane);
+    if (principal.kind === "phone") assertAllowed(principal, "deliver", laneOf("phone", principal.unit)!);
+    else if (principal.kind === "mac") delivers(principal, stagedFor(request));
+    else refuse(403, "PRINCIPAL_SCOPE", `pass ${principal.id} is no device's: a phone or a Mac sends its files on their own`);
     const length = request.headers["content-length"];
     if (length === undefined) refuse(411, "LENGTH_REQUIRED", "a file states its length (Content-Length)");
     const said = request.headers[OFFSET_HEADER] ?? "0";
@@ -1876,14 +2022,16 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
             let authorization = request.headers.authorization ?? "";
             let read: Buffer | undefined;
             let ended = (): void => undefined;
+            let barrier: AskBarrier | null = null;
+            response.on("close", () => line(response.statusCode, barrier === null ? {} : { ask_barrier: barrier.state, barrier_ms: barrier.barrier_ms }));
             if (pathname !== "/v1/ask/login") {
               const asked = question ? await askQuestion(principal, request) : null;
               read = asked?.read;
+              if (question) barrier = await askBarrier(reach, request);
               const made = turns.open(principal, asked === null ? null : { chat: asked.chat, level: asked.level, pick: asked.pick ?? null }, `${request.method} ${onward}`);
               authorization = `Bearer ${made.token}`;
               ended = () => turns.forget(made.turn);
             }
-            response.on("close", () => line(response.statusCode));
             await forwardAsk(askServer, `${onward}${url.search}`, authorization, request, response, stopping.signal,
               { ...(read === undefined ? {} : { read }), follow: question, ended });
             return;
@@ -1901,7 +2049,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
             response.on("close", () => {
               if (!quiet || response.statusCode !== 200) line(response.statusCode);
             });
-            await wire.wire.serve(half === "peer" ? { peer: principal.unit } : { drive: true, ...(finds ? { line: "mark" as const } : {}) }, request, response);
+            await wire.wire.serve(half === "peer" ? { peer: principal.unit, pass: principal.id } : { drive: true, ...(finds ? { line: "mark" as const } : {}) }, request, response);
             return;
           }
           const photos = request.method === "GET" && pathname === WANTED_ROUTE ? wantedAsk(principal, reach, url) : undefined;
@@ -2004,14 +2152,21 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
           else if (request.method === "POST" && pathname === "/v1/exchange") result = await exchange(principal, reach, request);
           else if (request.method === "POST" && pathname === HELD_ROUTE) result = await heldBlobs(principal, request);
           else if (request.method === "POST" && pathname === IMPORTS_HELD_ROUTE) result = await heldImports(principal, request);
-          else if (request.method === "POST" && pathname === "/v1/act") result = await act(principal, request);
-          else if (request.method === "POST" && pathname === "/v1/refresh") result = await refreshRoute({ connectors, custody, body, relay: (asked) => relay(asked, "POST /v1/refresh", request) })(principal, request, reach);
+          else if (request.method === "POST" && pathname === "/v1/act") result = settingsMoved(principal, await act(principal, request));
+          else if (request.method === "POST" && pathname === "/v1/refresh") {
+            result = await refreshRoute({
+              connectors, custody, body, relay: (asked) => relay(asked, "POST /v1/refresh", request), notifyMacRefresh: (connector, excludeUnit) => void macPeers.notifyRefresh(connector, excludeUnit),
+            })(principal, request, reach);
+          }
           else if (request.method === "POST" && pathname === OWNER_ACT_ROUTE) result = await ownerAct(principal, request);
           else if (request.method === "POST" && pathname === "/v1/account") result = await stateAccount(principal, request);
-          else if (request.method === "POST" && isFieldRoute(pathname)) result = await fields(principal, pathname, request);
+          else if (request.method === "POST" && isFieldRoute(pathname)) {
+            const answered = await fields(principal, pathname, request);
+            result = pathname === "/v1/settings" ? settingsMoved(principal, answered) : answered;
+          }
           else if (request.method === "POST" && isSignInRoute(pathname)) result = await signins(principal, pathname, request);
           else if (request.method === "POST" && pathname === "/v1/process") result = await chooseItem(principal, request);
-          else if (streamed !== null) result = await stream(principal, decodeSegment(streamed[1]!), request);
+          else if (streamed !== null) result = settingsMoved(principal, await stream(principal, decodeSegment(streamed[1]!), request));
           else if (request.method === "GET" && pathname === "/v1/restore") result = await restoring(principal);
           else if (request.method === "GET" && (pathname === OUTBOUND_ROUTE || OUTBOUND_ROW.test(pathname))) result = await outboundRoute(principal, pathname, url);
           else if (modelRead) {
@@ -2115,6 +2270,7 @@ function openFolder(intake: Intake, folder: string, settings: DoorAddress, optio
       feed.close();
       stations.close();
       runners.close();
+      macPeers.close();
       sweeping();
       if (how === "cut") cut(words);
       else if (how === "answer") stopping.abort(closing(words));

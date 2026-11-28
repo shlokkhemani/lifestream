@@ -11,14 +11,16 @@ extension Recorder {
                             screen: ScreenCapture.Configuration, videoQuality: Double,
                             machineEvents: MachineEventSources, inputEvents: InputEventLog?,
                             audio: AudioRecorder? = nil, fits: (@Sendable () -> Bool)? = nil,
-                            files: DeviceFiles, plain: DeviceFiles, scratch: URL) -> Recorder {
+                            files: DeviceFiles, plain: DeviceFiles, scratch: URL,
+                            onSegmentSettled: (@Sendable () -> Void)? = nil) -> Recorder {
         var dependencies = RecorderDependencies(
             acquisition: ScreenCapture(configuration: screen),
             machine: MachineEventsAdapter(events: machineEvents),
             input: inputEvents.map { InputEventsAdapter(log: $0) } ?? NoInputLog(),
             clock: SystemRecorderClock(),
             openStore: { try await CaptureStoreAdapter.open(directory: directory, files: files, scratch: scratch,
-                                                            videoQuality: videoQuality, fits: fits) },
+                                                            videoQuality: videoQuality, fits: fits,
+                                                            onSegmentSettled: onSegmentSettled) },
             persistStatus: { status in try status.persist(in: directory, plain: plain) })
         dependencies.previous = try? RuntimeStatus.read(from: directory, plain: plain)
         if let audio {

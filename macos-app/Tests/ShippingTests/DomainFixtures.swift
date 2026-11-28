@@ -128,10 +128,11 @@ enum DomainFixtures {
 
     static func request(work: URL, at spelling: String = "2026-09-23T04:00:00.000Z",
                         custody: SealCustody = ShippingFixture.first, owesThrough: Bool = false, start: Date? = nil,
-                        monthsOwed: @escaping @Sendable ([String: Through.Month]) -> [String: Through.Month]? = { _ in nil })
+                        monthsOwed: @escaping @Sendable ([String: Through.Month]) -> [String: Through.Month]? = { _ in nil },
+                        held: @escaping @Sendable (Set<String>) -> Set<String> = { _ in [] }, staged: StagedBlobs? = nil)
         throws -> SealRequest {
         SealRequest(fetchedAt: try instant(spelling), workDirectory: try directory(work), scratch: sealScratch, custody: custody,
-                    owesThrough: owesThrough, start: start, monthsOwed: monthsOwed)
+                    owesThrough: owesThrough, start: start, held: held, monthsOwed: monthsOwed, staged: staged)
     }
 
     static func facts(of bundle: SealedBundle) throws -> [String: Any] {

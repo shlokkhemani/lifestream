@@ -970,15 +970,16 @@ export const PACE_MIN: Duration = "30s";
 /** The pace between two history pages of a connector the home polls, where it declares none. */
 export const ROAD_PACE = { default: "1m", min: PACE_MIN, max: "1h" } as const satisfies Bounded;
 
-/** How often the Mac reads an app's store for what is new, where its connector declares no refresh. */
+/** How often the Mac reads a store it polls on a timer, where its connector declares no refresh. */
 export const MAC_REFRESH = { default: "5m", min: "1m", max: "5m" } as const satisfies Bounded;
 
 export function withRoadDefaults(connector: Connector): Connector {
   const reader = connector.type !== undefined && connector.mac !== undefined && connector.mac.sensor !== true;
-  const refresh = connector.refresh ?? (reader ? MAC_REFRESH : undefined);
+  const polled = reader && connector.mac?.store?.engine.kind === "biome";
+  const refresh = connector.refresh ?? (polled ? MAC_REFRESH : undefined);
   const declared = connector.backfill ?? (reader ? {} : undefined);
-  const polled = (connector.acquirers ?? []).length > 0 && connector.sources.some((source) => roadsOf(source).some((road) => road === "poll" || road === "chrome"));
-  const backfill = declared === undefined || declared.pace !== undefined || !polled ? declared : { ...declared, pace: ROAD_PACE };
+  const paged = (connector.acquirers ?? []).length > 0 && connector.sources.some((source) => roadsOf(source).some((road) => road === "poll" || road === "chrome"));
+  const backfill = declared === undefined || declared.pace !== undefined || !paged ? declared : { ...declared, pace: ROAD_PACE };
   return { ...connector, ...(refresh === undefined ? {} : { refresh }), ...(backfill === undefined ? {} : { backfill }) };
 }
 

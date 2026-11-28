@@ -85,6 +85,44 @@ final class MacLimitsTests: XCTestCase {
         XCTAssertEqual(pressed, Array(repeating: free, count: 5), "a press moves the past and iCloud's files on any network")
     }
 
+    func testThePhotoPassHearsTheLibraryChangeOnlyWhileObservingAndOnlyOnceReadable() async throws {
+        let disk = Volume(folder, read: { _ in 100 * Self.gb })
+        let paths = ShippingDomains.conventional(home: folder, spool: folder.appendingPathComponent("spool"),
+                                                 fullDiskAccessWitness: folder.appendingPathComponent("witness"),
+                                                 photosAllowed: { false },
+                                                 importRoom: ImportRoom(onPower: { true }, disk: disk, homeFree: { nil }), files: DeviceFiles(.plain))
+        let settings = MacSettings(file: folder.appendingPathComponent("settings.json"), files: DeviceFiles(.plain))
+        let synthetic = SyntheticLibrary(access: .undecided)
+        let pass = MacPhotoPass(paths: paths, link: try link(Door()), settings: settings, disk: disk,
+                                library: PhotoLibrary(synthetic))
+        let heard = Heard()
+        pass.startObserving { heard.add() }
+        pass.startObserving { heard.add() }
+        synthetic.put(Self.photo("photo-0001"))
+        XCTAssertEqual(synthetic.changesTold, 0, "a library not yet allowed is not watched, and nobody is asked")
+
+        synthetic.allow(.full)
+        _ = PhotoLibrary(synthetic).access
+        synthetic.put(Self.photo("photo-0002"))
+        try await until("one change heard") { heard.count == 1 }
+
+        pass.stopObserving()
+        pass.stopObserving()
+        synthetic.put(Self.photo("photo-0003"))
+        let later = Heard()
+        pass.startObserving { later.add() }
+        synthetic.put(Self.photo("photo-0004"))
+        try await until("the change after observing again") { later.count >= 1 }
+        XCTAssertEqual(heard.count, 1, "observing twice hears each change once, and nothing after it stopped")
+        XCTAssertEqual(synthetic.changesTold, 3)
+    }
+
+    private static func photo(_ id: String) -> PhotoSnapshot {
+        let taken = Date(timeIntervalSince1970: 1_790_000_000)
+        return PhotoSnapshot(localIdentifier: id, creationDate: taken, modificationDate: taken, pixelWidth: 4032, pixelHeight: 3024,
+                             resources: [PhotoResource(typeRaw: 1, uti: "public.heic", originalFilename: "IMG_0001.HEIC")])
+    }
+
     func testSetUpCountsItsDaysAboveTheLineAndRefusesADiskUnderIt() {
         XCTAssertEqual(Runway.days(free: Double(Room.keepBytes)), 0, "nothing above the line: no day")
         XCTAssertEqual(Runway.days(free: Double(Room.keepBytes) + Runway.daily * 3.5), 3, "whole days above the line")
@@ -184,4 +222,13 @@ final class ReportedNetwork: NetworkWatch, @unchecked Sendable {
             for reader in readers { reader.yield(facts) }
         }
     }
+}
+
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held = 0
+
+    func add() { lock.withLock { held += 1 } }
+
+    var count: Int { lock.withLock { held } }
 }

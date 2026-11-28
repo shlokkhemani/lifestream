@@ -34,6 +34,8 @@ public final class HomeLink: Sendable {
     public static let deviceHeader = "Lifestream-Device"
     public static let kindHeader = "Lifestream-Kind"
     public static let waitHeader = "Lifestream-Wait"
+    public static let uncompressedLengthHeader = "Lifestream-Uncompressed-Length"
+    public static let sourceHeader = "Lifestream-Source"
     public static let silence: TimeInterval = 60
     public static let look: TimeInterval = 4
     public static let reach: TimeInterval = 8
@@ -527,19 +529,24 @@ public final class HomeLink: Sendable {
         public let name: String
         public let url: URL
         public let bytes: Int64
+        public let kept: Bool
 
-        public init(name: String, url: URL, bytes: Int64) {
+        public init(name: String, url: URL, bytes: Int64, kept: Bool = true) {
             self.name = name
             self.url = url
             self.bytes = bytes
+            self.kept = kept
         }
     }
 
     public func send(bundle file: URL, id: String, files given: [File] = [], kind: WriteKind, pressed: Bool = false,
-                     sent: (@Sendable (Int64) -> Void)? = nil) async throws -> FreshAnswer {
+                     compress: Bool = false, sent: (@Sendable (Int64) -> Void)? = nil) async throws -> FreshAnswer {
         let path = try bundlePath(file, id)
-        let (body, bytes) = try upload(file)
-        let crossing = try moving(kind, bytes: bytes, pressed: pressed)
+        let compressing = compress && device.kind == .mac
+        if compressing { _ = try moving(kind, bytes: 0, pressed: pressed) }
+        let packed = try packed(file, compress: compressing)
+        defer { packed.drop() }
+        let crossing = try moving(kind, bytes: packed.bytes, pressed: pressed)
         if !given.isEmpty {
             let holding = try await holding(Set(given.map(\.name)))
             let owed = given.filter { !holding.whole($0.name) }
@@ -547,10 +554,12 @@ public final class HomeLink: Sendable {
                 try await put(file, from: holding.partly[file.name] ?? 0, kind: kind, pressed: pressed)
             }
         }
+        let headers = ["Content-Type": "application/zip", Self.kindHeader: kind.rawValue].merging(packed.headers) { _, new in new }
+        let progress = sent.map { heard in UploadProgress { heard(packed.raw(of: $0)) } }
         let bundle = { [self] in
-            try await contact("PUT", path, ["Content-Type": "application/zip", Self.kindHeader: kind.rawValue], body,
+            try await contact("PUT", path, headers, packed.body,
                               timeout: URLSessionTransport.uploadSilence, crossing: crossing, route: "PUT /v1/bundles/<id>",
-                              lands: true, progress: sent.map(UploadProgress.init))
+                              lands: true, progress: progress)
         }
         var response = try await bundle()
         if let missing = Self.missingFiles(response) {
@@ -570,40 +579,51 @@ public final class HomeLink: Sendable {
         }
     }
 
-    private func put(_ file: File, from offset: Int64, kind: WriteKind, pressed: Bool, again: Bool = true) async throws {
+    public func stage(file: File, source: String, from offset: Int64 = 0, kind: WriteKind, pressed: Bool = false,
+                      sent: (@Sendable (Int64) -> Void)? = nil) async throws {
+        try await put(file, from: offset, kind: kind, pressed: pressed, source: device.kind == .mac ? source : nil,
+                      progress: sent.map(UploadProgress.init))
+    }
+
+    private func put(_ file: File, from offset: Int64, kind: WriteKind, pressed: Bool, source: String? = nil,
+                     progress: UploadProgress? = nil, again: Bool = true) async throws {
         guard file.name.hasPrefix("sha256:"), file.name.utf8.count == 71, let name = Self.encoded(file.name) else {
             throw LinkFailure.unusableID
         }
         let crossing = try moving(kind, bytes: file.bytes, pressed: pressed)
-        let body: HomeRequest.Body
-        if offset >= file.bytes {
-            body = .empty
-        } else if offset == 0 {
-            body = .file(file.url)
-        } else {
-            let url = file.url
-            body = .stream(size: file.bytes - offset, open: HomeRequest.Opener { [files] in try files.reader(url, from: offset) })
-        }
-        let headers = ["Content-Type": "application/octet-stream", Self.kindHeader: kind.rawValue, Self.offsetHeader: String(offset)]
-        let response = try await contact("PUT", "/v1/files/" + name, headers, body, timeout: URLSessionTransport.uploadSilence,
-                                         crossing: crossing, route: "PUT /v1/files/<name>")
+        var headers = ["Content-Type": "application/octet-stream", Self.kindHeader: kind.rawValue, Self.offsetHeader: String(offset)]
+        if let source { headers[Self.sourceHeader] = source }
+        let response = try await contact("PUT", "/v1/files/" + name, headers, body(of: file, from: offset),
+                                         timeout: URLSessionTransport.uploadSilence, crossing: crossing,
+                                         route: "PUT /v1/files/<name>", progress: progress)
         switch response.status {
         case 200, 201:
             return
         case 409 where again:
             guard let held = Self.offsetHeld(response) else { throw failure(response) }
-            try await put(file, from: held, kind: kind, pressed: pressed, again: false)
+            try await put(file, from: held, kind: kind, pressed: pressed, source: source, progress: progress, again: false)
         default:
             throw failure(response)
         }
     }
+
+    private func body(of file: File, from offset: Int64) -> HomeRequest.Body {
+        guard offset < file.bytes else { return .empty }
+        let url = file.url
+        let road = file.kept ? files : Self.outside
+        guard offset > 0 || (file.kept && files.keyed) else { return .file(url) }
+        return .stream(size: file.bytes - offset, open: HomeRequest.Opener { try road.reader(url, from: offset) })
+    }
+
+    private static let outside = DeviceFiles(.plain)
 
     static let offsetHeader = "Upload-Offset"
 
     private static func offsetHeld(_ response: HomeResponse) -> Int64? {
         guard let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any],
               object["code"] as? String == "UPLOAD_OFFSET" else { return nil }
-        return (object["held"] as? NSNumber)?.int64Value
+        guard let held = (object["held"] as? NSNumber)?.int64Value, held >= 0 else { return nil }
+        return held
     }
 
     private static func missingFiles(_ response: HomeResponse) -> Set<String>? {
@@ -617,6 +637,39 @@ public final class HomeLink: Sendable {
         guard files.keyed else { return (.file(file), bytes) }
         let files = files
         return (.stream(size: bytes, open: HomeRequest.Opener { try files.reader(file) }), bytes)
+    }
+
+    private struct Packed {
+        let body: HomeRequest.Body
+        let bytes: Int64
+        let raw: Int64
+        var made: URL?
+
+        var headers: [String: String] {
+            made == nil ? [:] : ["Content-Encoding": "gzip", HomeLink.uncompressedLengthHeader: String(raw)]
+        }
+
+        func raw(of wire: Int64) -> Int64 {
+            guard made != nil, bytes > 0 else { return wire }
+            guard wire < bytes else { return raw }
+            return Int64((Double(wire) * Double(raw) / Double(bytes)).rounded(.down))
+        }
+
+        func drop() {
+            if let made { try? FileManager.default.removeItem(at: made) }
+        }
+    }
+
+    private func packed(_ file: URL, compress: Bool) throws -> Packed {
+        let (body, bytes) = try upload(file)
+        let plain = Packed(body: body, bytes: bytes, raw: bytes)
+        guard compress else { return plain }
+        let made = FileManager.default.temporaryDirectory.appendingPathComponent("lifestream-\(UUID().uuidString).gz")
+        guard (try? Gzip.compress(file, to: made, files: files)) == true, let gz = try? upload(made), gz.bytes < bytes else {
+            try? FileManager.default.removeItem(at: made)
+            return plain
+        }
+        return Packed(body: gz.body, bytes: gz.bytes, raw: bytes, made: made)
     }
 
     private func bundlePath(_ file: URL, _ id: String) throws -> String {
@@ -874,6 +927,8 @@ public final class HomeLink: Sendable {
         switch (response.status, code) {
         case (409, "PAIR_WHICH_PHONE"):
             return .whichPhone((object?["phones"] as? [[String: Any]] ?? []).compactMap(PhoneChoice.init))
+        case (409, "FILES_MISSING") where device.kind == .mac:
+            return .filesMissing(Self.missingFiles(response) ?? [])
         case (409, "UPLOAD_ACTIVE"):
             return .busy(retryAfter: response.header("Retry-After").flatMap(TimeInterval.init))
         case (409, "STALE"):
@@ -1338,6 +1393,7 @@ public enum LinkFailure: Error, Equatable, CustomStringConvertible {
     case credentials
     case notTheHome
     case waits(MobileData.Wait)
+    case filesMissing(Set<String>)
 
     public var code: String {
         switch self {
@@ -1359,6 +1415,7 @@ public enum LinkFailure: Error, Equatable, CustomStringConvertible {
         case .credentials: return "CREDENTIALS"
         case .notTheHome: return "NOT_THE_HOME"
         case .waits: return "WAITS_FOR_NETWORK"
+        case .filesMissing: return "FILES_MISSING"
         }
     }
 
@@ -1383,6 +1440,7 @@ public enum LinkFailure: Error, Equatable, CustomStringConvertible {
         case .credentials: return "the pass could not be read or saved. Unlock this device and try again."
         case .notTheHome: return "This isn't your Mac."
         case .waits(let wait): return wait.words
+        case .filesMissing(let missing): return "Lifestream lacks \(missing.count) file(s) this bundle names; they are sent again first"
         }
     }
 }

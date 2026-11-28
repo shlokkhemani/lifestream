@@ -193,16 +193,14 @@ public struct ShippingSchedule: Codable, Sendable, Equatable {
 public struct DomainSchedule: Codable, Sendable, Equatable {
     public var actedAt: Date?
     public var sealedAt: Date?
-    public var firstSealedAt: Date?
     public var historySeal: Int?
     public var owesHistory: Bool?
     public var stamp: Int?
 
-    public init(actedAt: Date? = nil, sealedAt: Date? = nil, firstSealedAt: Date? = nil, historySeal: Int? = nil,
+    public init(actedAt: Date? = nil, sealedAt: Date? = nil, historySeal: Int? = nil,
                 owesHistory: Bool? = nil, stamp: Int? = nil) {
         self.actedAt = actedAt
         self.sealedAt = sealedAt
-        self.firstSealedAt = firstSealedAt
         self.historySeal = historySeal
         self.owesHistory = owesHistory
         self.stamp = stamp
@@ -211,7 +209,6 @@ public struct DomainSchedule: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case actedAt = "acted_at"
         case sealedAt = "sealed_at"
-        case firstSealedAt = "first_sealed_at"
         case historySeal = "history_seal"
         case owesHistory = "owes_history"
         case stamp

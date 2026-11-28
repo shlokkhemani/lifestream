@@ -665,11 +665,13 @@ test('N30: which devices a setting is for, the home\'s line, under its label on 
     const row = markup.split('<li').find(each => each.includes(`ck-srow__label">${label}<`)) ?? '';
     return [...row.matchAll(/ck-srow__wait">([^<]*)</gu)].map(match => match[1]);
   };
-  const photos = connectorIn('apple-photos');
-  const refresh = photos.members.find(member => member.key === 'refresh');
-  assert.ok(refresh?.only, 'the fixture carries a member only some devices follow');
+  const only = 'On MacBook Air';
+  const followed = changing('screen-time', connector => ({ ...connector, members: connector.members.map(member =>
+    member.key === 'refresh' ? { ...member, panel: /** @type {const} */ ('settings'), only } : member) }));
+  const refresh = connectorIn('screen-time').members.find(member => member.key === 'refresh');
+  assert.ok(refresh, 'Screen Time is read on a timer: its refresh is a member');
   for (const state of [null, HOST_STATE]) {
-    assert.deepEqual(under(detailMarkup(open(REPORT, state, 'apple-photos'), AT_REST), refresh.label), [refresh.only]);
+    assert.deepEqual(under(detailMarkup(open(followed, state, 'screen-time'), AT_REST), refresh.label), [only]);
   }
   const waiting = [{ name: 'MacBook Air', kind: /** @type {const} */ ('mac'), line: 'Waiting for MacBook Air · It takes it when Lifestream runs there.' }];
   /** @param {{ only: string | null, waiting?: typeof waiting }} marks */

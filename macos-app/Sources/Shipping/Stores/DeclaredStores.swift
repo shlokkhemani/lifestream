@@ -13,10 +13,13 @@ public final class DeclaredStores: @unchecked Sendable {
         public let ledgers: Ledgers
         public let hashCacheDirectory: URL
         public let sessionDirectory: URL
+        public let biomeSpacing: @Sendable () -> TimeInterval
+
+        public static let powerSpacing: @Sendable () -> TimeInterval = { BiomeEngine.powerSpacing() }
 
         public init(home: URL, lifestream: @escaping @Sendable () -> [URL], applications: [URL], fullDiskAccess: @escaping @Sendable () -> Bool,
                     wake: @escaping @Sendable (String) -> Void = StoreWake.launchHidden, ledgers: Ledgers, hashCacheDirectory: URL,
-                    sessionDirectory: URL) {
+                    sessionDirectory: URL, biomeSpacing: @escaping @Sendable () -> TimeInterval = Mac.powerSpacing) {
             self.home = home
             self.lifestream = lifestream
             self.applications = applications
@@ -25,6 +28,7 @@ public final class DeclaredStores: @unchecked Sendable {
             self.ledgers = ledgers
             self.hashCacheDirectory = hashCacheDirectory
             self.sessionDirectory = sessionDirectory
+            self.biomeSpacing = biomeSpacing
         }
 
         public var road: StoreFiles { StoreFiles(home: home, lifestream: lifestream()) }
@@ -215,7 +219,8 @@ public final class DeclaredStores: @unchecked Sendable {
             return try LogsEngine(sourceId: source, store: store, roots: roots, match: match, beside: beside, start: start, road: road,
                                   stateFile: mac.sessionDirectory.appendingPathComponent(named), ledgers: mac.ledgers)
         case .biome(let stream):
-            return try BiomeEngine(sourceId: source, store: store, stream: stream, road: road, ledgers: mac.ledgers)
+            return try BiomeEngine(sourceId: source, store: store, stream: stream, road: road, ledgers: mac.ledgers,
+                                   spacing: mac.biomeSpacing)
         }
     }
 }

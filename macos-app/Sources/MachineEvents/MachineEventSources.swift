@@ -32,6 +32,8 @@ public final class MachineEventSources: NSObject, @unchecked Sendable {
     private var lightTimer: DispatchSourceTimer?
     private let grants: @Sendable () -> [String: String]
     private let drops = LineDrops()
+    private let onUserOrSystemEvent: (@Sendable () -> Void)?
+    private let told: DispatchQueue
 
     public var availabilityChanged: ((_ displayAwake: Bool?, _ sessionActive: Bool?) -> Void)?
 
@@ -45,9 +47,11 @@ public final class MachineEventSources: NSObject, @unchecked Sendable {
                             modes: RecordingModes = .defaults,
                             probe: any DeviceUseProbe = SystemDeviceUseProbe(),
                             grants: @escaping @Sendable () -> [String: String] = { [:] },
-                            report: @escaping (String) -> Void = { _ in }) {
+                            report: @escaping (String) -> Void = { _ in },
+                            onUserOrSystemEvent: (@Sendable () -> Void)? = nil) {
         self.init(directory: directory, files: files, timeZone: timeZone, modes: modes, probe: probe,
-                  peripherals: SystemPeripheralProbe(), grants: grants, report: report)
+                  peripherals: SystemPeripheralProbe(), grants: grants, report: report,
+                  onUserOrSystemEvent: onUserOrSystemEvent)
     }
 
     init(directory: URL,
@@ -58,7 +62,8 @@ public final class MachineEventSources: NSObject, @unchecked Sendable {
          peripherals: any PeripheralProbe,
          lightInterval: TimeInterval = PeripheralEvents.lightInterval,
          grants: @escaping @Sendable () -> [String: String] = { [:] },
-         report: @escaping (String) -> Void = { _ in }) {
+         report: @escaping (String) -> Void = { _ in },
+         onUserOrSystemEvent: (@Sendable () -> Void)? = nil) {
         self.directory = directory
         self.files = files
         self.zone = timeZone
@@ -68,6 +73,9 @@ public final class MachineEventSources: NSObject, @unchecked Sendable {
         peripheralProbe = peripherals
         self.lightInterval = lightInterval
         self.grants = grants
+        let told = DispatchQueue(label: "org.lifestreamprotocol.machine-events.told", qos: .utility)
+        self.told = told
+        self.onUserOrSystemEvent = onUserOrSystemEvent.map { tell in { @Sendable in told.async { tell() } } }
         super.init()
     }
 
@@ -274,6 +282,38 @@ public final class MachineEventSources: NSObject, @unchecked Sendable {
         }
     }
 
+    func waitUntilTold() {
+        queue.sync {}
+        told.sync {}
+    }
+
+    @discardableResult
+    public func rotateIfSafe(now: Date = Date()) -> Bool {
+        rotated(now: now, nothingOpen: false) { try $0.rotateIfSafe(now: now) }
+    }
+
+    public func rotateForShipping(now: Date = Date()) -> Bool {
+        rotated(now: now, nothingOpen: true) { try $0.rotateForShipping(now: now) }
+    }
+
+    private func rotated(now: Date, nothingOpen: Bool, _ rotate: (MachineEventLog) throws -> Bool) -> Bool {
+        queue.sync { [self] in
+            guard log != nil else { return nothingOpen }
+            accessChanged(at: now)
+            guard let log else { return nothingOpen }
+            let open = log.batchOpen
+            let rotated: Bool
+            do {
+                rotated = try rotate(log)
+            } catch {
+                report("machine events: the open batch was not sealed")
+                return false
+            }
+            if rotated, open { devices.recheck() }
+            return rotated
+        }
+    }
+
 
     public func record(shipperRun detail: [String: String]) {
         let now = Date()
@@ -391,7 +431,9 @@ public final class MachineEventSources: NSObject, @unchecked Sendable {
             try log.append(event)
         } catch {
             report("machine events: one line was dropped")
+            return
         }
+        if event.name.isUserOrSystem { onUserOrSystemEvent?() }
     }
 
     @discardableResult

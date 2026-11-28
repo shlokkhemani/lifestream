@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { MANIFEST_FILE, openSealing } from "./inbox.js";
+import { MANIFEST_FILE, openSealing, parseManifest } from "./inbox.js";
 import { openHomeFolder } from "@lifestreamprotocol/core";
 
 const SOURCE = "machine:local:macbook-pro-0001";
@@ -78,5 +78,40 @@ describe("a seal on a Mac", () => {
     const { seal } = inboxOn("darwin");
     expect(await seal("20261113T040000.000Z", ["a.jsonl", "nested/b.jsonl"])).toEqual([]);
     expect(await seal("20261113T040100.000Z", ["a.jsonl"])).toEqual([]);
+  });
+});
+
+describe("a manifest's staged blobs", () => {
+  const A = `sha256:${"a".repeat(64)}`;
+  const B = `sha256:${"b".repeat(64)}`;
+  const manifest = (staged?: unknown) => JSON.stringify({
+    format: "org.lifestreamprotocol.acquisition/1", source_id: SOURCE, feeder: "synthetic", fetched_at: "2026-11-13T04:00:00.000Z",
+    complete: true, files: [], facts: { blobs_carried: 0 }, ...(staged === undefined ? {} : { staged_blobs: staged }),
+  });
+  const refusal = (staged: unknown): string => {
+    try {
+      parseManifest(manifest(staged), "manifest.json");
+    } catch (error) {
+      return (error as Error).message;
+    }
+    return "read";
+  };
+
+  it("reads a list of unique sha256 names, and a manifest without one has none", () => {
+    expect(parseManifest(manifest([A, B]), "manifest.json").staged_blobs).toEqual([A, B]);
+    expect(parseManifest(manifest([]), "manifest.json").staged_blobs).toEqual([]);
+    expect(Object.hasOwn(parseManifest(manifest(), "manifest.json"), "staged_blobs")).toBe(false);
+  });
+
+  it("refuses one that is no list, names a blob twice, or names one that is no sha256:<64 hex>", () => {
+    expect({
+      object: refusal({ [A]: true }), text: refusal(A), twice: refusal([A, B, A]), number: refusal([1]),
+      bare: refusal(["a".repeat(64)]), upper: refusal([`sha256:${"A".repeat(64)}`]), short: refusal(["sha256:abc"]),
+    }).toEqual({
+      object: "manifest.json: staged_blobs must be an array of sha256:<64 hex>", text: "manifest.json: staged_blobs must be an array of sha256:<64 hex>",
+      twice: `manifest.json: staged_blobs[2] ${A} is listed twice`, number: "manifest.json: staged_blobs[0] must be sha256:<64 hex>",
+      bare: "manifest.json: staged_blobs[0] must be sha256:<64 hex>", upper: "manifest.json: staged_blobs[0] must be sha256:<64 hex>",
+      short: "manifest.json: staged_blobs[0] must be sha256:<64 hex>",
+    });
   });
 });

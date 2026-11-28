@@ -112,6 +112,7 @@ import Shipping
     private let drop: () -> URL
     private var uploading = false
     var droppedOn: (_ kind: String) -> Void = { _ in }
+    var uploaded: () -> Void = {}
     private(set) var drops: [String: [URL]] = [:]
     lazy var chooseImport: (_ several: Bool) async -> [URL] = { [weak self] several in await ImportPanel.run(over: self?.window(), several: several) }
     lazy var backupPassword: BackupPassword = .live(over: { [weak self] in self?.window() })
@@ -647,6 +648,7 @@ import Shipping
         } catch {
             throw HostRefusal("Lifestream could not copy that file: \(error.localizedDescription)")
         }
+        uploaded()
     }
 
     func dropped(on dialog: String?) -> (([URL]) -> Void)? {

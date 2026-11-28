@@ -76,6 +76,25 @@ class VideoCompactionTests: SpoolFormCase {
             try assertInForm(movie)
         }
     }
+    func testASegmentSaysWhenItSettlesAndNothingElseDoes() throws {
+        let settles = Settles()
+        let store = try CaptureStore(directory: root, files: files, scratch: scratch, videoQuality: 0.8,
+                                     onSegmentSettled: { settles.add() })
+        _ = try VideoCompaction.compact(store: store, flush: true)
+        XCTAssertEqual(settles.count, 0, "an empty spool settles nothing")
+
+        let now = Date()
+        _ = try (0..<4).map { try append(store, $0, date: now.addingTimeInterval(Double($0))) }
+        XCTAssertEqual(try VideoCompaction.compact(store: store, flush: false).imageCount, 0)
+        XCTAssertEqual(settles.count, 0, "a segment under its wait is not settled")
+
+        XCTAssertEqual(try VideoCompaction.compact(store: store, flush: true).imageCount, 2)
+        XCTAssertEqual(settles.count, 1)
+        XCTAssertEqual(try VideoCompaction.compact(store: store, flush: true).imageCount, 2)
+        XCTAssertEqual(settles.count, 2, "each segment published says so once")
+        XCTAssertEqual(try VideoCompaction.compact(store: store, flush: true).imageCount, 0)
+        XCTAssertEqual(settles.count, 2)
+    }
     func testEveryPublicationInterruptionResumesOnReopen() throws {
         enum SimulatedDeath: Error { case interrupted }
         for (index, stage) in VideoCompaction.Stage.allCases.enumerated() {
@@ -580,4 +599,13 @@ class VideoCompactionTests: SpoolFormCase {
 
 final class VideoCompactionKeyedTests: VideoCompactionTests {
     override class var keyed: Bool { true }
+}
+
+final class Settles: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held = 0
+
+    func add() { lock.withLock { held += 1 } }
+
+    var count: Int { lock.withLock { held } }
 }

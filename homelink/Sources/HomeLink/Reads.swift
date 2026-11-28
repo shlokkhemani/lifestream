@@ -166,15 +166,21 @@ extension HomeLink {
         try await holding(blobs).held
     }
 
-    struct Holding: Equatable {
-        var held = Set<String>()
-        var staged = Set<String>()
-        var partly: [String: Int64] = [:]
+    public struct Holding: Sendable, Equatable {
+        public var held = Set<String>()
+        public var staged = Set<String>()
+        public var partly: [String: Int64] = [:]
 
-        func whole(_ name: String) -> Bool { held.contains(name) || staged.contains(name) }
+        public init(held: Set<String> = [], staged: Set<String> = [], partly: [String: Int64] = [:]) {
+            self.held = held
+            self.staged = staged
+            self.partly = partly
+        }
+
+        public func whole(_ name: String) -> Bool { held.contains(name) || staged.contains(name) }
     }
 
-    func holding(_ blobs: Set<String>) async throws -> Holding {
+    public func holding(_ blobs: Set<String>) async throws -> Holding {
         struct Answer: Decodable {
             let held: [String]
             let staged: [String]?

@@ -36,6 +36,7 @@ export interface Manifest {
   readonly sealed_at?: string;
   readonly custody?: Custody;
   readonly received?: Received;
+  readonly staged_blobs?: readonly string[];
 }
 
 export type Received = Readonly<Record<string, Readonly<Record<string, number>>>>;
@@ -84,6 +85,7 @@ function bad(message: string): never {
 const UTC_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/u;
 const BASIC = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\.\d{1,9})?Z$/u;
 const HEX = /^[0-9a-f]{64}$/u;
+const STAGED_BLOB = /^sha256:[0-9a-f]{64}$/u;
 
 export function isSegment(text: string): boolean {
   return text.length > 0 && text !== "." && text !== ".." && !/[/\\\0]/u.test(text);
@@ -144,7 +146,19 @@ export function parseManifest(text: string, where: string): Manifest {
     complete: value.complete, files, facts: value.facts as JsonObject,
     ...(value.custody === undefined ? {} : { custody: readCustody(value.custody, `${where}: custody`) }),
     ...(value.received === undefined ? {} : { received: readReceived(value.received, `${where}: received`) }),
+    ...(value.staged_blobs === undefined ? {} : { staged_blobs: readStagedBlobs(value.staged_blobs, `${where}: staged_blobs`) }),
   };
+}
+
+function readStagedBlobs(value: unknown, where: string): string[] {
+  if (!Array.isArray(value)) bad(`${where} must be an array of sha256:<64 hex>`);
+  const seen = new Set<string>();
+  for (const [index, hash] of value.entries()) {
+    if (typeof hash !== "string" || !STAGED_BLOB.test(hash)) bad(`${where}[${index}] must be sha256:<64 hex>`);
+    if (seen.has(hash)) bad(`${where}[${index}] ${hash} is listed twice`);
+    seen.add(hash);
+  }
+  return [...seen];
 }
 
 function readReceived(value: unknown, where: string): Received {

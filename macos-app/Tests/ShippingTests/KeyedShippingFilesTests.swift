@@ -162,12 +162,14 @@ final class KeyedShippingFilesTests: XCTestCase {
             try memory.adopt(identity: plainValues[0], declared: plainValues[1])
             try memory.record(blobs: [hash], seal: 1)
             try memory.settle(stamp: plainValues[2], owed: 3)
+            XCTAssertEqual(try DomainFixtures.read("SELECT value FROM meta WHERE name = 'stamp'", from: file), [[files.name(plainValues[2])]])
             XCTAssertTrue(try memory.refused(page: 9, reason: plainValues[3]))
             XCTAssertFalse(try memory.refused(page: 9, reason: plainValues[3]), "the same reason is said once")
 
             let meta = try DomainFixtures.read("SELECT name, value FROM meta ORDER BY name", from: file)
-            XCTAssertEqual(meta, [["declared", files.name(plainValues[1])], ["identity", files.name(plainValues[0])], ["owed", "3"],
-                                  ["page_refused", files.name(plainValues[3])], ["stamp", files.name(plainValues[2])]])
+            XCTAssertEqual(meta, [["cold_due_at", "0"], ["declared", files.name(plainValues[1])], ["had_fast_pass", "0"],
+                                  ["identity", files.name(plainValues[0])], ["owed", "3"], ["page_refused", files.name(plainValues[3])]],
+                           "a refused page forgets the stamp and owes a cold pass")
             XCTAssertEqual(try DomainFixtures.read("SELECT hash FROM blobs", from: file), [[files.name(hash)]])
             if files.keyed {
                 for value in plainValues + [hash] {
@@ -176,7 +178,8 @@ final class KeyedShippingFilesTests: XCTestCase {
             }
             XCTAssertEqual(try memory.unsent([hash]), [], "a hash once carried is found by its keyed name")
             let begun = try memory.begin(received: 5)
-            XCTAssertEqual(begun.stamp, memory.named(plainValues[2]))
+            XCTAssertNil(begun.stamp)
+            XCTAssertEqual(begun.coldDueAt, 0)
             XCTAssertEqual(begun.owed, 3)
         }
     }

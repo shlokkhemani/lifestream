@@ -978,38 +978,6 @@
       "on": true,
       "members": [
         {
-          "key": "refresh",
-          "kind": "duration",
-          "label": "Check every",
-          "about": null,
-          "value": "5m",
-          "words": "Every 5 minutes",
-          "from": "declaration",
-          "default": "5m",
-          "steps": [
-            {
-              "value": "1m",
-              "words": "Every minute",
-              "note": null
-            },
-            {
-              "value": "2m",
-              "words": "Every 2 minutes",
-              "note": null
-            },
-            {
-              "value": "5m",
-              "words": "Every 5 minutes",
-              "note": null
-            }
-          ],
-          "panel": null,
-          "control": "menu",
-          "where": null,
-          "waiting": [],
-          "only": null
-        },
-        {
           "key": "start",
           "kind": "start",
           "label": "Starts from",

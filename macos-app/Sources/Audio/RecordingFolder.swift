@@ -82,12 +82,13 @@ struct RecordingFolder {
     }
 
 
-    func recoverLeftovers() {
+    @discardableResult
+    func recoverLeftovers() -> Int {
         let manager = FileManager.default
         let names = (try? manager.contentsOfDirectory(atPath: url.path)) ?? []
         let made = scratch == url ? [] : (try? manager.contentsOfDirectory(atPath: scratch.path)) ?? []
         let open = names.filter { $0.hasSuffix(AudioSpool.openSuffix) }.map { String($0.dropLast(AudioSpool.openSuffix.count)) }
-        for stem in open.sorted() { recover(stem) }
+        let recovered = open.sorted().filter { recover($0) }.count
         let stems = { (listed: [String]) in
             Set(listed.filter { $0.hasSuffix(AudioSpool.audioSuffix) }.map { String($0.dropLast(AudioSpool.audioSuffix.count)) })
         }
@@ -97,6 +98,7 @@ struct RecordingFolder {
             guard !sealed || unfinished.contains(stem) else { continue }
             park(stem, kept: !sealed)
         }
+        return recovered
     }
 
     @discardableResult

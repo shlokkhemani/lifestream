@@ -299,7 +299,9 @@ final class OpenSegmentTests: XCTestCase {
     func testASegmentThatCanNeverCloseIsSetAsideAndTheNextCompacts() throws {
         for damage in ["format-garbage", "format-gone", "log-garbage"] {
             try? FileManager.default.removeItem(at: root)
-            let store = try CaptureStore(directory: root, files: DeviceFiles(.plain), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true))
+            let settles = Settles()
+            let store = try CaptureStore(directory: root, files: DeviceFiles(.plain), scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true),
+                                         onSegmentSettled: { settles.add() })
             let damaged = try (0..<2).map { try append(store, $0) }
             let other = try append(store, 2, display: 2)
             let id = try opened(damaged[0]).segment
@@ -321,6 +323,7 @@ final class OpenSegmentTests: XCTestCase {
                 archived += count
             }
             XCTAssertEqual(archived, 1, "the other display's segment closes in the same store: \(damage)")
+            XCTAssertEqual(settles.count, 2, "the segment set aside settles its frames too: \(damage)")
             let report = store.pendingVideoReport()
             XCTAssertEqual(report.pendingImageCount, 0, "its frames leave the pending map: \(damage)")
             XCTAssertEqual(report.skippedImageCount, 0, damage)

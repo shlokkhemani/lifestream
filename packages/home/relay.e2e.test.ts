@@ -60,8 +60,10 @@ const RELAYED: Record<Act, { again: boolean; wait_ms: number; streams?: true }> 
   "GET /v1/agents/address": { again: true, wait_ms: 30_000 },
   "POST /v1/agents/address": { again: true, wait_ms: 30_000 },
   "POST /v1/agents/keys": { again: false, wait_ms: 30_000 },
+  "POST /v1/ask wait_readable": { again: true, wait_ms: 30_000 },
 };
 const SUGGEST = "GET /v1/places/suggest" satisfies Act;
+const READABLE = "POST /v1/ask wait_readable" satisfies Act;
 const WAIT_MS = 3_000;
 const WAITED = { "lifestream-wait": String(WAIT_MS) };
 
@@ -188,7 +190,7 @@ describe("one relay, every route", () => {
       authorization: `Bearer ${at.tokens[who]}`, ...(who === "mac" ? DEVICE.mac : who === "phone" || who === "retired" ? DEVICE.phone : who === "station" ? DEVICE.extension : {}), ...WAITED,
     });
 
-    const routes: Record<Exclude<Act, typeof SUGGEST>, () => ReturnType<typeof call>> = {
+    const routes: Record<Exclude<Act, typeof SUGGEST | typeof READABLE>, () => ReturnType<typeof call>> = {
       "POST /v1/pair": () => call(url, "POST", "/v1/pair", { ...DEVICE.mac, ...WAITED }, { code: "12345678", pass: randomBytes(32).toString("base64url"), kind: "mac", model: "MacBook Pro", serial4: "0001" }),
       "POST /v1/act": () => call(url, "POST", "/v1/act", as("reader"), { need: "fetch:fake-clock", do: "try" }),
       "POST /v1/refresh": () => call(url, "POST", "/v1/refresh", as("reader"), { connector: "location" }),
@@ -225,7 +227,7 @@ describe("one relay, every route", () => {
       "POST /v1/agents/address": () => call(url, "POST", "/v1/agents/address", as("phone"), { on: true }),
       "POST /v1/agents/keys": () => call(url, "POST", "/v1/agents/keys", as("phone"), { app: "instinct", access: defaultAccess() }),
     };
-    expect(Object.keys(routes).sort()).toEqual(Object.keys(ACTS).filter((act) => act !== SUGGEST).sort());
+    expect(Object.keys(routes).sort()).toEqual(Object.keys(ACTS).filter((act) => act !== SUGGEST && act !== READABLE).sort());
     expect(ACTS).toEqual(RELAYED);
 
     const answers: Record<string, unknown> = {};

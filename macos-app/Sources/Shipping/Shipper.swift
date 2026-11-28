@@ -11,13 +11,17 @@ public actor Shipper {
         public let offers: @Sendable (String) -> [String]
         public let clock: @Sendable () -> Date
         public let record: @Sendable (ShipperRunRow) -> Void
-        public let rotateBatches: @Sendable () -> Void
+        public let rotateBatch: @Sendable (_ product: String) -> Bool
         public let fullDiskAccess: @Sendable () -> Bool
         public let grants: @Sendable () -> [String: String]?
         public let found: @Sendable () -> [String]?
         public let stores: DeclaredStores?
         public let settle: @Sendable (FreshAnswer, _ pressed: Bool) async -> [ShipperRunRow]
         public let keepAwake: @Sendable () -> @Sendable () -> Void
+        public let onFilesMissing: @Sendable (_ source: String, _ missing: Set<String>) -> Bool
+        public let staged: @Sendable (_ source: String) -> StagedBlobs?
+        public let onStagedConsumed: @Sendable (_ source: String, _ sha256s: Set<String>) -> Void
+        public let coldInterval: @Sendable () -> TimeInterval
         public let scratch: URL
 
         public init(state: ShippingState, link: HomeLink, settings: MacSettings? = nil,
@@ -25,13 +29,17 @@ public actor Shipper {
                     offers: @escaping @Sendable (String) -> [String] = { _ in [] },
                     clock: @escaping @Sendable () -> Date = { Date() },
                     record: @escaping @Sendable (ShipperRunRow) -> Void,
-                    rotateBatches: @escaping @Sendable () -> Void = {},
+                    rotateBatch: @escaping @Sendable (_ product: String) -> Bool = { _ in true },
                     fullDiskAccess: @escaping @Sendable () -> Bool = { true },
                     grants: @escaping @Sendable () -> [String: String]? = { nil },
                     found: @escaping @Sendable () -> [String]? = { nil },
                     stores: DeclaredStores? = nil,
                     settle: @escaping @Sendable (FreshAnswer, _ pressed: Bool) async -> [ShipperRunRow] = { _, _ in [] },
                     keepAwake: @escaping @Sendable () -> @Sendable () -> Void = { {} },
+                    onFilesMissing: @escaping @Sendable (_ source: String, _ missing: Set<String>) -> Bool = { _, _ in false },
+                    staged: @escaping @Sendable (_ source: String) -> StagedBlobs? = { _ in nil },
+                    onStagedConsumed: @escaping @Sendable (_ source: String, _ sha256s: Set<String>) -> Void = { _, _ in },
+                    coldInterval: @escaping @Sendable () -> TimeInterval = { SealRequest.coldInterval },
                     scratch: URL) {
             self.state = state
             self.link = link
@@ -40,13 +48,17 @@ public actor Shipper {
             self.offers = offers
             self.clock = clock
             self.record = record
-            self.rotateBatches = rotateBatches
+            self.rotateBatch = rotateBatch
             self.fullDiskAccess = fullDiskAccess
             self.grants = grants
             self.found = found
             self.stores = stores
             self.settle = settle
             self.keepAwake = keepAwake
+            self.onFilesMissing = onFilesMissing
+            self.staged = staged
+            self.onStagedConsumed = onStagedConsumed
+            self.coldInterval = coldInterval
             self.scratch = scratch
         }
     }
@@ -54,13 +66,13 @@ public actor Shipper {
     public static let retryInterval: TimeInterval = 15 * 60
     public static let refusedInterval: TimeInterval = HomeLink.Outbox.Wait.refused.seconds
     public static let throughInterval: TimeInterval = 5 * 60
-    public static let minimumInterval: TimeInterval = MacSettings.leastRefresh
-    public static let youngFor: TimeInterval = 60 * 60
+    public static let filesMissingHold: TimeInterval = retryInterval
 
     private let dependencies: Dependencies
     private var schedule = ShippingSchedule()
     private var scheduleLoaded = false
     public private(set) var running = false
+    private var flushing = false
     private var stoppedEarly = false
     private var knockedSilent = false
     private var unreadable: [String: Date] = [:]
@@ -71,6 +83,8 @@ public actor Shipper {
     private var pressOwed = false
     private var holds: [String: Hold] = [:]
     private var lastAnswered: (asked: Date, received: Date)?
+    private var settledAt: Date?
+    private var afterRun: [CheckedContinuation<Void, Never>] = []
 
     public init(_ dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -135,15 +149,13 @@ public actor Shipper {
         let setting = dependencies.settings.refresh(of: connector(source))
         let mine = schedule.domains[source] ?? DomainSchedule()
         if let tried = unreadable[source], tried > (mine.actedAt ?? .distantPast) { return (tried, setting) }
-        let young = (mine.firstSealedAt ?? schedule.pairedAt).map { now < $0.addingTimeInterval(Self.youngFor) } ?? false
-        return (mine.actedAt, young ? Self.minimumInterval : setting)
+        return (mine.actedAt, setting)
     }
 
     private func adopt(_ pass: String, at now: Date) {
         guard schedule.pass != pass || schedule.pairedAt == nil else { return }
         schedule.pass = pass
         schedule.pairedAt = now
-        for source in schedule.domains.keys { schedule.domains[source]?.firstSealedAt = nil }
     }
 
     public func homeChanged() {
@@ -181,6 +193,109 @@ public actor Shipper {
         asked.formUnion(sources)
     }
 
+    public func clearFilesMissingHold(for source: String) {
+        if holds[source]?.code == Hold.filesMissing { holds[source] = nil }
+    }
+
+    public struct FlushResult: Sendable, Equatable {
+        public let seals: [String: Int]
+        public let ran: Set<String>
+        public let unrotated: Set<String>
+        public let unsettled: Set<String>
+
+        public init(seals: [String: Int] = [:], ran: Set<String> = [], unrotated: Set<String> = [], unsettled: Set<String> = []) {
+            self.seals = seals
+            self.ran = ran
+            self.unrotated = unrotated
+            self.unsettled = unsettled
+        }
+    }
+
+    public func flush(sources: Set<String>?, budget: TimeInterval) async -> FlushResult {
+        await Within.seconds(budget) { await self.flushed(sources) } ?? FlushResult()
+    }
+
+    private func flushed(_ wanted: Set<String>?) async -> FlushResult {
+        while running { await withCheckedContinuation { afterRun.append($0) } }
+        guard !Task.isCancelled, paired() else { return FlushResult() }
+        running = true
+        flushing = true
+        defer { ended() }
+        let now = dependencies.clock()
+        var answer: FreshAnswer
+        do {
+            try state.prepare()
+            _ = loadedSchedule()
+            let asked = dependencies.clock()
+            answer = try await dependencies.settings.exchange(through: link, offers: dependencies.offers(link.saved?.unit ?? ""))
+            lastAnswered = (asked, answer.at)
+        } catch {
+            return FlushResult()
+        }
+        guard answer.pass == schedule.pass, !Task.isCancelled else { return FlushResult() }
+        refusedThisRun = []
+        conflicted = []
+        let pending = pendingSources()
+        let domains = dependencies.domains(answer.sources.keys.sorted()).filter { domain in
+            Self.fast(domain) && !pending.contains(domain.sourceId) && wanted.map { $0.contains(domain.sourceId) } != false
+        }
+        var rows: [ShipperRunRow] = []
+        let note = { (row: ShipperRunRow) in
+            rows.append(row)
+            self.dependencies.record(row)
+        }
+        let unrotated = rotate(domains)
+        var shipped: Set<String> = []
+        var unsettled: Set<String> = []
+        flushing: for domain in domains {
+            guard !Task.isCancelled else { break flushing }
+            shipped.insert(domain.sourceId)
+            for _ in 0..<2 {
+                guard !Task.isCancelled else { break flushing }
+                let outcome = await ship(domain, pressed: false, live: true, cold: false, answer: answer, at: now, note: note)
+                if let fresh = outcome.answer { answer = fresh }
+                if domain.unsettled { unsettled.insert(domain.sourceId) }
+                if outcome.stopsTheRun { break flushing }
+                guard Self.reseals(outcome) else { break }
+            }
+        }
+        try? state.writeSchedule(schedule)
+        var seals: [String: Int] = [:]
+        for row in rows where row.outcome == "shipped" {
+            guard let source = row.source, let seal = row.seal else { continue }
+            seals[source] = max(seals[source] ?? seal, seal)
+        }
+        return FlushResult(seals: seals, ran: shipped, unrotated: unrotated, unsettled: unsettled)
+    }
+
+    static func fast(_ domain: any ShippingDomain) -> Bool {
+        !domain.behindLive && !(domain is BiomeEngine) && !((domain as? DeclaredDomain)?.inner is BiomeEngine)
+    }
+
+    static let batches: Set<Substring> = ["machine", "input"]
+
+    static func batched(_ domain: any ShippingDomain) -> Bool {
+        batches.contains(ShippingDomains.product(of: domain.sourceId))
+    }
+
+    private func rotate(_ domains: [any ShippingDomain]) -> Set<String> {
+        Set(domains.filter { Self.batched($0) && !dependencies.rotateBatch(String(ShippingDomains.product(of: $0.sourceId))) }.map(\.sourceId))
+    }
+
+    public static let photos: Substring = "apple-photos"
+
+    private static func reseals(_ outcome: DeliveryOutcome) -> Bool {
+        outcome.outcome == "stale" || (outcome.code == Hold.filesMissing && outcome.left == .spent)
+    }
+
+    private func ended() {
+        running = false
+        flushing = false
+        let waiting = afterRun
+        afterRun = []
+        for wait in waiting { wait.resume() }
+    }
+
     private func stamps(_ refresh: [String: Int]?, stated: Set<String>) -> [String: Int] {
         (refresh ?? [:]).filter { source, stamp in
             stated.contains(source) && stamp > (schedule.domains[source]?.stamp ?? .min)
@@ -192,10 +307,11 @@ public actor Shipper {
     }
 
 
-    public func run(_ trigger: ShipTrigger) async -> ShipperReport {
+    public func run(_ trigger: ShipTrigger, due wakes: Set<String>? = nil) async -> ShipperReport {
+        while flushing { await withCheckedContinuation { afterRun.append($0) } }
         guard !running else { return ShipperReport(rows: [], outcome: "busy") }
         running = true
-        defer { running = false }
+        defer { ended() }
         ResourceMeter.shared.count(.shipperRuns)
         ResourceMeter.shared.count(.shipping(nil), units: 1)
         let now = dependencies.clock()
@@ -281,6 +397,7 @@ public actor Shipper {
                 switch HomeLink.Outbox.judge(pass: answer.pass, seals: [source: bundle.sidecar.seal], answer: answer) {
                 case .covered:
                     state.spend(bundle)
+                    consumed(bundle.sidecar)
                     note(ShipperRunRow(outcome: "shipped", source: source, bundle: bundle.sidecar.id, kind: bundle.sidecar.kind,
                                        seal: bundle.sidecar.seal))
                     continue
@@ -331,22 +448,34 @@ public actor Shipper {
             ($0.behindLive ? 1 : 0, $0.sourceId) < ($1.behindLive ? 1 : 0, $1.sourceId)
         }
         let pending = pendingSources()
-        var rotated = false
+        let timely = { (domain: any ShippingDomain) -> Bool? in
+            let source = domain.sourceId
+            let (acted, every) = self.cadence(source, at: now)
+            let timely = (domain.owes && trigger != .now)
+                || self.due(acted, trigger: resealing.contains(source) ? .manual : trigger, at: now, interval: every)
+            let woke = wakes?.contains(source) ?? false
+            guard !pending.contains(source), !self.conflicted.contains(source), timely || refreshing.contains(source) || woke else { return nil }
+            return timely
+        }
+        let unrotated = rotate(domains.filter { timely($0) != nil })
+        var unsettled: Set<String> = []
+        var ran: Set<String> = []
+        var settles = trigger == .timer && settles(wakes, at: now)
         for domain in domains {
             let source = domain.sourceId
-            let (acted, every) = cadence(source, at: now)
-            let timely = (domain.owes && trigger != .now)
-                || due(acted, trigger: resealing.contains(source) ? .manual : trigger, at: now, interval: every)
-            guard !pending.contains(source), !conflicted.contains(source), timely || refreshing.contains(source) else { continue }
-            if !rotated {
-                dependencies.rotateBatches()
-                rotated = true
+            guard let timely = timely(domain) else { continue }
+            if settles, wakes?.contains(source) == true, ShippingDomains.product(of: source) == Self.photos {
+                settles = false
+                await settle(answer, note: note, at: now)
             }
+            ran.insert(source)
             for _ in 0..<2 {
-                let shipped = await ship(domain, pressed: pressed, live: !timely, answer: answer, at: now, note: note)
+                let shipped = await ship(domain, pressed: pressed, live: !timely,
+                                         cold: trigger == .manual || refreshing.contains(source), answer: answer, at: now, note: note)
                 if let fresh = shipped.answer { answer = fresh }
-                if shipped.stopsTheRun { return finish(rows, at: now) }
-                guard shipped.outcome == "stale" else { break }
+                if domain.unsettled { unsettled.insert(source) }
+                if shipped.stopsTheRun { return finish(rows, at: now, unrotated: unrotated, unsettled: unsettled, ran: ran) }
+                guard Self.reseals(shipped) else { break }
             }
             asked.remove(source)
             if let stamp = stamped[source] { schedule.domains[source, default: DomainSchedule()].stamp = stamp }
@@ -368,31 +497,44 @@ public actor Shipper {
                 answer = fresh
                 if outcome.outcome == "shipped" { domain?.taken(bundle, answer: fresh) }
             }
-            if outcome.stopsTheRun { return finish(rows, at: now) }
+            if outcome.stopsTheRun { return finish(rows, at: now, unrotated: unrotated, unsettled: unsettled, ran: ran) }
         }
 
         for domain in domains {
             ResourceMeter.shared.measure(.shipping(domain.name), units: 0) { domain.applied(answer) }
         }
 
-        if trigger == .timer {
-            let settle = dependencies.settle
-            let press = pressOwed
-            pressOwed = false
-            for row in await Task.detached(priority: .background, operation: { [answer] in await settle(answer, press) }).value {
-                note(row)
-                if row.outcome == "refused", let source = row.source {
-                    refused(source, code: row.code ?? "LOCAL_ACCESS", message: row.message ?? "", at: now)
-                }
-            }
-        }
+        if settles { await settle(answer, note: note, at: now) }
         let historyWaits = domains.contains {
             schedule.domains[$0.sourceId]?.owesHistory == true && answer.sources[$0.sourceId]?.history == true
         } ? pastWaits : nil
-        return finish(rows, at: now, reachedTheDomains: true, historyWaits: historyWaits)
+        return finish(rows, at: now, reachedTheDomains: true, historyWaits: historyWaits, unrotated: unrotated, unsettled: unsettled, ran: ran)
     }
 
-    private func ship(_ domain: any ShippingDomain, pressed: Bool, live: Bool, answer: FreshAnswer,
+    private func settle(_ answer: FreshAnswer, note: (ShipperRunRow) -> Void, at now: Date) async {
+        settledAt = now
+        let settle = dependencies.settle
+        let press = pressOwed
+        pressOwed = false
+        for row in await Task.detached(priority: .background, operation: { [answer] in await settle(answer, press) }).value {
+            note(row)
+            if row.outcome == "refused", let source = row.source {
+                refused(source, code: row.code ?? "LOCAL_ACCESS", message: row.message ?? "", at: now)
+            }
+        }
+    }
+
+    private func settles(_ wakes: Set<String>?, at now: Date) -> Bool {
+        guard let wakes else { return true }
+        return wakes.contains { ShippingDomains.product(of: $0) == Self.photos } || elapsed(settledAt, at: now, interval: Self.throughInterval)
+    }
+
+    private func consumed(_ sidecar: BundleSidecar) {
+        guard let staged = sidecar.stagedBlobs, !staged.isEmpty else { return }
+        dependencies.onStagedConsumed(sidecar.sourceId, Set(staged))
+    }
+
+    private func ship(_ domain: any ShippingDomain, pressed: Bool, live: Bool, cold: Bool, answer: FreshAnswer,
                       at now: Date, note: (ShipperRunRow) -> Void) async -> DeliveryOutcome {
         var mine = schedule.domains[domain.sourceId] ?? DomainSchedule()
         guard let source = answer.sources[domain.sourceId] else { return DeliveryOutcome(outcome: "nothing_new") }
@@ -407,10 +549,12 @@ public actor Shipper {
                                                        interval: Self.throughInterval),
                                   start: dependencies.settings.start(of: connector(domain.sourceId)),
                                   held: Self.held(link), admitted: Self.admitted(link),
-                                  monthsOwed: { [link, source = domain.sourceId] in link.monthsOwed($0, of: source) })
+                                  monthsOwed: { [link, source = domain.sourceId] in link.monthsOwed($0, of: source) },
+                                  staged: dependencies.staged(domain.sourceId), forceCold: cold,
+                                  coldInterval: dependencies.coldInterval())
         let sealed: [SealedBundle]
         do {
-            let quality: DispatchQoS.QoSClass = pressed ? .userInitiated : .background
+            let quality: DispatchQoS.QoSClass = pressed || flushing ? .userInitiated : .background
             sealed = try await withCheckedThrowingContinuation { sealing in
                 DispatchQueue.global(qos: quality).async {
                     sealing.resume(with: Result { try ResourceMeter.shared.measure(.shipping(domain.name)) { try domain.seal(request) } })
@@ -448,7 +592,6 @@ public actor Shipper {
         unreadable[domain.sourceId] = nil
         if !live { mine.actedAt = now }
         mine.sealedAt = now
-        if mine.firstSealedAt == nil { mine.firstSealedAt = now }
         if let page = sealed.last(where: \.sidecar.statesHistory) {
             mine.historySeal = page.sidecar.seal
         }
@@ -514,16 +657,20 @@ public actor Shipper {
     }
 
     private func finish(_ rows: [ShipperRunRow], at now: Date, reachedTheDomains: Bool = false,
-                        historyWaits: MobileData.Wait? = nil) -> ShipperReport {
+                        historyWaits: MobileData.Wait? = nil, unrotated: Set<String> = [], unsettled: Set<String> = [],
+                        ran: Set<String> = []) -> ShipperReport {
         ResourceMeter.shared.measure(.shipping(nil), units: 0) {
-            close(rows, at: now, reachedTheDomains: reachedTheDomains, historyWaits: historyWaits)
+            close(rows, at: now, reachedTheDomains: reachedTheDomains, historyWaits: historyWaits, unrotated: unrotated, unsettled: unsettled,
+                  ran: ran)
         }
     }
 
-    private func close(_ rows: [ShipperRunRow], at now: Date, reachedTheDomains: Bool, historyWaits: MobileData.Wait?) -> ShipperReport {
+    private func close(_ rows: [ShipperRunRow], at now: Date, reachedTheDomains: Bool, historyWaits: MobileData.Wait?,
+                       unrotated: Set<String>, unsettled: Set<String>, ran: Set<String>) -> ShipperReport {
         let met = Set(rows.compactMap(Self.heldForNetwork) + [historyWaits].compactMap { $0 })
         let waitsFor = MobileData.Wait.allCases.last(where: met.contains)
-        let report = ShipperReport(rows: rows, outcome: Self.outcome(of: rows), waitsFor: waitsFor)
+        let report = ShipperReport(rows: rows, outcome: Self.outcome(of: rows), waitsFor: waitsFor, unrotated: unrotated, unsettled: unsettled,
+                                   ran: ran)
         stoppedEarly = !reachedTheDomains
         schedule.lastRunAt = now
         schedule.lastOutcome = report.outcome
@@ -596,13 +743,18 @@ public actor Shipper {
         do {
             let gate = moved.map { SentGate(clock: dependencies.clock, moved: $0) }
             let answer = try await link.send(bundle: bundle.file, id: bundle.sidecar.id, kind: bundle.sidecar.write,
-                                             pressed: pressed, sent: gate.map { gate in { @Sendable in gate.heard($0) } })
+                                             pressed: pressed, compress: true,
+                                             sent: gate.map { gate in { @Sendable in gate.heard($0) } })
             gate?.ended(bytes)
             return ResourceMeter.shared.measure(.shipping(nil), units: 0) {
                 ResourceMeter.shared.count(.bundlesShipped)
                 ResourceMeter.shared.count(.bytesShipped, Int(bytes))
                 return taken(bundle, answer: answer)
             }
+        } catch is CancellationError {
+            _ = try? state.park(bundle)
+            return DeliveryOutcome(outcome: "held", code: Hold.cancelled, message: "the send ended with its budget", bundle: bundle.sidecar,
+                                   stopsTheRun: true, left: .kept)
         } catch let failure as LinkFailure {
             switch failure {
             case .waits(let network):
@@ -626,6 +778,18 @@ public actor Shipper {
             case .refused(_, let code, let message):
                 _ = try? state.park(bundle)
                 return DeliveryOutcome(outcome: "refused", code: code, message: message, bundle: bundle.sidecar, stopsTheRun: true,
+                                       left: .kept)
+            case .filesMissing(let missing):
+                let hexes = Set(missing.map { $0.hasPrefix("sha256:") ? String($0.dropFirst("sha256:".count)) : $0 })
+                guard dependencies.onFilesMissing(source, hexes) else {
+                    state.spend(bundle)
+                    return DeliveryOutcome(outcome: "held", code: failure.code, message: failure.description, bundle: bundle.sidecar,
+                                           left: .spent)
+                }
+                _ = try? state.park(bundle)
+                holds[source] = Hold(until: dependencies.clock().addingTimeInterval(Self.filesMissingHold), code: failure.code,
+                                     message: failure.description)
+                return DeliveryOutcome(outcome: "held", code: failure.code, message: failure.description, bundle: bundle.sidecar,
                                        left: .kept)
             case .busy(let retryAfter):
                 _ = try? state.park(bundle)
@@ -667,6 +831,7 @@ public actor Shipper {
                                    bundle: bundle.sidecar, answer: answer)
         }
         state.spend(bundle)
+        consumed(bundle.sidecar)
         if let months = bundle.sidecar.months, let pass = bundle.sidecar.pass {
             link.homeKept(months: months, of: source, pass: pass)
         }
@@ -717,6 +882,8 @@ final class SentGate: @unchecked Sendable {
 
 private struct Hold {
     static let room = "DISK_LOW"
+    static let filesMissing = "FILES_MISSING"
+    static let cancelled = "CANCELLED"
 
     let until: Date
     let code: String
@@ -727,6 +894,68 @@ private struct Hold {
 
     func holds(_ bundle: BundleSidecar, at now: Date) -> Bool {
         inForce(at: now) && (kind != .later || bundle.write == .later)
+    }
+}
+
+enum Within {
+    static func seconds<Value: Sendable>(_ budget: TimeInterval, _ work: @escaping @Sendable () async -> Value) async -> Value? {
+        let race = Race<Value?>()
+        let value = await withTaskCancellationHandler {
+            await withCheckedContinuation { (ending: CheckedContinuation<Value?, Never>) in
+                race.arm(ending)
+                race.hold(Task { race.end(await work()) })
+                race.hold(Task {
+                    try? await Task.sleep(for: .seconds(max(0, budget)))
+                    race.end(nil)
+                })
+            }
+        } onCancel: {
+            race.end(nil)
+        }
+        race.cancel()
+        return value
+    }
+
+    private final class Race<Value: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var ending: CheckedContinuation<Value, Never>?
+        private var ended: Value?
+        private var runners: [Task<Void, Never>] = []
+        private var cancelled = false
+
+        func arm(_ ending: CheckedContinuation<Value, Never>) {
+            let early = lock.withLock { () -> Value? in
+                if ended == nil { self.ending = ending }
+                return ended
+            }
+            if let early { ending.resume(returning: early) }
+        }
+
+        func hold(_ runner: Task<Void, Never>) {
+            let cancelled = lock.withLock { () -> Bool in
+                runners.append(runner)
+                return self.cancelled
+            }
+            if cancelled { runner.cancel() }
+        }
+
+        func end(_ value: Value) {
+            let ending = lock.withLock { () -> CheckedContinuation<Value, Never>? in
+                guard ended == nil else { return nil }
+                ended = value
+                defer { self.ending = nil }
+                return self.ending
+            }
+            ending?.resume(returning: value)
+        }
+
+        func cancel() {
+            let runners = lock.withLock { () -> [Task<Void, Never>] in
+                cancelled = true
+                return self.runners
+            }
+            for runner in runners { runner.cancel() }
+        }
     }
 }
 
@@ -833,11 +1062,18 @@ public struct ShipperReport: Sendable, Equatable {
     public let rows: [ShipperRunRow]
     public let outcome: String
     public let waitsFor: MobileData.Wait?
+    public let unrotated: Set<String>
+    public let unsettled: Set<String>
+    public let ran: Set<String>
 
-    public init(rows: [ShipperRunRow], outcome: String, waitsFor: MobileData.Wait? = nil) {
+    public init(rows: [ShipperRunRow], outcome: String, waitsFor: MobileData.Wait? = nil, unrotated: Set<String> = [],
+                unsettled: Set<String> = [], ran: Set<String> = []) {
         self.rows = rows
         self.outcome = outcome
         self.waitsFor = waitsFor
+        self.unrotated = unrotated
+        self.unsettled = unsettled
+        self.ran = ran
     }
 }
 

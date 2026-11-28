@@ -35,6 +35,13 @@ enum MachineEventName: String, CaseIterable, Sendable {
     case bluetoothDisconnect = "bluetooth_disconnect"
     case ambientLight = "ambient_light"
     case access
+
+    var isUserOrSystem: Bool {
+        switch self {
+        case .state, .recorderStart, .recorderStop, .shipperRun, .ambientLight: false
+        default: true
+        }
+    }
 }
 
 enum MachineEventValue: Equatable, Sendable {

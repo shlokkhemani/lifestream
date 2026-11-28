@@ -711,7 +711,41 @@ final class AudioRecorderTests: XCTestCase {
         recorder.stop()
     }
 
+    func testAPartIsThreeMinutesUnlessToldOtherwise() {
+        XCTAssertEqual(AudioRecorder.partLength, 180)
+    }
+
+    func testEveryPartThatSealsSaysSo() {
+        let seals = Seals()
+        let recorder = AudioRecorder(directory: store, files: DeviceFiles(.plain), scratch: store, modes: .defaults,
+                                     sources: AudioSources(mic: source, sound: sound),
+                                     permission: { [unowned self] track in track == .mic ? permission : soundPermission },
+                                     partLength: 2, clock: { [unowned self] in now }, partClosed: { seals.add() })
+        recorder.start()
+        recorder.update(Uses.use(at: at(0), holders: [(zoom, Uses.microphone)]))
+        recorder.waitUntilIdle()
+        source.push(SyntheticAudio.chunks(seconds: 1, at: at(0.2)))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(seals.count, 0, "a part still open has not sealed")
+        source.push(SyntheticAudio.chunks(seconds: 4, from: 16_000, at: at(1.2)))
+        recorder.waitUntilIdle()
+        XCTAssertEqual(seals.count, 2, "each part that reaches its length seals and says so")
+        recorder.stop()
+        recorder.waitUntilIdle()
+        XCTAssertEqual(seals.count, 3, "the part open at stop seals and says so")
+        XCTAssertEqual(sealed().map(\.endedBy), ["part_limit", "part_limit", "recorder_stopped"])
+    }
+
     private static var abandoned: [AudioSegmentWriter] = []
+}
+
+private final class Seals: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held = 0
+
+    func add() { lock.withLock { held += 1 } }
+
+    var count: Int { lock.withLock { held } }
 }
 
 final class Space: @unchecked Sendable {

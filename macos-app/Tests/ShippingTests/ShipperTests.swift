@@ -40,7 +40,13 @@ final class ShipperTests: XCTestCase {
                              link: HomeLink? = nil, clock: FixedClock? = nil, fullDiskAccess: Bool = true,
                              grants: (@Sendable () -> [String: String]?)? = nil,
                              found: (@Sendable () -> [String]?)? = nil,
-                             stores: DeclaredStores? = nil) -> Shipper {
+                             stores: DeclaredStores? = nil,
+                             settle: (@Sendable (FreshAnswer, Bool) async -> [ShipperRunRow])? = nil,
+                             onFilesMissing: @escaping @Sendable (String, Set<String>) -> Bool = { _, _ in false },
+                             rotates: @escaping @Sendable (String) -> Bool = { _ in true },
+                             staged: @escaping @Sendable (String) -> StagedBlobs? = { _ in nil },
+                             onStagedConsumed: @escaping @Sendable (String, Set<String>) -> Void = { _, _ in },
+                             coldInterval: @escaping @Sendable () -> TimeInterval = { SealRequest.coldInterval }) -> Shipper {
         let built = self.built!, rows = self.rows!, rotations = self.rotations!
         let words = MacSettings.JSON.string(MacSettings.words(refresh))
         let settings = given ?? MacSettings(file: DomainFixtures.settingsFile, defaults: ["machine": ["refresh": words], "imessage": ["refresh": words],
@@ -54,11 +60,17 @@ final class ShipperTests: XCTestCase {
             offers: { unit in unit.isEmpty ? [] : ["chrome:default:\(unit)"] },
             clock: (clock ?? self.clock).read,
             record: { rows.append($0) },
-            rotateBatches: { rotations.append("rotate") },
+            rotateBatch: { product in
+                rotations.append("rotate \(product)")
+                return rotates(product)
+            },
             fullDiskAccess: { fullDiskAccess },
             grants: grants ?? { nil },
             found: found ?? { nil },
             stores: stores,
+            settle: settle ?? { _, _ in [] },
+            onFilesMissing: onFilesMissing,
+            staged: staged, onStagedConsumed: onStagedConsumed, coldInterval: coldInterval,
             scratch: FileManager.default.temporaryDirectory.appendingPathComponent("scratch-\(UUID().uuidString)", isDirectory: true)))
     }
 
@@ -73,15 +85,15 @@ final class ShipperTests: XCTestCase {
     private func pairedLongAgo() throws {
         var schedule = ShippingSchedule()
         schedule.pass = ShippingFixture.pass
-        schedule.pairedAt = Self.now.addingTimeInterval(-Shipper.youngFor)
+        schedule.pairedAt = Self.now.addingTimeInterval(-3_600)
         try state.writeSchedule(schedule)
     }
 
     private func grownUp(_ sources: [String]) throws {
         var schedule = ShippingSchedule()
         schedule.pass = ShippingFixture.pass
-        schedule.pairedAt = Self.now.addingTimeInterval(-Shipper.youngFor)
-        for source in sources { schedule.domains[source] = DomainSchedule(firstSealedAt: Self.now.addingTimeInterval(-Shipper.youngFor)) }
+        schedule.pairedAt = Self.now.addingTimeInterval(-3_600)
+        for source in sources { schedule.domains[source] = DomainSchedule() }
         try state.writeSchedule(schedule)
     }
 
@@ -114,6 +126,184 @@ final class ShipperTests: XCTestCase {
         _ = await shipper.run(.timer)
         XCTAssertEqual(domain.requests.last?.custody.seal, 2, "the next bundle states the next seal")
         XCTAssertEqual(home.custody(ShippingFixture.machineSource).received, 2)
+    }
+
+    func testABundleGoesGzippedAndTheHomeReadsTheSameBundle() async throws {
+        let domain = machineDomain([.sealed()])
+        let shipper = makeShipper([domain], refresh: 60)
+
+        let report = await shipper.run(.timer)
+
+        XCTAssertEqual(report.outcome, "shipped")
+        XCTAssertEqual(home.encodings, ["gzip"], "a stored ZIP of text shrinks, so it goes gzipped")
+        let put = try XCTUnwrap(home.requests.first { $0.method == "PUT" })
+        XCTAssertNotNil(put.headers[HomeLink.uncompressedLengthHeader].flatMap(Int.init))
+        XCTAssertEqual(home.deliveries.first?.members["synthetic.txt"], Data("synthetic machine_events bundle\n".utf8),
+                       "the home's gunzip gives the bundle back")
+        XCTAssertEqual(try names(state.pendingDirectory), [])
+    }
+
+    func testFilesMissingHoldsThatBundleHandsTheHashesBackAndTheRunGoesOn() async throws {
+        let machine = machineDomain([.sealed(), .nothingNew])
+        let messages = messagesDomain([.sealed()])
+        let missing = Collected<(String, Set<String>)>()
+        let shipper = makeShipper([machine, messages], refresh: 60, onFilesMissing: {
+            missing.append(($0, $1))
+            return true
+        })
+        let hex = ShippingFixture.hash("a")
+        home.missesOnce(ShippingFixture.machineSource, files: ["sha256:" + hex])
+
+        let report = await shipper.run(.timer)
+
+        let held = rows.all.first { $0.source == ShippingFixture.machineSource }
+        XCTAssertEqual(held?.outcome, "held")
+        XCTAssertEqual(held?.code, "FILES_MISSING")
+        XCTAssertEqual(rows.all.first { $0.source == ShippingFixture.messagesSource }?.outcome, "shipped",
+                       "another source ships in the same run")
+        XCTAssertNotEqual(report.outcome, "refused")
+        XCTAssertEqual(missing.all.map(\.0), [ShippingFixture.machineSource])
+        XCTAssertEqual(missing.all.first?.1, [hex], "the hashes go back bare, for the worker to stage again")
+        XCTAssertEqual(try state.pendingBundles().map(\.sidecar.sourceId), [ShippingFixture.machineSource], "the bundle waits in pending")
+
+        home.forgetRequests()
+        rows.clear()
+        _ = await shipper.run(.manual)
+        XCTAssertEqual(rows.all.first { $0.source == ShippingFixture.machineSource }?.code, "FILES_MISSING",
+                       "the hold stands until the files are staged")
+        XCTAssertFalse(methods.contains("PUT /v1/acquisitions/\(Self.machineBundle)"), "a held bundle is not sent")
+
+        await shipper.clearFilesMissingHold(for: ShippingFixture.machineSource)
+        rows.clear()
+        _ = await shipper.run(.manual)
+        XCTAssertEqual(rows.all.first { $0.source == ShippingFixture.machineSource }?.outcome, "shipped",
+                       "once its files are staged the same bundle goes")
+        XCTAssertEqual(home.custody(ShippingFixture.machineSource).received, 1)
+    }
+
+    func testAFilesMissingHoldEndsAtItsCeilingIfTheWorkerNeverSays() async throws {
+        let machine = machineDomain([.sealed(), .nothingNew])
+        let shipper = makeShipper([machine], refresh: 60, onFilesMissing: { _, _ in true })
+        home.missesOnce(ShippingFixture.machineSource, files: ["sha256:" + ShippingFixture.hash("b")])
+        _ = await shipper.run(.timer)
+        let next = await shipper.nextRun(after: Self.now)
+        XCTAssertEqual(next, Self.now.addingTimeInterval(Shipper.filesMissingHold), "no resend while the worker stages")
+        XCTAssertEqual(Shipper.filesMissingHold, Shipper.retryInterval)
+        clock.move(by: Shipper.filesMissingHold)
+        rows.clear()
+        _ = await shipper.run(.timer)
+        XCTAssertEqual(rows.all.first?.outcome, "shipped")
+    }
+
+    func testFilesMissingTheWorkerCannotStageSpendsTheBundleAndTheSourceSealsAfresh() async throws {
+        let machine = machineDomain([.sealed(), .sealed(), .nothingNew])
+        let missing = Collected<Set<String>>()
+        let shipper = makeShipper([machine], refresh: 60, onFilesMissing: { _, hexes in
+            missing.append(hexes)
+            return false
+        })
+        let hex = ShippingFixture.hash("c")
+        home.missesOnce(ShippingFixture.machineSource, files: ["sha256:" + hex])
+
+        let report = await shipper.run(.timer)
+
+        XCTAssertEqual(missing.all, [[hex]])
+        XCTAssertEqual(rows.all.map(\.summary), ["held FILES_MISSING", "shipped"], "spent, sealed afresh and sent in the same run")
+        XCTAssertEqual(machine.seals, 2)
+        XCTAssertEqual(report.outcome, "shipped")
+        XCTAssertEqual(try state.pendingBundles().count, 0, "no stale bundle loops on 409")
+        XCTAssertEqual(home.custody(ShippingFixture.machineSource).received, 1)
+        let next = await shipper.nextRun(after: Self.now)
+        XCTAssertGreaterThan(next, Self.now, "no hold is left behind")
+    }
+
+    func testAPendingBundleWhoseFilesAreLostAfterARelaunchIsSpentAndSealedAfresh() async throws {
+        let machine = machineDomain([.sealed(), .sealed(), .nothingNew])
+        let before = makeShipper([machine], refresh: 60, onFilesMissing: { _, _ in true })
+        home.missesOnce(ShippingFixture.machineSource, files: ["sha256:" + ShippingFixture.hash("d")])
+        _ = await before.run(.timer)
+        XCTAssertEqual(try state.pendingBundles().count, 1)
+
+        home.missesOnce(ShippingFixture.machineSource, files: ["sha256:" + ShippingFixture.hash("d")])
+        let after = makeShipper([machine], refresh: 60)
+        rows.clear()
+        _ = await after.run(.timer)
+        XCTAssertEqual(rows.all.map(\.summary), ["held FILES_MISSING", "shipped"], "the relaunched worker knows nothing to stage")
+        XCTAssertEqual(try state.pendingBundles().count, 0)
+        XCTAssertEqual(home.custody(ShippingFixture.machineSource).received, 1)
+    }
+
+    func testAFlushShipsTheAskedSourcesAndSaysTheirSeals() async throws {
+        try grownUp([ShippingFixture.machineSource, ShippingFixture.messagesSource])
+        let machine = machineDomain([.sealed()])
+        let messages = messagesDomain([.sealed()])
+        let shipper = makeShipper([machine, messages], refresh: 3_600)
+        _ = await shipper.run(.timer)
+        machine.arm([.sealed()])
+        messages.arm([.sealed()])
+        clock.move(by: 60)
+        rows.clear()
+
+        let seals = await shipper.flush(sources: [ShippingFixture.messagesSource], budget: 30).seals
+
+        XCTAssertEqual(seals, [ShippingFixture.messagesSource: 2], "only the asked source, not one merely due later")
+        XCTAssertEqual(machine.seals, 1)
+    }
+
+    func testAFlushOfEverySourceShipsTheLiveOnesAndNothingSlowNorPressed() async throws {
+        try grownUp([ShippingFixture.machineSource, ShippingFixture.messagesSource, ShippingFixture.inputSource])
+        let network = FakeNetwork(.costly)
+        let away = try await away(network)
+        let machine = machineDomain([.sealed()])
+        let messages = messagesDomain([.sealed()])
+        let input = FakeDomain(sourceId: ShippingFixture.inputSource, name: "input_events", seals: [.sealed()], behindLive: true)
+        let settled = Collected<Bool>()
+        let shipper = makeShipper([machine, messages, input], refresh: 3_600, link: away, settle: { _, pressed in
+            settled.append(pressed)
+            return []
+        })
+        _ = await shipper.run(.timer)
+        XCTAssertEqual(settled.all, [false])
+        machine.arm([.sealed()])
+        messages.arm([.sealedLater])
+        input.arm([.sealed()])
+        clock.move(by: 60)
+        rotations.clear()
+        rows.clear()
+
+        let seals = await shipper.flush(sources: nil, budget: 30).seals
+
+        XCTAssertEqual(seals, [ShippingFixture.machineSource: 2], "every live source that sealed, with its seal")
+        XCTAssertEqual(messages.seals, 2, "a flush with no list seals every fast source")
+        XCTAssertEqual(rows.all.first { $0.source == ShippingFixture.messagesSource }?.summary, "held \(MobileData.Wait.past.rawValue)",
+                       "a flush is never a press: what waits for Wi-Fi still waits")
+        XCTAssertEqual(input.seals, 1, "a source behind the live ones is left to its run")
+        XCTAssertEqual(rotations.count, 1, "the batch logs are cut for the machine source")
+        XCTAssertEqual(settled.all, [false], "a flush settles nothing")
+        XCTAssertTrue(machine.requests.last.map { !$0.custody.history } ?? false, "live data only")
+
+        clock.move(by: 3_600)
+        _ = await shipper.run(.timer)
+        XCTAssertEqual(settled.all, [false, false], "and leaves no press owed to the next run")
+    }
+
+    func testAFlushPastItsBudgetSaysNothingAndLeavesNoRunPiledUp() async throws {
+        try grownUp([ShippingFixture.machineSource])
+        let open = DispatchSemaphore(value: 0)
+        let entered = Collected<Bool>()
+        let machine = machineDomain([.sealed()], gate: {
+            entered.append(true)
+            open.wait()
+        })
+        let shipper = makeShipper([machine], refresh: 3_600)
+
+        let seals = await shipper.flush(sources: nil, budget: 0).seals
+
+        XCTAssertEqual(seals, [:], "the budget ended first")
+        open.signal()
+        let report = await shipper.run(.manual)
+        XCTAssertNotEqual(report.outcome, "busy", "a run waits for a flush still sealing, never drops on busy")
+        XCTAssertLessThanOrEqual(entered.count, 2)
     }
 
     func testTheExchangeOffersWhatThisMacFindsForItsUnit() async throws {
@@ -562,7 +752,7 @@ final class ShipperTests: XCTestCase {
         XCTAssertEqual(home.custody(machine).received, 1)
         XCTAssertEqual(try state.pendingBundles().map(\.sidecar.seal), [1])
 
-        clock.move(by: 60)
+        clock.move(by: MacSettings.readerRefresh)
         rows.clear()
         let next = await shipper.run(.timer)
         XCTAssertEqual(home.requests.filter { $0.method == "PUT" }.count, 1, "no second upload of what the home holds")
@@ -959,7 +1149,7 @@ final class ShipperTests: XCTestCase {
         let messages = messagesDomain([.sealedWithPage])
         let shipper = try await awayOnAHotspot(messages, machineDomain([.sealed()]), network: network)
         var reports = [await shipper.run(.timer)]
-        clock.move(by: Shipper.youngFor)
+        clock.move(by: 3_600)
         for _ in 0..<5 {
             reports.append(await shipper.run(.timer))
             clock.move(by: 60)
@@ -983,7 +1173,7 @@ final class ShipperTests: XCTestCase {
         let messages = messagesDomain([.sealedWithPage, .lastPage, .nothingNew])
         let shipper = try await awayOnAHotspot(messages, machineDomain([.sealed()]), network: network)
         _ = await shipper.run(.timer)
-        clock.move(by: Shipper.youngFor)
+        clock.move(by: 3_600)
         _ = await shipper.run(.timer)
         XCTAssertEqual(home.deliveries.filter { $0.kind == "later" }.count, 2, "both pages went on Wi-Fi, the last of its history")
 
@@ -1014,7 +1204,7 @@ final class ShipperTests: XCTestCase {
         let shipper = try await awayOnAHotspot(messages, machineDomain([.sealed()]), network: FakeNetwork(.costly))
         let held = await shipper.run(.timer)
         XCTAssertEqual(held.waitsFor, .past)
-        clock.move(by: Shipper.youngFor)
+        clock.move(by: 3_600)
         let refused = await shipper.run(.timer)
         XCTAssertEqual(messages.seals, 2)
         XCTAssertTrue(refused.rows.contains { $0.source == ShippingFixture.messagesSource && $0.summary == "refused LOCAL_ACCESS" })
@@ -1221,53 +1411,25 @@ final class ShipperTests: XCTestCase {
         XCTAssertEqual(try state.pendingBundles(), [])
     }
 
-    func testAYoungSourceShipsEveryMinuteThenAtTheSetting() async throws {
+    func testASourceWaitsItsSettingFromItsLastActFromItsFirstRun() async throws {
         let shipper = makeShipper([machineDomain([.sealed(), .nothingNew])])
         _ = await shipper.run(.timer)
-        let young = await shipper.nextRun(after: Self.now)
-        XCTAssertEqual(young, Self.now.addingTimeInterval(Shipper.minimumInterval))
-
-        clock.move(by: Shipper.youngFor - 60)
-        _ = await shipper.run(.timer)
-        let last = await shipper.nextRun(after: clock.now)
-        XCTAssertEqual(last, clock.now.addingTimeInterval(Shipper.minimumInterval), "still young a minute before its hour")
-        let grown = await shipper.nextRun(after: Self.now.addingTimeInterval(Shipper.youngFor))
-        XCTAssertEqual(grown, clock.now.addingTimeInterval(MacSettings.readerRefresh), "grown, it waits the setting from its last act")
+        let next = await shipper.nextRun(after: Self.now)
+        XCTAssertEqual(next, Self.now.addingTimeInterval(MacSettings.readerRefresh), "a new pairing waits the setting, events wake it sooner")
     }
 
-    func testAQuietSourceGrowsUpWithThePairingAndALateOneIsYoungFromItsFirstSeal() async throws {
-        let quiet = messagesDomain(Array(repeating: .nothingNew, count: 3))
-        let late = machineDomain([.nothingNew, .nothingNew, .sealed(), .nothingNew])
-        let shipper = makeShipper([quiet, late])
-        _ = await shipper.run(.timer)
-        let paired = await shipper.nextRun(after: Self.now)
-        XCTAssertEqual(paired, Self.now.addingTimeInterval(Shipper.minimumInterval), "the pairing's hour")
-
-        clock.move(by: Shipper.youngFor)
-        _ = await shipper.run(.timer)
-        let grown = await shipper.nextRun(after: clock.now)
-        XCTAssertEqual(grown, clock.now.addingTimeInterval(MacSettings.readerRefresh), "quiet after the pairing's hour")
-
-        clock.move(by: 86_400)
-        _ = await shipper.run(.timer)
-        XCTAssertEqual(late.seals, 3)
-        XCTAssertEqual(quiet.seals, 3)
-        let firstSeal = await shipper.nextRun(after: clock.now)
-        XCTAssertEqual(firstSeal, clock.now.addingTimeInterval(Shipper.minimumInterval), "young from its first seal")
-    }
-
-    func testAnUnreadableSourceWaitsTheSettingEvenWhenYoung() async throws {
+    func testAnUnreadableSourceWaitsTheSetting() async throws {
         let failing = messagesDomain([.failure, .failure])
         let shipper = makeShipper([failing])
         _ = await shipper.run(.timer)
         let next = await shipper.nextRun(after: Self.now)
         XCTAssertEqual(next, Self.now.addingTimeInterval(MacSettings.readerRefresh))
-        clock.move(by: Shipper.minimumInterval)
+        clock.move(by: 60)
         _ = await shipper.run(.timer)
         XCTAssertEqual(failing.seals, 1, "not tried again after a minute")
     }
 
-    func testANewPassMakesEverySourceYoungAgain() async throws {
+    func testANewPassIsAdoptedAndItsSourcesWaitTheSetting() async throws {
         try pairedLongAgo()
         var schedule = state.readSchedule()
         schedule.pass = "p-00000009"
@@ -1275,7 +1437,7 @@ final class ShipperTests: XCTestCase {
         let shipper = makeShipper([machineDomain([.nothingNew])])
         _ = await shipper.run(.timer)
         let next = await shipper.nextRun(after: Self.now)
-        XCTAssertEqual(next, Self.now.addingTimeInterval(Shipper.minimumInterval))
+        XCTAssertEqual(next, Self.now.addingTimeInterval(MacSettings.readerRefresh))
         XCTAssertEqual(state.readSchedule().pass, ShippingFixture.pass)
     }
 
@@ -1383,7 +1545,7 @@ final class ShipperTests: XCTestCase {
     }
 
 
-    func testOneRunRotatesTheOpenBatchesOnceBeforeTheFirstDomainSeals() async throws {
+    func testARunRotatesEveryDueBatchBeforeAnyDomainSealsAndNoOtherDomainRotates() async throws {
         let rotations = self.rotations!
         let input = FakeDomain(sourceId: ShippingFixture.inputSource, name: "input_events", seals: [.sealed()],
                                holdingSealAt: { rotations.append("seal input") })
@@ -1391,7 +1553,8 @@ final class ShipperTests: XCTestCase {
         let messages = messagesDomain([.nothingNew])
         _ = await makeShipper([machine, messages, input]).run(.timer)
 
-        XCTAssertEqual(rotations.all, ["rotate", "seal input", "seal machine"])
+        XCTAssertEqual(rotations.all, ["rotate input", "rotate machine", "seal input", "seal machine"],
+                       "no row a domain's run writes lands on the millisecond a batch is cut at")
         XCTAssertEqual(rows.all.filter { $0.outcome == "shipped" }.map(\.domain), ["input_events", "machine_events"])
     }
 
@@ -1975,6 +2138,118 @@ final class ShipperTests: XCTestCase {
         let answered = await ask()
         XCTAssertEqual(answered, [hex], "a door that answers is believed")
     }
+
+    func testAWokenSourceShipsAloneWhileAQuietOneWaitsItsCadenceUnopened() async throws {
+        let messages = messagesDomain([.nothingNew, .sealed()])
+        let machine = machineDomain([.nothingNew, .sealed()])
+        let shipper = makeShipper([messages, machine])
+        _ = await shipper.run(.timer)
+        clock.move(by: 60)
+        rotations.clear()
+        let exchanged = home.requests.filter { $0.url.path == "/v1/exchange" }.count
+
+        let woke = await shipper.run(.timer, due: [ShippingFixture.messagesSource])
+
+        XCTAssertEqual(messages.seals, 2, "the source the wake named seals")
+        XCTAssertEqual(machine.seals, 1, "a quiet source not yet due is never opened")
+        XCTAssertEqual(rotations.all, [], "a wake of a store's source cuts no batch")
+        XCTAssertEqual(woke.rows.filter { $0.outcome == "shipped" }.map(\.source), [ShippingFixture.messagesSource])
+        XCTAssertEqual(home.requests.filter { $0.url.path == "/v1/exchange" }.count, exchanged + 1, "one exchange a run")
+        XCTAssertEqual(messages.requests.last?.custody.history, false, "a wake reads live only")
+        let next = await shipper.nextRun(after: clock.now)
+        XCTAssertEqual(next, Self.now.addingTimeInterval(MacSettings.readerRefresh), "a wake leaves the timer's cadence where it was")
+    }
+
+    func testABatchWhoseClockHasNotMovedShipsWhatIsSealedAndSaysItIsOwedAgain() async throws {
+        let machine = machineDomain([.sealed()])
+        let shipper = makeShipper([machine], rotates: { $0 != "machine" })
+
+        let report = await shipper.run(.timer, due: [ShippingFixture.machineSource])
+
+        XCTAssertEqual(rotations.all, ["rotate machine"])
+        XCTAssertEqual(machine.seals, 1, "what was sealed before still ships")
+        XCTAssertEqual(report.unrotated, [ShippingFixture.machineSource], "the batch is owed to the next wake")
+    }
+
+    func testASealIsHandedTheStagedFilesTheColdIntervalAndColdOnlyWhenPressedOrRefreshed() async throws {
+        let messages = messagesDomain([.nothingNew, .nothingNew, .nothingNew])
+        let named = Collected<String>()
+        let shipper = makeShipper([messages], staged: { source in
+            named.append(source)
+            return StagedBlobs(isReady: { _ in false }, enqueue: { _, _, _, _, _ in })
+        }, coldInterval: { 4 * 3_600 })
+
+        _ = await shipper.run(.timer)
+        clock.move(by: 60)
+        _ = await shipper.run(.timer, due: [ShippingFixture.messagesSource])
+        _ = await shipper.run(.manual)
+
+        XCTAssertEqual(messages.requests.map(\.forceCold), [false, false, true], "a timer's or a wake's read is warm, a press's cold")
+        XCTAssertEqual(messages.requests.map(\.coldInterval), [4 * 3_600, 4 * 3_600, 4 * 3_600])
+        XCTAssertTrue(messages.requests.allSatisfy { $0.staged != nil })
+        XCTAssertEqual(Set(named.all), [ShippingFixture.messagesSource], "staged files are the source's own")
+    }
+
+    func testARefreshReadsCold() async throws {
+        let messages = messagesDomain([.nothingNew, .nothingNew])
+        let shipper = makeShipper([messages])
+        _ = await shipper.run(.timer)
+        await shipper.ask([ShippingFixture.messagesSource])
+        _ = await shipper.run(.now)
+        XCTAssertEqual(messages.requests.map(\.forceCold), [false, true])
+    }
+
+    func testTheFilesABundleStagedAreLetGoOnceTheHomeTookItAndOnceAPendingOneIsCovered() async throws {
+        let first = ShippingFixture.hash("a"), second = ShippingFixture.hash("b")
+        let messages = messagesDomain([.sealedStaged([first]), .sealedStaged([second]), .nothingNew])
+        let consumed = Collected<String>()
+        let shipper = makeShipper([messages], onStagedConsumed: { source, hexes in
+            for hex in hexes.sorted() { consumed.append("\(source) \(hex)") }
+        })
+
+        _ = await shipper.run(.timer)
+        XCTAssertEqual(consumed.all, ["\(ShippingFixture.messagesSource) \(first)"], "a 201 lets the staged file go")
+        XCTAssertEqual(home.deliveries.count, 1)
+
+        home.loseNextAnswer()
+        clock.move(by: MacSettings.readerRefresh)
+        _ = await shipper.run(.timer)
+        XCTAssertEqual(consumed.count, 1, "an answer lost on the way keeps the bundle and its files")
+        XCTAssertEqual(try state.pendingBundles().first?.sidecar.stagedBlobs, [second], "the sidecar names what it staged")
+
+        clock.move(by: Shipper.retryInterval)
+        _ = await shipper.run(.timer)
+        XCTAssertEqual(consumed.all.last, "\(ShippingFixture.messagesSource) \(second)", "a pending bundle the home holds lets them go")
+    }
+
+    func testAFlushSealsAtUserInitiatedQualityAndATimersRunInTheBackground() async throws {
+        let qualities = Collected<UInt32>()
+        let messages = FakeDomain(sourceId: ShippingFixture.messagesSource, name: "imessage", seals: [.nothingNew, .nothingNew],
+                                  holdingSealAt: { qualities.append(qos_class_self().rawValue) })
+        let shipper = makeShipper([messages])
+        _ = await shipper.run(.timer)
+        _ = await shipper.flush(sources: [ShippingFixture.messagesSource], budget: 30)
+        XCTAssertEqual(qualities.all, [QOS_CLASS_BACKGROUND.rawValue, QOS_CLASS_USER_INITIATED.rawValue])
+    }
+
+    func testAFlushWhoseBudgetEndsMidSendParksTheBundleAndIsNoSilence() async throws {
+        let cancelling = CancellingHome(home)
+        let link = try await ShippingFixture.link(home, folder: root.appendingPathComponent("cancelling"), transport: cancelling)
+        let messages = messagesDomain([.nothingNew, .sealed()])
+        let shipper = makeShipper([messages], link: link)
+        _ = await shipper.run(.timer)
+        rows.clear()
+        cancelling.cancelsSends = true
+
+        let seals = await shipper.flush(sources: [ShippingFixture.messagesSource], budget: 30).seals
+
+        XCTAssertEqual(seals, [:])
+        let sent = rows.all.filter { $0.source == ShippingFixture.messagesSource && $0.bundle != nil }
+        XCTAssertEqual(sent.map(\.summary), ["held CANCELLED"], "a send the budget ended is held, never unreachable")
+        XCTAssertFalse(rows.all.contains { $0.outcome == "unreachable" })
+        XCTAssertEqual(try state.pendingBundles().count, 1, "the bundle is kept for the next run")
+    }
+
 }
 
 private func whileReading(_ meanwhile: Collected<@Sendable () async throws -> Void>) {

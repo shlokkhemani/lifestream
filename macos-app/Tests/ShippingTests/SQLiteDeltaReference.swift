@@ -104,6 +104,17 @@ enum SQLiteDeltaReference {
         for table in try texts("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*'", on: handle) where !held.contains(table) {
             try exec("DROP TABLE \(SQLiteDelta.quoted(table))")
         }
+        var rows = 0
+        for table in tables { rows += try SQLite.integer("SELECT count(*) FROM \(SQLiteDelta.quoted(table.name))", on: handle) ?? 0 }
+        if rows < SQLiteDelta.indexedRows {
+            for index in try texts("SELECT m.name FROM sqlite_master AS m WHERE m.type = 'index' AND m.sql IS NOT NULL AND NOT EXISTS "
+                                   + "(SELECT 1 FROM pragma_index_list(m.tbl_name) AS l WHERE l.name = m.name AND l.\"unique\" = 1)", on: handle) {
+                try exec("DROP INDEX \(SQLiteDelta.quoted(index))")
+            }
+            for statistics in try texts("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'sqlite_stat*'", on: handle) {
+                try exec("DROP TABLE \(SQLiteDelta.quoted(statistics))")
+            }
+        }
         try exec("COMMIT")
     }
 

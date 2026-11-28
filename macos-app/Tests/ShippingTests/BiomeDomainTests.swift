@@ -105,10 +105,24 @@ final class BiomeDomainTests: XCTestCase {
         return try domain().sealOne(DomainFixtures.request(work: work, at: spelling, custody: custody, start: start))
     }
 
+    private func engine(spacing: @escaping @Sendable () -> TimeInterval) throws -> BiomeEngine {
+        let store = try StoreFixtures.declaration(of: Self.source).store
+        guard case .biome(let stream) = store.engine else { throw StoreFixtures.StoreFixtureError.noMember(Self.source, "biome") }
+        return try BiomeEngine(sourceId: Self.source, store: store, stream: stream, road: StoreFiles(home: root, lifestream: []),
+                               ledgers: ledgers, spacing: spacing)
+    }
+
     private func carried(_ sealed: SealedBundle) throws -> HashEntry {
         try DomainFixtures.entry(HashEntry.self, of: sealed, ledgers: ledgers)
     }
 
+
+    func testBiomeIsNeverFlushedEvenWrappedAsADeclaredStore() throws {
+        let engine = try domain()
+        XCTAssertTrue(engine is BiomeEngine)
+        XCTAssertFalse(Shipper.fast(engine))
+        XCTAssertFalse(Shipper.fast(DeclaredDomain(engine, refuse: { _ in })), "the wrapper is seen through")
+    }
 
     func testEverySegmentOfEveryDeviceShipsAtItsPlace() throws {
         try buildStream()
@@ -153,10 +167,38 @@ final class BiomeDomainTests: XCTestCase {
         XCTAssertEqual(DomainFixtures.workspaces(BiomeEngine.workPrefix), [], "no copy stays behind")
     }
 
-    func testAtMostOneBundleAnHour() throws {
+    func testAtMostOneBundleEveryFiveMinutesOnPower() throws {
         try buildStream()
-        XCTAssertNil(try seal(mark: "2026-09-23T03:01:00.000Z"))
-        XCTAssertNotNil(try seal(mark: "2026-09-23T03:00:00.000Z"))
+        XCTAssertNil(try seal(mark: "2026-09-23T03:55:01.000Z"))
+        XCTAssertNotNil(try seal(mark: "2026-09-23T03:55:00.000Z"))
+    }
+
+    func testTheSpacingFollowsThePower() throws {
+        XCTAssertEqual(BiomeEngine.acSpacing, 5 * 60)
+        XCTAssertEqual(BiomeEngine.batterySpacing, 15 * 60)
+        XCTAssertEqual(BiomeEngine.lowPowerSpacing, 30 * 60)
+        XCTAssertEqual(BiomeEngine.spacing(onBattery: false, lowPower: false), 5 * 60)
+        XCTAssertEqual(BiomeEngine.spacing(onBattery: true, lowPower: false), 15 * 60)
+        XCTAssertEqual(BiomeEngine.spacing(onBattery: true, lowPower: true), 30 * 60)
+        XCTAssertEqual(BiomeEngine.spacing(onBattery: false, lowPower: true), 30 * 60)
+    }
+
+    func testABundleWaitsOutTheSpacingThePowerSets() throws {
+        try buildStream()
+        let power = PowerNow()
+        let domain = try engine { BiomeEngine.spacing(onBattery: power.onBattery, lowPower: power.lowPower) }
+        let custody = try DomainFixtures.received(HashEntry(mark: "2026-09-23T03:50:00.000Z", hashes: []),
+                                                  source: Self.source, ledgers: ledgers)
+        let sealTenMinutesOn = { [work] () throws -> SealedBundle? in
+            try domain.sealOne(DomainFixtures.request(work: work, at: Self.at, custody: custody))
+        }
+        power.onBattery = true
+        XCTAssertNil(try sealTenMinutesOn(), "on battery, ten minutes is under the fifteen")
+        power.lowPower = true
+        XCTAssertNil(try sealTenMinutesOn(), "in Low Power Mode, ten minutes is under the thirty")
+        power.onBattery = false
+        power.lowPower = false
+        XCTAssertNotNil(try sealTenMinutesOn(), "on power, ten minutes is past the five")
     }
 
     func testASegmentCaughtMidWriteStaysHomeAndIsCounted() throws {
@@ -208,7 +250,7 @@ final class BiomeDomainTests: XCTestCase {
         XCTAssertEqual(try StoredZipReader(widened.file).names, ["local/790000000000000.segb", "manifest.json"])
     }
 
-    func testAReadCountsEverySegmentByTheMonthItWasModifiedEvenWithinTheHour() throws {
+    func testAReadCountsEverySegmentByTheMonthItWasModifiedEvenWithinTheSpacing() throws {
         try buildStream()
         for (locator, at) in [("local/810000000000000", "2026-09-22T00:00:00.000Z"), ("local/tombstone/810000050000000", "2026-09-01T00:00:00.000Z"),
                               ("remote/\(Self.phone)/809990000000000", "2026-08-31T23:59:59.000Z"),
@@ -217,13 +259,13 @@ final class BiomeDomainTests: XCTestCase {
                                                   ofItemAtPath: stream.appendingPathComponent(locator).path)
         }
         let months = ["2026-08": Through.Month(items: 2, bytes: 8192), "2026-09": Through.Month(items: 2, bytes: 8192)]
-        let shipped = try DomainFixtures.received(HashEntry(mark: "2026-09-23T03:30:00.000Z",
+        let shipped = try DomainFixtures.received(HashEntry(mark: "2026-09-23T03:57:00.000Z",
                                                             hashes: Set([Self.local, Self.remote, Self.tombstone].map(Self.sha)).sorted()),
                                                   source: Self.source, ledgers: ledgers)
-        let within = try DomainFixtures.instant("2026-09-23T03:30:00.000Z")
+        let within = try DomainFixtures.instant("2026-09-23T03:57:00.000Z")
         XCTAssertEqual(try DomainFixtures.stated(domain(), DomainFixtures.request(work: work, custody: shipped, owesThrough: true)),
                        Through(readThrough: within, statedAt: try DomainFixtures.instant(Self.at), months: months),
-                       "within the hour it is read through its last read, every segment counted")
+                       "within the spacing it is read through its last read, every segment counted")
         let quiet = try DomainFixtures.instant("2026-09-23T04:30:00.000Z")
         XCTAssertEqual(try DomainFixtures.stated(domain(), DomainFixtures.request(work: work, at: "2026-09-23T04:30:00.000Z", custody: shipped,
                                                                                   owesThrough: true, start: quiet)),
@@ -235,5 +277,21 @@ final class BiomeDomainTests: XCTestCase {
 
     func testAStreamThisMacHasNeverWrittenShipsNothing() throws {
         XCTAssertNil(try seal())
+    }
+}
+
+private final class PowerNow: @unchecked Sendable {
+    private let lock = NSLock()
+    private var battery = false
+    private var low = false
+
+    var onBattery: Bool {
+        get { lock.withLock { battery } }
+        set { lock.withLock { battery = newValue } }
+    }
+
+    var lowPower: Bool {
+        get { lock.withLock { low } }
+        set { lock.withLock { low = newValue } }
     }
 }

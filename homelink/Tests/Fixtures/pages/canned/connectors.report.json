@@ -329,14 +329,14 @@
         "detail": null,
         "line": null
       },
-      "line": "1 app switch",
+      "line": "2 app switches",
       "time": {
         "day": "2026-10-28",
         "kind": "day"
       },
       "more": [],
       "last": {
-        "at_ms": 1792315800015,
+        "at_ms": 1792315800021,
         "kind": "at"
       },
       "act": null,
@@ -404,7 +404,7 @@
       },
       "more": [],
       "last": {
-        "at_ms": 1792315800025,
+        "at_ms": 1792315800027,
         "kind": "at"
       },
       "act": null,
@@ -612,7 +612,7 @@
       "time": null,
       "more": [],
       "last": {
-        "at_ms": 1792315800028,
+        "at_ms": 1792315800030,
         "kind": "at"
       },
       "act": null,
@@ -649,7 +649,7 @@
       "time": null,
       "more": [],
       "last": {
-        "at_ms": 1792315800029,
+        "at_ms": 1792315800031,
         "kind": "at"
       },
       "act": {
@@ -684,7 +684,7 @@
       "time": null,
       "more": [],
       "last": {
-        "at_ms": 1792315800021,
+        "at_ms": 1792315800023,
         "kind": "at"
       },
       "act": null,
@@ -1144,6 +1144,10 @@
           "line": "3 messages today"
         },
         {
+          "id": "screen-time",
+          "line": "1 app switch · last 07:30"
+        },
+        {
           "id": "apple-photos",
           "line": "5 photos · last 08:30"
         }
@@ -1233,7 +1237,7 @@
       "streams": [
         {
           "id": "screen-time",
-          "line": "1 app switch today"
+          "line": "1 app switch · last 07:30"
         },
         {
           "id": "apple-photos",
@@ -1383,38 +1387,6 @@
       "pauses": [],
       "on": true,
       "members": [
-        {
-          "key": "refresh",
-          "kind": "duration",
-          "label": "Check every",
-          "about": null,
-          "value": "5m",
-          "words": "Every 5 minutes",
-          "from": "declaration",
-          "default": "5m",
-          "steps": [
-            {
-              "value": "1m",
-              "words": "Every minute",
-              "note": null
-            },
-            {
-              "value": "2m",
-              "words": "Every 2 minutes",
-              "note": null
-            },
-            {
-              "value": "5m",
-              "words": "Every 5 minutes",
-              "note": null
-            }
-          ],
-          "panel": null,
-          "control": "menu",
-          "where": null,
-          "waiting": [],
-          "only": null
-        },
         {
           "key": "start",
           "kind": "start",
@@ -3835,10 +3807,10 @@
         "detail": null,
         "words": ""
       },
-      "line": "1 app switch today",
+      "line": "2 app switches today",
       "lead": null,
       "line_parts": {
-        "words": "1 app switch",
+        "words": "2 app switches",
         "time": {
           "kind": "day",
           "day": "2026-10-28"
@@ -3846,7 +3818,7 @@
         "more": []
       },
       "figure": {
-        "today": 1,
+        "today": 2,
         "week": [
           0,
           0,
@@ -3854,11 +3826,11 @@
           0,
           0,
           0,
-          1
+          2
         ],
         "checked_ms": 1793179500000,
         "words": "Checked 09:25",
-        "last_ms": 1792315800015,
+        "last_ms": 1792315800021,
         "last": "18 Oct"
       },
       "history": {
@@ -3883,6 +3855,28 @@
           "name": "iPhone 17 Pro",
           "road": "phone",
           "unit": "iphone-17-pro-aa01",
+          "on": true,
+          "retired": false,
+          "health": {
+            "state": "ok",
+            "reason": null,
+            "since_ms": null,
+            "next_ms": null,
+            "acts": [],
+            "detail": null,
+            "words": ""
+          },
+          "held": 1,
+          "newest_ms": 1793172600000,
+          "oldest_ms": 1793172600000,
+          "store": null,
+          "line": "1 app switch · last 07:30"
+        },
+        {
+          "id": "screen-time:local:macbook-air-bb07",
+          "name": "MacBook Air",
+          "road": "mac",
+          "unit": "macbook-air-bb07",
           "on": true,
           "retired": false,
           "health": {
@@ -3976,11 +3970,11 @@
               "note": null
             }
           ],
-          "panel": null,
+          "panel": "settings",
           "control": "menu",
           "where": null,
           "waiting": [],
-          "only": null
+          "only": "On MacBook Air"
         },
         {
           "key": "start",
@@ -4001,7 +3995,15 @@
       "backfill_about": "Collects the app switches your Mac's log already holds.",
       "routes": [],
       "route": null,
-      "refresh_now": null,
+      "refresh_now": {
+        "act": {
+          "do": "refresh",
+          "label": "Check now",
+          "of": "screen-time"
+        },
+        "blocked": null,
+        "asked": []
+      },
       "origin": null,
       "origins": null,
       "browser": null,
@@ -4346,7 +4348,7 @@
         ],
         "checked_ms": 1793179620000,
         "words": "Checked 09:27",
-        "last_ms": 1792315800025,
+        "last_ms": 1792315800027,
         "last": "18 Oct"
       },
       "history": {
@@ -4465,38 +4467,6 @@
       "pauses": [],
       "on": true,
       "members": [
-        {
-          "key": "refresh",
-          "kind": "duration",
-          "label": "Check every",
-          "about": null,
-          "value": "5m",
-          "words": "Every 5 minutes",
-          "from": "declaration",
-          "default": "5m",
-          "steps": [
-            {
-              "value": "1m",
-              "words": "Every minute",
-              "note": null
-            },
-            {
-              "value": "2m",
-              "words": "Every 2 minutes",
-              "note": null
-            },
-            {
-              "value": "5m",
-              "words": "Every 5 minutes",
-              "note": null
-            }
-          ],
-          "panel": "settings",
-          "control": "menu",
-          "where": null,
-          "waiting": [],
-          "only": "On MacBook Air"
-        },
         {
           "key": "start",
           "kind": "start",
@@ -5784,7 +5754,7 @@
         ],
         "checked_ms": 1793169000000,
         "words": "Checked 06:30",
-        "last_ms": 1792315800028,
+        "last_ms": 1792315800030,
         "last": "18 Oct"
       },
       "history": null,
@@ -6094,7 +6064,7 @@
         ],
         "checked_ms": 1793172600000,
         "words": "Checked 07:30",
-        "last_ms": 1792315800029,
+        "last_ms": 1792315800031,
         "last": "18 Oct"
       },
       "history": null,
@@ -6358,7 +6328,7 @@
         ],
         "checked_ms": 1793179740000,
         "words": "Checked 09:29",
-        "last_ms": 1792315800021,
+        "last_ms": 1792315800023,
         "last": "18 Oct"
       },
       "history": {

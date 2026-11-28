@@ -571,7 +571,10 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
                            pairAgain: MacLink.shared.map { MacHost.PairAgain(link: $0, setUp: { [weak self] in self?.pairAgain() }) },
                            refresh: { try await MacLink.opened().refresh(connector: $0) },
                            refreshHere: { [weak self] id in Task { await self?.work?.shipping.refreshNow(id) } },
-                           tellStores: { MacLink.shared?.tell(stores: $0) },
+                           tellStores: { [weak self] stated in
+                               MacLink.shared?.tell(stores: stated)
+                               Task { @MainActor in self?.work?.shipping.storesChanged() }
+                           },
                            homeClock: { MacLink.shared?.homeClock },
                            browserFor: { [scratch = process.scratch] url in Detection.browserUsing(Detection.sites(of: url), scratch: scratch) },
                            machineName: SetupHost.computerName(),
@@ -579,6 +582,7 @@ final class MenuBarApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, N
                            ask: .live, settings: work?.settings, general: General(system: .live(updates: updates, uninstall: { [weak self] in self?.uninstall() })),
                            setup: setup, imports: work?.imports, agentRequests: agentRequests,
                            dragPanel: DragPanel(onScreen: true, screen: .live))
+        host.uploaded = { [weak self] in self?.work?.shipping.noteChanged(product: "upload") }
         let made = MainWindowController(web: WebContent(address: carried ? address.carried : address, launch: !windowMade), host: host,
                                         release: release, onScreen: true, closed: { [weak self] in self?.windowClosed() })
         windowMade = true

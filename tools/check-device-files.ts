@@ -109,6 +109,7 @@ export const ALLOWED: readonly Allowed[] = [
   allow("Shipping/Stores/StoreFiles.swift", ["Darwin.open("], "opens another app's store to read it"),
   allow("Shipping/Stores/StoreSQL.swift", ["sqlite3_open"], "an in-memory SQLite, no file"),
   { file: "photolibrary/Sources/PhotoLibrary/Pass.swift", calls: ["temporaryDirectory"], reason: "PhotoPass.init's default export folder, which only the phone takes" },
+  { file: "homelink/Sources/HomeLink/HomeLink.swift", calls: ["DeviceFiles(.plain)", "temporaryDirectory"], reason: "reads another app's unkept file from an offset when staging it, and holds a DeviceFiles-written temporary gzip bundle outside the shipping folder until the upload ends" },
 ];
 
 export const PLAIN_DEFAULTS: readonly string[] = ["homelink/Sources/"];

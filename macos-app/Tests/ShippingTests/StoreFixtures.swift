@@ -38,7 +38,8 @@ enum StoreFixtures {
                                      fullDiskAccess: { fullDiskAccess }, wake: wake,
                                      ledgers: ledgers ?? Ledgers(root: state.appendingPathComponent("ledger", isDirectory: true), files: DeviceFiles(.plain)),
                                      hashCacheDirectory: state.appendingPathComponent("hash-cache", isDirectory: true),
-                                     sessionDirectory: state.appendingPathComponent("sessions", isDirectory: true))
+                                     sessionDirectory: state.appendingPathComponent("sessions", isDirectory: true),
+                                     biomeSpacing: { BiomeEngine.acSpacing })
         let stores = DeclaredStores(file: state.appendingPathComponent("stores.json"),
                                     consent: StoreConsent(file: state.appendingPathComponent("allowed.json"), known: try known ?? Self.known(), files: DeviceFiles(.plain)),
                                     mac: mac)

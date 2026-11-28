@@ -1,3 +1,4 @@
+import AppKit
 import DeviceFiles
 import XCTest
 import Evidence
@@ -20,11 +21,12 @@ final class MachineEventsTests: XCTestCase {
 
     private var batches: URL { root.appendingPathComponent(MachineEventBatch.directoryName) }
 
-    private func sources(grants: Allowed = Allowed([:])) -> MachineEventSources {
+    private func sources(grants: Allowed = Allowed([:]), wakes: Wakes? = nil) -> MachineEventSources {
         MachineEventSources(directory: root, files: DeviceFiles(.plain), timeZone: TimeZone(identifier: "Asia/Kolkata")!,
+                            probe: wakes == nil ? SystemDeviceUseProbe() : QuietDevices(),
                             peripherals: ScriptedPeripherals(first: Peripherals(displays: [], bluetooth: [], lux: nil),
                                                              lux: [nil]),
-                            grants: { grants.now })
+                            grants: { grants.now }, onUserOrSystemEvent: wakes.map { wakes in { @Sendable in wakes.add() } })
     }
 
     private func openLog(_ state: MachineState = fullState(),
@@ -407,6 +409,92 @@ final class MachineEventsTests: XCTestCase {
         return try XCTUnwrap(row)
     }
 
+    func testARequestedRotationWaitsUntilTheClockIsPastTheNewestLine() throws {
+        let log = try openLog()
+        XCTAssertFalse(try log.rotateIfSafe(now: Self.date("2026-09-07T05:00:00.000Z")), "nothing open, nothing sealed")
+        let newest = Self.date("2026-09-07T05:00:00.000Z")
+        try log.append(MachineEvent(at: newest.addingTimeInterval(-2), name: .wake))
+        try log.append(MachineEvent(at: newest, name: .lock))
+
+        XCTAssertFalse(try log.rotateIfSafe(now: newest), "the clock on the newest line's millisecond waits")
+        XCTAssertFalse(try log.rotateIfSafe(now: newest.addingTimeInterval(-30)), "a clock stepped back waits")
+        XCTAssertEqual(log.sealedBatches(), [])
+
+        XCTAssertTrue(try log.rotateIfSafe(now: newest.addingTimeInterval(0.001)))
+        XCTAssertEqual(log.sealedBatches(), ["20260907T045958.000Z.jsonl"])
+        XCTAssertEqual(try lines("20260907T045958.000Z.jsonl").map { try MachineEventCodec.event($0).name },
+                       [.state, .wake, .lock], "the trailing lock ships in the sealed batch")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.openBatch.path))
+        XCTAssertFalse(try log.rotateIfSafe(now: newest.addingTimeInterval(60)), "a sealed batch is not sealed again")
+    }
+
+    func testShippingFindsNothingOwedInAnEmptyLogAndWaitsOnlyOnAnOpenBatchOnItsNewestMillisecond() throws {
+        let log = try openLog()
+        let newest = Self.date("2026-09-07T05:00:00.000Z")
+        XCTAssertTrue(try log.rotateForShipping(now: newest), "nothing open: nothing is owed")
+        try log.append(MachineEvent(at: newest, name: .lock))
+        XCTAssertFalse(try log.rotateForShipping(now: newest), "an open batch on the clock's millisecond waits")
+        XCTAssertTrue(try log.rotateForShipping(now: newest.addingTimeInterval(0.001)))
+        XCTAssertEqual(log.sealedBatches().count, 1)
+        XCTAssertTrue(try log.rotateForShipping(now: newest.addingTimeInterval(60)), "sealed and nothing open again")
+        XCTAssertEqual(log.sealedBatches().count, 1)
+    }
+
+    func testABurstOnOneMillisecondRotatesOnlyOnceTheClockMovesOn() throws {
+        let log = try openLog()
+        let burst = Self.date("2026-09-07T05:00:00.250Z")
+        try log.append(MachineEvent(at: burst, name: .sleep))
+        try log.append(MachineEvent(at: burst.addingTimeInterval(0.0002), name: .displaySleep))
+        XCTAssertFalse(try log.rotateIfSafe(now: burst.addingTimeInterval(0.0004)))
+        try log.append(MachineEvent(at: burst.addingTimeInterval(0.0004), name: .lock))
+        XCTAssertTrue(try log.rotateIfSafe(now: burst.addingTimeInterval(0.001)))
+        try log.append(MachineEvent(at: burst.addingTimeInterval(0.001), name: .wake))
+        try log.rotate()
+        XCTAssertEqual(log.sealedBatches(), ["20260907T050000.250Z.jsonl", "20260907T050000.251Z.jsonl"],
+                       "no line of the next batch shares a millisecond with the last")
+    }
+
+    func testTheSourcesRotateOnRequestOnlyPastTheNewestLine() throws {
+        let sources = sources()
+        sources.start()
+        defer { sources.stop() }
+        sources.record(shipperRun: ["outcome": "shipped"])
+        let row = try waitForShipperRow(in: MachineEventBatch.openName)
+        XCTAssertFalse(sources.rotateIfSafe(now: row.at))
+        XCTAssertEqual(MachineEventBatch.sealedBatches(in: batches), [])
+        XCTAssertTrue(sources.rotateIfSafe(now: row.at.addingTimeInterval(1)))
+        XCTAssertEqual(MachineEventBatch.sealedBatches(in: batches).count, 1)
+    }
+
+    func testOnlyEventsOfTheUserOrTheSystemWake() {
+        XCTAssertEqual(Set(MachineEventName.allCases.filter { !$0.isUserOrSystem }),
+                       [.state, .recorderStart, .recorderStop, .shipperRun, .ambientLight],
+                       "the recorder's own rows and the light sensor's timer ride along")
+    }
+
+    func testAShipperRowWakesNothingAndAWakeOrSleepDoes() throws {
+        let wakes = Wakes()
+        let sources = sources(wakes: wakes)
+        sources.start()
+        defer { sources.stop() }
+        sources.record(shipperRun: ["outcome": "shipped"])
+        _ = try waitForShipperRow(in: MachineEventBatch.openName)
+        sources.waitUntilTold()
+        XCTAssertEqual(wakes.count, 0, "neither the start line nor a shipper row wakes the shipper")
+
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: nil)
+        try until("wakes.count == 1") { wakes.count == 1 }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.willSleepNotification, object: nil)
+        try until("wakes.count == 2") { wakes.count == 2 }
+
+        sources.record(shipperRun: ["outcome": "nothing_new"])
+        try until("two shipper rows") {
+            ((try? lines(MachineEventBatch.openName)) ?? []).filter { $0.contains("\"shipper_run\"") }.count == 2
+        }
+        sources.waitUntilTold()
+        XCTAssertEqual(wakes.count, 2)
+    }
+
     func testTwoBatchesWhoseFirstLinesShareAMillisecondBothSurvive() throws {
         let log = try openLog()
         let instant = Self.date("2026-09-07T05:00:00.000Z")
@@ -417,6 +505,22 @@ final class MachineEventsTests: XCTestCase {
         XCTAssertEqual(log.sealedBatches(),
                        ["20260907T050000.000Z-2.jsonl", "20260907T050000.000Z.jsonl"])
     }
+}
+
+private final class QuietDevices: DeviceUseProbe, @unchecked Sendable {
+    func read(at: Date) -> DeviceUse { DeviceUse(at: at, audio: nil, cameras: nil) }
+    func observe(_ signal: @escaping @Sendable (DeviceUseSignal) -> Void) {}
+    func stopObserving() {}
+    func recheck() {}
+}
+
+final class Wakes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held = 0
+
+    func add() { lock.withLock { held += 1 } }
+
+    var count: Int { lock.withLock { held } }
 }
 
 final class Allowed: @unchecked Sendable {

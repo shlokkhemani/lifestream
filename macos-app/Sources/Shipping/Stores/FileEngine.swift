@@ -85,6 +85,8 @@ final class FileEngine: ShippingDomain {
         let shipped = Set(held.flatMap(\.entry.hashes))
         let counted = request.owed(months)
         var uncarried: Set<String> = []
+        var answered: Set<String>?
+        var staged: Set<String> = []
         while true {
             let carried = index.without(uncarried)
             let marked = read.reduce(Data()) { $0 + $1.bytes } + (naming == nil ? Data() : carried.data)
@@ -94,15 +96,32 @@ final class FileEngine: ShippingDomain {
                 if request.owesThrough { stated.value = request.through(readThrough: request.fetchedAt, months: months) }
                 return []
             }
+            let unsent = firstPath.filter { !shipped.contains($0.key) && !uncarried.contains($0.key) }
+            if let staging = request.staged, answered == nil {
+                let sizes = Dictionary(index.entries.values.map { ($0.sha256, Int64($0.bytes)) }, uniquingKeysWith: max)
+                let large = unsent.compactMap { sha256, file -> StagedBlobs.Large? in
+                    guard let bytes = sizes[sha256], bytes > staging.thresholdBytes else { return nil }
+                    return StagedBlobs.Large(sha256: sha256, file: file, bytes: bytes)
+                }
+                if !large.isEmpty {
+                    let named = Set(unsent.keys)
+                    let held = request.held(named).intersection(named)
+                    answered = held
+                    guard let ready = staging.ready(large, held: held, kept: false, kind: .new) else { return [] }
+                    staged = ready
+                }
+            }
+            let carrying = staged.subtracting(uncarried)
             var members = read.map { BundleWriter.File(name: $0.member, content: .bytes($0.bytes)) }
             if let names = naming { members.append(BundleWriter.File(name: names.rule.index, content: .bytes(carried.data))) }
             let written: BundleWriter.Written
             do {
                 written = try BundleWriter.write(
                     into: request.workDirectory, sourceId: sourceId, feeder: feeder, fetchedAt: request.fetchedAt, files: members,
-                    blobs: firstPath.filter { !shipped.contains($0.key) && !uncarried.contains($0.key) }
+                    blobs: unsent.filter { !carrying.contains($0.key) }
                         .map { BundleWriter.Blob(sha256: $0.key, file: $0.value, opener: road.opener) },
-                    held: request.held,
+                    stagedBlobs: carrying.sorted(),
+                    held: { [answered] hexes in answered.map { $0.intersection(hexes) } ?? request.held(hexes) },
                     facts: [("snapshot_taken_at", .string(UTCInstant.rfc3339(request.fetchedAt)))] + Months.facts(counted),
                     custody: (request.custody, []), through: ledgers.files)
             } catch let error as BundleWriterError {
@@ -116,7 +135,7 @@ final class FileEngine: ShippingDomain {
             try ledger.record(HashEntry(mark: mark, hashes: written.named), at: request.custody.seal)
             cache.shipped(carried.entries.keys)
             return [SealedBundle(file: written.file, sidecar: BundleSidecar(id: written.id, sourceId: sourceId, custody: request.custody,
-                                                                            write: .new, months: counted))]
+                                                                            write: .new, months: counted, stagedBlobs: written.staged))]
         }
     }
 
