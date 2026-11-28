@@ -70,6 +70,30 @@ final class AquaVoiceDomainTests: XCTestCase {
         XCTAssertTrue(manifest.contains("\"snapshot_taken_at\":\"2026-09-23T04:00:00.000Z\""), manifest)
     }
 
+    func testALargeRecordingIsStagedBeforeItsBundleAndTheBundleNamesItOnceReady() throws {
+        let large = String(repeating: "synthetic wav bytes ", count: 14_000)
+        try build(recordings: ["AQ_2", "AQ_9"])
+        try DomainFixtures.write(large, to: folder.appendingPathComponent("audio/AQ_1.wav"))
+        let hash = DomainFixtures.sha256(large), small = DomainFixtures.sha256("synthetic wav AQ_2")
+        let board = StagingBoard()
+        let domain = try domain()
+        let request = { try DomainFixtures.request(work: self.work, owesThrough: true, staged: board.staged) }
+
+        XCTAssertEqual(try domain.seal(request()), [], "a large recording not yet at the door holds the seal back")
+        XCTAssertEqual(board.enqueued, [StagingBoard.Enqueued(sha256: hash, bytes: Int64(large.utf8.count), kept: false, kind: .new)],
+                       "another app's file is staged as it lies")
+        XCTAssertNil(domain.through, "work waits: no read-through is stated")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ledgers.file(pass: ShippingFixture.pass, source: Self.source).path))
+
+        board.ready(hash)
+        let sealed = try XCTUnwrap(try domain.sealOne(request()))
+        let zip = try StoredZipReader(sealed.file)
+        XCTAssertEqual(zip.names, ["history.json", "audio.json", "blobs/\(small)", "manifest.json"], "the staged recording is not carried")
+        XCTAssertTrue(try XCTUnwrap(zip.text("manifest.json")).contains("\"staged_blobs\":[\"sha256:\(hash)\"]"))
+        XCTAssertEqual(sealed.sidecar.stagedBlobs, [hash])
+        XCTAssertEqual(Set(try carried(sealed).hashes), [hash, small])
+    }
+
     func testAnUnchangedFileSealsNothingAndStatesItsReadThrough() throws {
         try build()
         let first = try XCTUnwrap(try domain().sealOne(DomainFixtures.request(work: work)))

@@ -178,6 +178,54 @@ final class InputEventRotationTests: XCTestCase {
         XCTAssertEqual(InputEventBatch.sealedBatches(in: folder), sealed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: openBatch.path))
     }
+
+    func testAWrittenMinuteSaysSoOnlyOnceItsLineIsInTheOpenBatch() throws {
+        let written = WrittenLines()
+        let batch = openBatch
+        let files = try InputEventFiles(recorderDirectory: root, files: DeviceFiles(.plain), timeZone: zone,
+                                        chunkWritten: { written.add((try? Data(contentsOf: batch)) ?? Data()) })
+        files.chunkOpened(at: Synthetic.opened, layout: "us")
+        files.chunkClosed(nil)
+        XCTAssertEqual(written.seen, [], "an idle minute writes no line and says nothing")
+
+        files.chunkOpened(at: Synthetic.minute, layout: "us")
+        files.chunkClosed(InputChunk(at: Synthetic.minute, until: Synthetic.minute.addingTimeInterval(40), layout: "us",
+                                     apps: [], events: [], lost: 3))
+        XCTAssertEqual(written.seen.count, 1)
+        let line = try XCTUnwrap(String(data: try XCTUnwrap(written.seen.first), encoding: .utf8))
+        XCTAssertEqual(try InputEventCodec.chunk(String(line.dropLast())).at, Synthetic.minute,
+                       "the open batch held the minute's line when it said so")
+        files.close()
+    }
+
+    func testTheLogSaysAMinuteWasWrittenWhenItCloses() throws {
+        let source = FakeSource()
+        let written = WrittenLines()
+        let log = InputEventLog(directory: root, files: DeviceFiles(.plain), modes: RecordingModes(), timeZone: zone,
+                                report: { _ in }, source: source, reader: FakeReader(), clock: clock.clock,
+                                onChunkWritten: { written.add(Data()) })
+        addTeardownBlock { log.stop() }
+        log.start()
+        click(source, at: Synthetic.opened.addingTimeInterval(5))
+        try until("log.status.events == 1") { log.status.events == 1 }
+        log.waitUntilTold()
+        XCTAssertEqual(written.seen.count, 0, "a minute still open says nothing")
+        click(source, at: Synthetic.minute.addingTimeInterval(10))
+        try until("one written minute told") { written.seen.count == 1 }
+        clock.set(Synthetic.minute.addingTimeInterval(30))
+        log.rotate()
+        log.waitUntilTold()
+        XCTAssertEqual(written.seen.count, 1, "a rotation inside the open minute writes no line")
+    }
+}
+
+final class WrittenLines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: [Data] = []
+
+    func add(_ batch: Data) { lock.withLock { held.append(batch) } }
+
+    var seen: [Data] { lock.withLock { held } }
 }
 
 final class SteppedClock: @unchecked Sendable {

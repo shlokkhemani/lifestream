@@ -4,7 +4,9 @@ import Foundation
 import HomeLink
 
 final class BiomeEngine: ShippingDomain {
-    static let spacing: TimeInterval = 60 * 60
+    static let acSpacing: TimeInterval = 5 * 60
+    static let batterySpacing: TimeInterval = 15 * 60
+    static let lowPowerSpacing: TimeInterval = 30 * 60
     static let workPrefix = "biome-bundle-"
     static let suffix = ".segb"
     static let thisMac = "SELECT device_identifier FROM DevicePeer WHERE me = 1"
@@ -16,10 +18,13 @@ final class BiomeEngine: ShippingDomain {
     private let road: StoreFiles
     let ledgers: Ledgers
     private let stated = SealNote<Through?>(nil)
+    private let spacing: @Sendable () -> TimeInterval
     static let syncDatabase = "~/Library/Biome/sync/sync.db"
 
-    init(sourceId: String, store: HomeLink.MacStore, stream: String, road: StoreFiles, ledgers: Ledgers) throws {
+    init(sourceId: String, store: HomeLink.MacStore, stream: String, road: StoreFiles, ledgers: Ledgers,
+         spacing: @escaping @Sendable () -> TimeInterval = { BiomeEngine.acSpacing }) throws {
         self.sourceId = sourceId
+        self.spacing = spacing
         self.ledgers = ledgers
         name = store.name
         feeder = store.feeder
@@ -27,6 +32,15 @@ final class BiomeEngine: ShippingDomain {
         self.road = road
         _ = try road.path(Self.folder(of: stream))
         _ = try road.path(Self.syncDatabase)
+    }
+
+    static func spacing(onBattery: Bool, lowPower: Bool) -> TimeInterval {
+        lowPower ? lowPowerSpacing : onBattery ? batterySpacing : acSpacing
+    }
+
+    static func powerSpacing() -> TimeInterval {
+        let power = PowerMode.current()
+        return spacing(onBattery: power == .battery, lowPower: power == .lowPower)
     }
 
     static func folder(of stream: String) -> String { "~/Library/Biome/streams/restricted/\(stream)/" }
@@ -40,7 +54,7 @@ final class BiomeEngine: ShippingDomain {
             guard request.owesThrough, let readThrough else { return }
             self.stated.value = request.through(readThrough: readThrough, months: segments.map(Self.months))
         }
-        if let last, request.fetchedAt < last.addingTimeInterval(Self.spacing) {
+        if let last, request.fetchedAt < last.addingTimeInterval(spacing()) {
             quiet(last, try? segmentFiles())
             return []
         }

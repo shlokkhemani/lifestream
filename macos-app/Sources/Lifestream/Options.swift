@@ -211,25 +211,27 @@ enum UsageError: Error, LocalizedError {
 }
 
 extension Options {
-    func machineEvents(modes: RecordingModes, files: DeviceFiles) -> MachineEventSources {
-        MachineEventSources(directory: directory, files: files, modes: modes, grants: { Grant.stated() }) { line in
+    func machineEvents(modes: RecordingModes, files: DeviceFiles, woke: (@Sendable () -> Void)? = nil) -> MachineEventSources {
+        MachineEventSources(directory: directory, files: files, modes: modes, grants: { Grant.stated() }, report: { line in
             FileHandle.standardError.write(Data((line + "\n").utf8))
-        }
+        }, onUserOrSystemEvent: woke)
     }
 
-    func audio(modes: RecordingModes, files: DeviceFiles, scratch: URL, fits: @escaping @Sendable () -> Bool) -> AudioRecorder {
+    func audio(modes: RecordingModes, files: DeviceFiles, scratch: URL, fits: @escaping @Sendable () -> Bool,
+               woke: (@Sendable () -> Void)? = nil) -> AudioRecorder {
         AudioRecorder(directory: directory, files: files, scratch: scratch, modes: modes, fits: fits, report: { line in
             FileHandle.standardError.write(Data((line + "\n").utf8))
-        })
+        }, partClosed: woke)
     }
 }
 
 extension Options {
-    func inputEvents(modes: RecordingModes, files: DeviceFiles, fits: @escaping @Sendable () -> Bool) -> InputEventLog? {
+    func inputEvents(modes: RecordingModes, files: DeviceFiles, fits: @escaping @Sendable () -> Bool,
+                     woke: (@Sendable () -> Void)? = nil) -> InputEventLog? {
         guard inputLog else { return nil }
-        return InputEventLog(directory: directory, files: files, modes: modes, fits: fits) { line in
+        return InputEventLog(directory: directory, files: files, modes: modes, fits: fits, report: { line in
             FileHandle.standardError.write(Data((line + "\n").utf8))
-        }
+        }, onChunkWritten: woke)
     }
 }
 
@@ -242,7 +244,8 @@ extension Recorder {
         live(configuration: options.recorder, directory: options.directory,
              screen: options.screen(modes: logs.modes), videoQuality: options.videoQuality,
              machineEvents: logs.machineEvents, inputEvents: logs.inputEvents, audio: logs.audio,
-             fits: logs.fits, files: logs.files, plain: process.plain, scratch: process.scratch)
+             fits: logs.fits, files: logs.files, plain: process.plain, scratch: process.scratch,
+             onSegmentSettled: { [wakes = logs.wakes] in wakes.tell("screen") })
     }
 }
 
@@ -254,21 +257,43 @@ struct RecorderLogs: Sendable {
     let machineEvents: MachineEventSources
     let inputEvents: InputEventLog?
     let audio: AudioRecorder
+    let wakes: RecorderWakes
 
-    init(_ options: Options, files: DeviceFiles, scratch: URL) {
+    init(_ options: Options, files: DeviceFiles, scratch: URL, wakes: RecorderWakes = RecorderWakes()) {
         self.files = files
+        self.wakes = wakes
         modes = options.modes(files)
         let disk = Volume(options.directory)
         let fits: @Sendable () -> Bool = { disk.fits(.new) }
         self.disk = disk
         self.fits = fits
-        machineEvents = options.machineEvents(modes: modes, files: files)
-        inputEvents = options.inputEvents(modes: modes, files: files, fits: fits)
-        audio = options.audio(modes: modes, files: files, scratch: scratch, fits: fits)
+        machineEvents = options.machineEvents(modes: modes, files: files, woke: { wakes.tell("machine") })
+        inputEvents = options.inputEvents(modes: modes, files: files, fits: fits, woke: { wakes.tell("input") })
+        audio = options.audio(modes: modes, files: files, scratch: scratch, fits: fits, woke: { wakes.tell("audio") })
     }
 
-    func rotate() {
-        machineEvents.rotate()
-        inputEvents?.rotate()
+    func rotate(_ product: String) -> Bool {
+        switch product {
+        case "machine":
+            return machineEvents.rotateForShipping()
+        case "input":
+            inputEvents?.rotate()
+            return true
+        default:
+            return true
+        }
+    }
+}
+
+final class RecorderWakes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var heard: (@Sendable (String) -> Void)?
+
+    func attach(_ heard: @escaping @Sendable (String) -> Void) {
+        lock.withLock { self.heard = heard }
+    }
+
+    func tell(_ product: String) {
+        lock.withLock { heard }?(product)
     }
 }

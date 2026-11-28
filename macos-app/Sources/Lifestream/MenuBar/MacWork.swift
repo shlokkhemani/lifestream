@@ -42,6 +42,9 @@ import Shipping
         let shipping = ShippingCoordinator(options: options, scratch: process.scratch, logs: logs, link: link, settings: settings, homeFree: homeFree, limits: limits,
                                            imports: heard)
         self.shipping = shipping
+        logs.wakes.attach { [weak shipping] product in
+            Task { @MainActor in shipping?.noteChanged(product: product) }
+        }
         ScreenSettings.join(settings, recorder, knock: { Task { await shipping.knock() } })
         control = ControlResponder(recorder: recorder, ship: { await shipping.shipNow().outcome }, pair: { name, code in
             let response = await HomeCommands.pair(name: name, code: code, link: link)

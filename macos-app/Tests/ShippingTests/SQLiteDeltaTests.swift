@@ -65,10 +65,79 @@ final class SQLiteDeltaTests: XCTestCase {
         })
         XCTAssertEqual(try DomainFixtures.read("SELECT type, name FROM sqlite_master WHERE name NOT GLOB 'sqlite_autoindex*' ORDER BY name",
                                                from: output),
-                       [["table", "message"], ["index", "message_body"], ["table", "sqlite_sequence"], ["table", "sqlite_stat1"]])
+                       [["table", "message"], ["table", "sqlite_sequence"]])
         XCTAssertEqual(try DomainFixtures.read("SELECT ROWID FROM message ORDER BY ROWID", from: output), [["1"], ["2"]])
         XCTAssertEqual(try DomainFixtures.read("SELECT name FROM sqlite_sequence", from: output), [["message"]])
-        XCTAssertEqual(try DomainFixtures.read("SELECT DISTINCT tbl FROM sqlite_stat1", from: output), [["message"]])
+    }
+
+    private func buildKeyed(items: Int, lookups: Int) throws {
+        try DomainFixtures.sqlite(source, [
+            "CREATE TABLE item (id INTEGER PRIMARY KEY, code TEXT UNIQUE, body TEXT)",
+            "CREATE INDEX item_body ON item (body)",
+            "CREATE UNIQUE INDEX item_pair ON item (body, code)",
+            "WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM n WHERE value < \(items)) "
+                + "INSERT INTO item (id, code, body) SELECT value, 'code-' || value, 'body ' || (value % 7) FROM n WHERE value <= \(items)",
+            "CREATE TABLE lookup (k TEXT PRIMARY KEY, v TEXT)",
+            "CREATE INDEX lookup_v ON lookup (v)",
+            "WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM n WHERE value < \(lookups)) "
+                + "INSERT INTO lookup (k, v) SELECT 'key-' || value, 'value ' || (value % 3) FROM n WHERE value <= \(lookups)",
+            "CREATE TABLE extra (id INTEGER PRIMARY KEY, tag TEXT)",
+            "CREATE INDEX extra_tag ON extra (tag)",
+            "WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM n WHERE value < 50) "
+                + "INSERT INTO extra (id, tag) SELECT value, 'tag ' || (value % 5) FROM n",
+            "ANALYZE",
+        ])
+    }
+
+    private func schema() throws -> [[String?]] {
+        try DomainFixtures.read("SELECT type, name FROM sqlite_master ORDER BY name", from: output)
+    }
+
+    private let keys: [[String?]] = [["table", "item"], ["index", "item_pair"], ["table", "lookup"],
+                                     ["index", "sqlite_autoindex_item_1"], ["index", "sqlite_autoindex_lookup_1"]]
+
+    func testADeltaOfFewerThanFiveHundredRowsKeepsEveryKeyAndLeavesOutPlainIndexesAndStatistics() throws {
+        try buildKeyed(items: 600, lookups: 0)
+        try SQLiteDelta.write(from: try SQLiteSource(source, scratch: DomainFixtures.sealScratch), to: output,
+                              tables: { _, _ in [SQLiteDelta.Table("item", keep: "id < 500"), SQLiteDelta.Table("lookup")] })
+        XCTAssertEqual(try DomainFixtures.read("SELECT count(*) FROM item", from: output), [["499"]])
+        XCTAssertEqual(try schema(), keys)
+        XCTAssertEqual(try DomainFixtures.read("SELECT name, \"unique\" FROM pragma_index_list('item') ORDER BY name", from: output),
+                       [["item_pair", "1"], ["sqlite_autoindex_item_1", "1"]])
+        XCTAssertEqual(try DomainFixtures.read("SELECT pk FROM pragma_table_info('item') WHERE name = 'id'", from: output), [["1"]])
+        XCTAssertEqual(try DomainFixtures.read("PRAGMA quick_check", from: output), [["ok"]])
+    }
+
+    func testADeltaOfFiveHundredRowsKeepsEveryIndexAndTheStatisticsOfItsTables() throws {
+        try buildKeyed(items: 600, lookups: 10)
+        try SQLiteDelta.write(from: try SQLiteSource(source, scratch: DomainFixtures.sealScratch), to: output,
+                              tables: { _, _ in [SQLiteDelta.Table("item", keep: "id <= 490"), SQLiteDelta.Table("lookup")] })
+        XCTAssertEqual(try DomainFixtures.read("SELECT count(*) FROM item", from: output), [["490"]])
+        XCTAssertEqual(try schema(), [["table", "item"], ["index", "item_body"], ["index", "item_pair"], ["table", "lookup"],
+                                      ["index", "lookup_v"], ["index", "sqlite_autoindex_item_1"],
+                                      ["index", "sqlite_autoindex_lookup_1"], ["table", "sqlite_stat1"]])
+        XCTAssertEqual(try DomainFixtures.read("SELECT DISTINCT tbl FROM sqlite_stat1 ORDER BY tbl", from: source),
+                       [["extra"], ["item"], ["lookup"]])
+        XCTAssertEqual(try DomainFixtures.read("SELECT DISTINCT tbl FROM sqlite_stat1 ORDER BY tbl", from: output),
+                       [["item"], ["lookup"]], "only the statistics of the tables it holds")
+        XCTAssertEqual(try DomainFixtures.read("SELECT tbl, idx, stat FROM sqlite_stat1 ORDER BY tbl, idx", from: output),
+                       try DomainFixtures.read("SELECT tbl, idx, stat FROM sqlite_stat1 WHERE tbl IN ('item', 'lookup') "
+                                               + "ORDER BY tbl, idx", from: source),
+                       "the source's statistics, not the delta's")
+        XCTAssertEqual(try DomainFixtures.read("PRAGMA quick_check", from: output), [["ok"]])
+        let tables = { (after: Int) in [SQLiteDelta.Table("item", keep: "id > \(after)"), SQLiteDelta.Table("lookup")] }
+        try SQLiteDeltaReference.assertEquivalent(source, cursors: [0, 50, 100], tables: tables, "five hundred rows or more")
+    }
+
+    func testTheRowsOfAWholeTableCountTowardFiveHundred() throws {
+        try buildKeyed(items: 600, lookups: 300)
+        try SQLiteDelta.write(from: try SQLiteSource(source, scratch: DomainFixtures.sealScratch), to: output,
+                              tables: { _, _ in [SQLiteDelta.Table("item", keep: "id < 200"), SQLiteDelta.Table("lookup")] })
+        XCTAssertEqual(try schema(), keys, "199 and 300 rows")
+        try SQLiteDelta.write(from: try SQLiteSource(source, scratch: DomainFixtures.sealScratch), to: output,
+                              tables: { _, _ in [SQLiteDelta.Table("item", keep: "id <= 200"), SQLiteDelta.Table("lookup")] })
+        XCTAssertEqual(try schema().map { $0[1] ?? "" }.filter { $0 == "item_body" || $0 == "lookup_v" || $0 == "sqlite_stat1" },
+                       ["item_body", "lookup_v", "sqlite_stat1"], "200 and 300 rows")
     }
 
     func testAVirtualTableIsLeftOutUnlessNamed() throws {
@@ -96,9 +165,9 @@ final class SQLiteDeltaTests: XCTestCase {
         XCTAssertGreaterThan(try FileManager.default.attributesOfItem(atPath: source.path)[.size] as? Int ?? 0, 1_200_000)
         try SQLiteDelta.write(from: try SQLiteSource(source, scratch: DomainFixtures.sealScratch), to: output, tables: { _, _ in [SQLiteDelta.Table("t7", keep: "id = 5")] })
         let size = try FileManager.default.attributesOfItem(atPath: output.path)[.size] as? Int ?? .max
-        XCTAssertLessThanOrEqual(size, 4 * SQLiteDelta.pageSize, "the schema, the table, its index")
+        XCTAssertLessThanOrEqual(size, 2 * SQLiteDelta.pageSize, "the schema and the table")
         XCTAssertEqual(try SQLiteDeltaReference.fingerprint(output).header["page_size"], SQLiteDelta.pageSize)
-        XCTAssertEqual(try DomainFixtures.read("SELECT name FROM sqlite_master ORDER BY name", from: output), [["t7"], ["t7_url"]])
+        XCTAssertEqual(try DomainFixtures.read("SELECT name FROM sqlite_master ORDER BY name", from: output), [["t7"]])
         XCTAssertEqual(try DomainFixtures.read("SELECT id, url FROM t7", from: output), [["5", "https://example.com/5"]])
     }
 

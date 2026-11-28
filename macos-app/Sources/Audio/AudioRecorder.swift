@@ -27,8 +27,10 @@ public enum MicUse: Equatable, Sendable {
 
 public final class AudioRecorder: @unchecked Sendable {
     public static let stopHold: TimeInterval = 120
+    public static let partLength: TimeInterval = 180
 
     private let queue = DispatchQueue(label: "org.lifestreamprotocol.audio")
+    private let told: DispatchQueue
     private let folder: RecordingFolder
     private let cameras = CameraSpans()
     private let permission: (AudioTrack) -> AudioAuthorization
@@ -42,6 +44,7 @@ public final class AudioRecorder: @unchecked Sendable {
     private let holdsFile: URL
     private let files: DeviceFiles
     private let report: (String) -> Void
+    private let partClosed: (@Sendable () -> Void)?
 
     private let statusLock = NSLock()
     private var published = AudioStatus(mic: .stopped, sound: .stopped)
@@ -50,10 +53,11 @@ public final class AudioRecorder: @unchecked Sendable {
     public init(directory: URL, files: DeviceFiles, scratch: URL,
                 modes: RecordingModes, sources: AudioSources = .live(),
                 permission: @escaping (AudioTrack) -> AudioAuthorization = AudioPermissions.status,
-                partLength: TimeInterval = 600,
+                partLength: TimeInterval = AudioRecorder.partLength,
                 clock: @escaping () -> Date = { Date() },
                 fits: @escaping @Sendable () -> Bool = { true },
-                report: @escaping (String) -> Void = { _ in }) {
+                report: @escaping (String) -> Void = { _ in },
+                partClosed: (@Sendable () -> Void)? = nil) {
         folder = RecordingFolder(url: directory.appendingPathComponent(AudioSpool.directoryName, isDirectory: true),
                                  scratch: scratch.appendingPathComponent(AudioSpool.directoryName, isDirectory: true),
                                  files: files, report: report)
@@ -62,12 +66,16 @@ public final class AudioRecorder: @unchecked Sendable {
         self.modes = modes
         self.files = files
         self.report = report
+        let told = DispatchQueue(label: "org.lifestreamprotocol.audio.told", qos: .utility)
+        self.told = told
+        let toldOffQueue: (@Sendable () -> Void)? = partClosed.map { tell in { @Sendable in told.async { tell() } } }
+        self.partClosed = toldOffQueue
         holdsFile = directory.appendingPathComponent(AudioHolds.fileName)
         holds = AudioHolds.load(holdsFile, files: files, at: clock(), report: report)
         tracks = AudioTrack.allCases.map { track in
             TrackRecording(track: track, source: sources[track], queue: queue, folder: folder, cameras: cameras,
                            partLength: partLength, clock: clock, fits: fits, report: report,
-                           changed: { [unowned self] in publishStatus() })
+                           changed: { [unowned self] in publishStatus() }, sealed: toldOffQueue)
         }
     }
 
@@ -81,12 +89,14 @@ public final class AudioRecorder: @unchecked Sendable {
     }
 
     public func start() {
-        queue.sync {
-            guard !running else { return }
-            folder.recoverLeftovers()
+        let recovered = queue.sync { () -> Int in
+            guard !running else { return 0 }
+            let recovered = folder.recoverLeftovers()
             running = true
             evaluate(at: clock())
+            return recovered
         }
+        if recovered > 0 { partClosed?() }
     }
 
     public func stop() {
@@ -125,6 +135,7 @@ public final class AudioRecorder: @unchecked Sendable {
 
     func waitUntilIdle() {
         queue.sync {}
+        told.sync {}
     }
 
 
@@ -267,6 +278,7 @@ final class TrackRecording {
     private let fits: @Sendable () -> Bool
     private let report: (String) -> Void
     private let changed: () -> Void
+    private let partSealed: (@Sendable () -> Void)?
 
     private var session: Session?
     private var holdUntilChange = false
@@ -274,7 +286,7 @@ final class TrackRecording {
 
     init(track: AudioTrack, source: any AudioSource, queue: DispatchQueue, folder: RecordingFolder, cameras: CameraSpans,
          partLength: TimeInterval, clock: @escaping () -> Date, fits: @escaping @Sendable () -> Bool,
-         report: @escaping (String) -> Void, changed: @escaping () -> Void) {
+         report: @escaping (String) -> Void, changed: @escaping () -> Void, sealed: (@Sendable () -> Void)?) {
         self.track = track
         self.source = source
         self.queue = queue
@@ -285,6 +297,7 @@ final class TrackRecording {
         self.fits = fits
         self.report = report
         self.changed = changed
+        partSealed = sealed
     }
 
     private final class Session {
@@ -494,5 +507,6 @@ final class TrackRecording {
     private func sealedOne() {
         sealed += 1
         changed()
+        partSealed?()
     }
 }

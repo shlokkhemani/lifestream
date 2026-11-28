@@ -9,6 +9,7 @@ final class InputEventFiles: InputChunkWriter {
     private let unsynced: (Bool) -> Void
     private let fits: @Sendable () -> Bool
     private let drops: MinuteDrops
+    private let chunkWritten: (@Sendable () -> Void)?
     private let batches: BatchFiles
     private var batchFile: Log?
     private var batchFirstLineAt: Date?
@@ -21,13 +22,14 @@ final class InputEventFiles: InputChunkWriter {
 
     init(recorderDirectory: URL, files: DeviceFiles, timeZone: TimeZone = .current, report: @escaping (String) -> Void = { _ in },
          unsynced: @escaping (Bool) -> Void = { _ in }, fits: @escaping @Sendable () -> Bool = { true },
-         drops: MinuteDrops = MinuteDrops()) throws {
+         drops: MinuteDrops = MinuteDrops(), chunkWritten: (@Sendable () -> Void)? = nil) throws {
         directory = recorderDirectory.appendingPathComponent(InputEventBatch.directoryName)
         zone = timeZone
         self.report = report
         self.unsynced = unsynced
         self.fits = fits
         self.drops = drops
+        self.chunkWritten = chunkWritten
         batches = BatchFiles(files)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -77,17 +79,20 @@ final class InputEventFiles: InputChunkWriter {
 
     func chunkClosed(_ chunk: InputChunk?) {
         var settled = true
+        var written = false
         if let chunk {
             do {
                 guard fits() else { throw POSIXError(.ENOSPC) }
                 try publish(chunk)
                 drops.written()
+                written = true
             } catch {
                 report("input events: one chunk line was not written; its loss-only line follows")
                 do {
                     if let loss = Self.lossOnly(chunk) {
                         try publish(loss)
                         drops.written()
+                        written = true
                     }
                 } catch {
                     settled = false
@@ -98,6 +103,7 @@ final class InputEventFiles: InputChunkWriter {
         }
         clearChunk()
         if settled { chunkDirty = false }
+        if written { chunkWritten?() }
     }
 
     static func lossOnly(_ chunk: InputChunk) -> InputChunk? {

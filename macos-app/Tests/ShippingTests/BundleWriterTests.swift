@@ -256,6 +256,83 @@ final class BundleWriterTests: XCTestCase {
             .contains("\"blobs_carried\":2"))
     }
 
+    func testAStagedBlobIsNamedAndCountedButNeverCarried() throws {
+        let blob = root.appendingPathComponent("blob.bin")
+        try Data(Self.blobBytes.utf8).write(to: blob)
+        let out = root.appendingPathComponent("staged", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let later = String(repeating: "e", count: 64), earlier = String(repeating: "a", count: 64)
+        let written = try BundleWriter.write(
+            into: out, sourceId: Self.sourceId, feeder: Self.feeder, fetchedAt: ShippingFixture.instant(Self.fetchedAt), files: [],
+            blobs: [BundleWriter.Blob(sha256: Self.blobHash, file: blob)], stagedBlobs: [later, earlier],
+            facts: [("batches", .int(1))], custody: nil, through: DeviceFiles(.plain))
+        XCTAssertEqual(written.carried, [Self.blobHash])
+        XCTAssertEqual(written.staged, [earlier, later])
+        XCTAssertEqual(written.named, [earlier, Self.blobHash, later].sorted())
+        let probe = try ZipArchiveProbe(try Data(contentsOf: written.file))
+        XCTAssertEqual(probe.members.map(\.name), ["blobs/\(Self.blobHash)", BundleWriter.manifestFile])
+        let manifest = String(decoding: try XCTUnwrap(probe.bytes(BundleWriter.manifestFile)), as: UTF8.self)
+        XCTAssertTrue(manifest.hasSuffix("\"files\":[],\"facts\":{\"batches\":1,\"blobs_carried\":3},"
+            + "\"staged_blobs\":[\"sha256:\(earlier)\",\"sha256:\(later)\"]}\n"), manifest)
+    }
+
+    func testAStagedBlobIsNeverAskedOfTheHomeNorLostAndSitsBeforeCustody() throws {
+        let out = root.appendingPathComponent("staged-held", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        func file(_ text: String) throws -> (hash: String, url: URL) {
+            let url = root.appendingPathComponent("\(text).bin")
+            try Data(text.utf8).write(to: url)
+            return (try FileChunks.measure(url).sha256, url)
+        }
+        let carried = try file("synthetic carried"), heldHere = try file("synthetic held here")
+        let later = String(repeating: "e", count: 64), earlier = String(repeating: "a", count: 64)
+        let asked = Collected<Set<String>>()
+        let written = try BundleWriter.write(
+            into: out, sourceId: Self.sourceId, feeder: Self.feeder, fetchedAt: ShippingFixture.instant(Self.fetchedAt), files: [],
+            blobs: [BundleWriter.Blob(sha256: carried.hash, file: carried.url),
+                    BundleWriter.Blob(sha256: heldHere.hash, file: heldHere.url)],
+            stagedBlobs: [later, earlier],
+            held: { hexes in
+                asked.append(hexes)
+                return [heldHere.hash, later]
+            },
+            facts: [], custody: (ShippingFixture.first, [Lost(items: 2, what: "synthetic rows this Mac deleted")]), through: DeviceFiles(.plain))
+        XCTAssertEqual(asked.all, [[carried.hash, heldHere.hash]], "the home is never asked of a staged file")
+        XCTAssertEqual(written.carried, [carried.hash])
+        XCTAssertEqual(written.held, [heldHere.hash], "a staged file answered as held is still staged")
+        XCTAssertEqual(written.staged, [earlier, later])
+        XCTAssertEqual(written.named, (written.carried + written.held + written.staged).sorted())
+        XCTAssertEqual(written.named, [carried.hash, heldHere.hash, earlier, later].sorted())
+        let probe = try ZipArchiveProbe(try Data(contentsOf: written.file))
+        XCTAssertEqual(probe.members.map(\.name), ["blobs/\(carried.hash)", BundleWriter.manifestFile])
+        let manifest = String(decoding: try XCTUnwrap(probe.bytes(BundleWriter.manifestFile)), as: UTF8.self)
+        XCTAssertTrue(manifest.hasSuffix("\"facts\":{\"blobs_carried\":3},"
+            + "\"staged_blobs\":[\"sha256:\(earlier)\",\"sha256:\(later)\"],"
+            + "\"custody\":{\"machine:local:unit-0001\":{\"seal\":1,\"lost\":["
+            + "{\"items\":2,\"what\":\"synthetic rows this Mac deleted\"}]}}}\n"),
+            "one carried and two staged; held counts nowhere, and a staged file is not lost")
+    }
+
+    func testAStagedBlobThatIsNotAHexSHA256IsRepeatedOrIsAlsoNamedRefusesBeforeAnyWrite() throws {
+        let out = root.appendingPathComponent("refused", isDirectory: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let staged = String(repeating: "b", count: 64)
+        let cases: [([BundleWriter.Blob], [String], BundleWriterError)] = [
+            ([], ["sha256:\(staged)"], .blobName("sha256:\(staged)")),
+            ([], [staged.uppercased()], .blobName(staged.uppercased())),
+            ([], [staged, staged], .stagedTwice(staged)),
+            ([BundleWriter.Blob(sha256: staged, file: nil)], [staged], .stagedCarried(staged)),
+        ]
+        for (blobs, stagedBlobs, refusal) in cases {
+            XCTAssertThrowsError(try BundleWriter.write(
+                into: out, sourceId: Self.sourceId, feeder: Self.feeder, fetchedAt: ShippingFixture.instant(Self.fetchedAt), files: [],
+                blobs: blobs, stagedBlobs: stagedBlobs, facts: [], custody: (ShippingFixture.first, []), through: DeviceFiles(.plain))) {
+                XCTAssertEqual($0 as? BundleWriterError, refusal)
+            }
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: out.path), [])
+    }
+
     func testAnEmptyBundleIsStillAManifestWithNoFilesAndNoBlobs() throws {
         let out = root.appendingPathComponent("out", isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -265,7 +342,8 @@ final class BundleWriterTests: XCTestCase {
         XCTAssertEqual(written.carried, [])
         let probe = try ZipArchiveProbe(try Data(contentsOf: written.file))
         XCTAssertEqual(probe.members.map(\.name), [BundleWriter.manifestFile])
-        XCTAssertTrue(String(decoding: probe.bytes(BundleWriter.manifestFile)!, as: UTF8.self)
-            .contains("\"files\":[],\"facts\":{\"blobs_carried\":0}"))
+        let manifest = String(decoding: probe.bytes(BundleWriter.manifestFile)!, as: UTF8.self)
+        XCTAssertTrue(manifest.contains("\"files\":[],\"facts\":{\"blobs_carried\":0}"))
+        XCTAssertFalse(manifest.contains("staged_blobs"), "no staged blob, no member")
     }
 }

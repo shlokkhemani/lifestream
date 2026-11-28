@@ -1,7 +1,9 @@
-import type { HomeFolder, JsonObject, KeptFile } from "@lifestreamprotocol/core";
+import type { BlobReader, HomeFolder, JsonObject, KeptFile } from "@lifestreamprotocol/core";
 import { BUNDLE_ENTRIES, CodedRefused, openZip, Refused, type Zip, type ZipEntry, type ZipSource } from "@lifestreamprotocol/connect";
-import { basicInstant, InboxError, inboxLane, MANIFEST_FILE, openSealing, parseManifest, statedMs, type DoorStamp, type Manifest } from "./inbox.js";
+import { basicInstant, InboxError, inboxLane, MANIFEST_FILE, openSealing, parseManifest, statedMs, type DoorStamp, type Lane, type Manifest } from "./inbox.js";
+import { missingFiles } from "./ask-files.js";
 import { refuse } from "./refusal.js";
+import type { Carried, StagedFiles } from "./staged-files.js";
 
 
 export interface AcquisitionBundle {
@@ -14,6 +16,13 @@ export interface AcquisitionBundle {
 
 const BLOB_MEMBER = /^blobs\/([0-9a-f]{64})$/u;
 const MANIFEST_LIMIT = 16 * 1024 * 1024;
+
+export const BUNDLE_FILES = "The home lacks files this bundle names: send them, then the bundle again.";
+
+export interface StagedDoor {
+  readonly home: Pick<BlobReader, "has">;
+  readonly files: Pick<StagedFiles, "carry">;
+}
 
 function badManifest(message: string): never {
   return refuse(422, "ACQUISITION_MANIFEST", message);
@@ -66,8 +75,11 @@ export function openAcquisitionBundle(file: KeptFile): AcquisitionBundle {
       const blob = BLOB_MEMBER.exec(name) ?? badManifest(`member ${JSON.stringify(name)} is neither listed nor a blob`);
       blobs.set(blob[1]!, entry);
     }
-    if (manifest.facts.blobs_carried !== blobs.size)
-      badManifest(`facts.blobs_carried states ${JSON.stringify(manifest.facts.blobs_carried)}, the bundle carries ${blobs.size}`);
+    const staged = manifest.staged_blobs ?? [];
+    const both = staged.find((hash) => blobs.has(hash.slice("sha256:".length)));
+    if (both !== undefined) badManifest(`${both} is both a member under blobs/ and a staged blob`);
+    if (manifest.facts.blobs_carried !== blobs.size + staged.length)
+      badManifest(`facts.blobs_carried states ${JSON.stringify(manifest.facts.blobs_carried)}, the bundle carries ${blobs.size} and stages ${staged.length}`);
     return { id: `${manifest.source_id}/${basicInstant(manifest.fetched_at)}`, manifest, files, blobs, close: () => zip.close() };
   } catch (error) {
     zip.close();
@@ -75,25 +87,50 @@ export function openAcquisitionBundle(file: KeptFile): AcquisitionBundle {
   }
 }
 
-export async function sealAcquisitionBundle(folder: HomeFolder, bundle: AcquisitionBundle, stamp: DoorStamp, sealed: { name: string; facts: JsonObject }): Promise<Manifest> {
+export async function sealAcquisitionBundle(folder: HomeFolder, bundle: AcquisitionBundle, stamp: DoorStamp, sealed: { name: string; facts: JsonObject }, door: StagedDoor): Promise<Manifest> {
   const { manifest } = bundle;
   const sealing = openSealing(folder, { source: manifest.source_id, name: sealed.name, feeder: manifest.feeder, fetched_at: manifest.fetched_at });
   try {
-    const wrong: string[] = [];
-    for (const entry of manifest.files) {
-      const written = await sealing.write(entry.file, bundle.files.get(entry.file)!.stream()).catch(unreadable);
-      if (written.sha256 !== entry.sha256 || written.bytes !== entry.bytes) wrong.push(entry.file);
-    }
-    if (wrong.length > 0)
-      refuse(422, "ACQUISITION_HASH_MISMATCH", `${wrong.length} listed file(s) do not hash as listed: ${wrong.slice(0, 3).join(", ")}`);
     const lane = inboxLane(folder, manifest.source_id);
-    for (const [hex, entry] of bundle.blobs) {
-      if (!await lane.store(hex, entry.stream(), entry.size).catch(unreadable))
-        refuse(422, "ACQUISITION_BLOB_MISMATCH", `blob ${hex} bytes do not match its name`);
+    const staged = await carryStaged(lane, manifest.staged_blobs ?? [], door);
+    let written: Manifest;
+    try {
+      const wrong: string[] = [];
+      for (const entry of manifest.files) {
+        const kept = await sealing.write(entry.file, bundle.files.get(entry.file)!.stream()).catch(unreadable);
+        if (kept.sha256 !== entry.sha256 || kept.bytes !== entry.bytes) wrong.push(entry.file);
+      }
+      if (wrong.length > 0)
+        refuse(422, "ACQUISITION_HASH_MISMATCH", `${wrong.length} listed file(s) do not hash as listed: ${wrong.slice(0, 3).join(", ")}`);
+      for (const [hex, entry] of bundle.blobs) {
+        if (!await lane.store(hex, entry.stream(), entry.size).catch(unreadable))
+          refuse(422, "ACQUISITION_BLOB_MISMATCH", `blob ${hex} bytes do not match its name`);
+      }
+      written = sealing.seal(sealed.facts, manifest, stamp);
+    } catch (error) {
+      staged.undo();
+      throw error;
     }
-    return sealing.seal(sealed.facts, manifest, stamp);
+    staged.sealed();
+    return written;
   } catch (error) {
     sealing.abandon();
     throw error;
   }
+}
+
+async function carryStaged(lane: Lane, named: readonly string[], door: StagedDoor): Promise<Carried> {
+  const lacking: string[] = [];
+  for (const hash of named) {
+    const held = lane.has(hash.slice("sha256:".length));
+    if (held === "other") refuse(422, "ACQUISITION_BLOB_MISMATCH", `blob ${hash} is not a file in the store`);
+    if (held === "absent" && !door.home.has(hash)) lacking.push(hash);
+  }
+  const carried = await door.files.carry(lacking, lane);
+  const missing = lacking.filter((hash) => !carried.carried.includes(hash));
+  if (missing.length > 0) {
+    carried.undo();
+    missingFiles({ files: missing }, BUNDLE_FILES);
+  }
+  return carried;
 }

@@ -21,6 +21,7 @@ public struct InputEventLogStatus: Equatable, Sendable {
 
 public final class InputEventLog: @unchecked Sendable {
     private let queue = DispatchQueue(label: "org.lifestreamprotocol.input-events", qos: .userInitiated)
+    private let told: DispatchQueue
     private let lookupQueue = DispatchQueue(label: "org.lifestreamprotocol.input-events.lookups",
                                             qos: .userInitiated)
     private let directory: URL
@@ -33,6 +34,7 @@ public final class InputEventLog: @unchecked Sendable {
     private let limits: InputChunker.Limits
     private let fits: @Sendable () -> Bool
     private let drops = MinuteDrops()
+    private let onChunkWritten: (@Sendable () -> Void)?
 
     private var modes: RecordingModes
     private var files: InputEventFiles?
@@ -53,15 +55,18 @@ public final class InputEventLog: @unchecked Sendable {
 
     public convenience init(directory: URL, files: DeviceFiles, modes: RecordingModes,
                             timeZone: TimeZone = .current,
-                            fits: @escaping @Sendable () -> Bool = { true }, report: @escaping (String) -> Void = { _ in }) {
+                            fits: @escaping @Sendable () -> Bool = { true }, report: @escaping (String) -> Void = { _ in },
+                            onChunkWritten: (@Sendable () -> Void)? = nil) {
         self.init(directory: directory, files: files, modes: modes, timeZone: timeZone, report: report,
-                  source: LiveInputEventSource(), reader: AccessibilityElementReader(), clock: .system, fits: fits)
+                  source: LiveInputEventSource(), reader: AccessibilityElementReader(), clock: .system, fits: fits,
+                  onChunkWritten: onChunkWritten)
     }
 
     init(directory: URL, files: DeviceFiles, modes: RecordingModes, timeZone: TimeZone,
          report: @escaping (String) -> Void,
          source: InputEventSource, reader: InputElementReading, clock: InputEventClock,
-         limits: InputChunker.Limits = InputChunker.Limits(), fits: @escaping @Sendable () -> Bool = { true }) {
+         limits: InputChunker.Limits = InputChunker.Limits(), fits: @escaping @Sendable () -> Bool = { true },
+         onChunkWritten: (@Sendable () -> Void)? = nil) {
         self.directory = directory
         self.deviceFiles = files
         self.modes = modes
@@ -72,6 +77,9 @@ public final class InputEventLog: @unchecked Sendable {
         self.clock = clock
         self.limits = limits
         self.fits = fits
+        let told = DispatchQueue(label: "org.lifestreamprotocol.input-events.told", qos: .utility)
+        self.told = told
+        self.onChunkWritten = onChunkWritten.map { tell in { @Sendable in told.async { tell() } } }
     }
 
     public var status: InputEventLogStatus { published.withLock { $0 } }
@@ -83,7 +91,7 @@ public final class InputEventLog: @unchecked Sendable {
             do {
                 files = try InputEventFiles(recorderDirectory: directory, files: deviceFiles, timeZone: zone, report: report,
                                             unsynced: { [weak self] in self?.armSync($0) }, fits: fits,
-                                            drops: drops)
+                                            drops: drops, chunkWritten: onChunkWritten)
                 return true
             } catch {
                 report("input events: the batch spool could not be opened")
@@ -175,6 +183,11 @@ public final class InputEventLog: @unchecked Sendable {
             afterWork()
             do { try files.seal() } catch { report("input events: the open batch was not sealed") }
         }
+    }
+
+    func waitUntilTold() {
+        queue.sync {}
+        told.sync {}
     }
 
     public func setModes(_ modes: RecordingModes) {

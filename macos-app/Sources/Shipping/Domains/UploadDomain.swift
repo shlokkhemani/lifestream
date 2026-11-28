@@ -11,7 +11,7 @@ public final class UploadDomain: ShippingDomain {
     static let filesPrefix = "files/"
     public static let folderNameKey = "uploadFolderName"
     public static let defaultFolderName = "Lifestream Drop"
-    static let settle: TimeInterval = 60
+    static let settle: TimeInterval = 3
     public static let defaultBundleBytes = 4 << 30
     static let partialSuffixes = [".download", ".crdownload", ".part", ".partial"]
 
@@ -22,6 +22,7 @@ public final class UploadDomain: ShippingDomain {
     let bundleBytes: Int
     let disk: Volume
     let ledgers: Ledgers
+    private let sealedUnsettled = SealNote(false)
 
     public init(sourceId: String, folder: URL, hashCache: URL, ledgers: Ledgers, bundleBytes: Int = UploadDomain.defaultBundleBytes,
                 disk: Volume) {
@@ -60,6 +61,8 @@ public final class UploadDomain: ShippingDomain {
         let ledger = ledgers.ledger(HashEntry.self, pass: request.custody.pass, source: sourceId)
         let shipped = try HashEntry.shipped(ledger, through: request.custody.received)
         var counts = Counts()
+        var settling = false
+        defer { sealedUnsettled.value = settling }
         var cache = HashCache(file: hashCache, files: ledgers.files)
         var chosen: [Chosen] = []
         var seen: Set<String> = []
@@ -69,6 +72,7 @@ public final class UploadDomain: ShippingDomain {
             guard let stamp = FileFacts.of(found.file.path),
                   request.fetchedAt.timeIntervalSince(Self.date(stamp.st_mtimespec)) >= Self.settle else {
                 counts.unsettled += 1
+                settling = true
                 continue
             }
             guard let measured = try? cache.measure(locator: found.locator, file: found.file) ?? nil else {
@@ -91,6 +95,7 @@ public final class UploadDomain: ShippingDomain {
                 let locator = String(name.dropFirst(Self.filesPrefix.count))
                 chosen.removeAll { $0.locator == locator }
                 counts.unsettled += 1
+                settling = true
                 continue
             }
             let copied = Dictionary(written.files.map { ($0.name, $0.sha256) }, uniquingKeysWith: { first, _ in first })
@@ -102,9 +107,12 @@ public final class UploadDomain: ShippingDomain {
             try? FileManager.default.removeItem(at: written.file)
             chosen.removeAll { moved.contains($0.locator) }
             counts.unsettled += moved.count
+            settling = true
         }
         return []
     }
+
+    public var unsettled: Bool { sealedUnsettled.value }
 
     public func applied(_ answer: FreshAnswer) {
         guard let custody = answer.sources[sourceId] else { return }

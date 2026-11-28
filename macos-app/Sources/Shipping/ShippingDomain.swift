@@ -16,6 +16,7 @@ public protocol ShippingDomain: Sendable {
     var unread: Unread? { get }
     var owesHistory: Bool { get }
     var through: Through? { get }
+    var unsettled: Bool { get }
 }
 
 public struct Unread: Equatable, Sendable {
@@ -34,6 +35,7 @@ public extension ShippingDomain {
     var unread: Unread? { nil }
     var owesHistory: Bool { false }
     var through: Through? { nil }
+    var unsettled: Bool { false }
 }
 
 final class SealNote<Value: Sendable>: @unchecked Sendable {
@@ -90,7 +92,39 @@ public enum SealWork {
     static func named(_ prefix: String) -> String { "\(prefix)\(getpid())-" }
 }
 
+public struct StagedBlobs: Sendable {
+    public static let threshold: Int64 = 256 * 1024
+
+    public let thresholdBytes: Int64
+    public let isReady: @Sendable (_ sha256: String) -> Bool
+    public let enqueue: @Sendable (_ sha256: String, _ url: URL, _ bytes: Int64, _ kept: Bool, _ kind: WriteKind) -> Void
+
+    public init(thresholdBytes: Int64 = threshold, isReady: @escaping @Sendable (_ sha256: String) -> Bool,
+                enqueue: @escaping @Sendable (_ sha256: String, _ url: URL, _ bytes: Int64, _ kept: Bool, _ kind: WriteKind) -> Void) {
+        self.thresholdBytes = thresholdBytes
+        self.isReady = isReady
+        self.enqueue = enqueue
+    }
+}
+
+extension StagedBlobs {
+    struct Large {
+        let sha256: String
+        let file: URL
+        let bytes: Int64
+    }
+
+    func ready(_ files: [Large], held: Set<String>, kept: Bool, kind: WriteKind) -> Set<String>? {
+        let owed = files.filter { $0.bytes > thresholdBytes && !held.contains($0.sha256) }
+        let unready = owed.filter { !isReady($0.sha256) }
+        for file in unready { enqueue(file.sha256, file.file, file.bytes, kept, kind) }
+        return unready.isEmpty ? Set(owed.map(\.sha256)) : nil
+    }
+}
+
 public struct SealRequest: Sendable {
+    public static let coldInterval: TimeInterval = 3_600
+
     public let fetchedAt: Date
     public let workDirectory: URL
     public let scratch: URL
@@ -100,11 +134,15 @@ public struct SealRequest: Sendable {
     public let held: @Sendable (Set<String>) -> Set<String>
     public let admitted: @Sendable (_ kind: String, _ digest: String) -> Bool
     public let monthsOwed: @Sendable ([String: Through.Month]) -> [String: Through.Month]?
+    public let staged: StagedBlobs?
+    public let forceCold: Bool
+    public let coldInterval: TimeInterval
 
     public init(fetchedAt: Date, workDirectory: URL, scratch: URL, custody: SealCustody, owesThrough: Bool = false,
                 start: Date? = nil, held: @escaping @Sendable (Set<String>) -> Set<String> = { _ in [] },
                 admitted: @escaping @Sendable (_ kind: String, _ digest: String) -> Bool = { _, _ in false },
-                monthsOwed: @escaping @Sendable ([String: Through.Month]) -> [String: Through.Month]? = { _ in nil }) {
+                monthsOwed: @escaping @Sendable ([String: Through.Month]) -> [String: Through.Month]? = { _ in nil },
+                staged: StagedBlobs? = nil, forceCold: Bool = false, coldInterval: TimeInterval = coldInterval) {
         self.fetchedAt = fetchedAt
         self.workDirectory = workDirectory
         self.scratch = scratch
@@ -114,6 +152,9 @@ public struct SealRequest: Sendable {
         self.held = held
         self.admitted = admitted
         self.monthsOwed = monthsOwed
+        self.staged = staged
+        self.forceCold = forceCold
+        self.coldInterval = coldInterval
     }
 }
 
@@ -153,6 +194,7 @@ public struct BundleSidecar: Codable, Sendable, Equatable {
     public let write: WriteKind
     public let refused: Refusal?
     public let months: [String: Through.Month]?
+    public let stagedBlobs: [String]?
 
     public struct Refusal: Codable, Sendable, Equatable {
         public let code: String
@@ -185,7 +227,7 @@ public struct BundleSidecar: Codable, Sendable, Equatable {
     }
 
     public init(id: String, sourceId: String, pass: String? = nil, seal: Int, kind: String? = nil, write: WriteKind,
-                refused: Refusal? = nil, months: [String: Through.Month]? = nil) {
+                refused: Refusal? = nil, months: [String: Through.Month]? = nil, stagedBlobs: [String]? = nil) {
         self.id = id
         self.sourceId = sourceId
         self.pass = pass
@@ -194,28 +236,31 @@ public struct BundleSidecar: Codable, Sendable, Equatable {
         self.write = write
         self.refused = refused
         self.months = months
+        self.stagedBlobs = stagedBlobs.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     func refused(_ code: String, at: Date) -> BundleSidecar {
         BundleSidecar(id: id, sourceId: sourceId, pass: pass, seal: seal, kind: kind, write: write, refused: Refusal(code: code, at: at),
-                      months: months)
+                      months: months, stagedBlobs: stagedBlobs)
     }
 
     var statesHistory: Bool { kind == HistoryPage.kind || kind == ImportShipping.kind }
 
     init(id: String, sourceId: String, custody: SealCustody, kind: String? = nil, write: WriteKind,
-         months: [String: Through.Month]? = nil) {
-        self.init(id: id, sourceId: sourceId, pass: custody.pass, seal: custody.seal, kind: kind, write: write, months: months)
+         months: [String: Through.Month]? = nil, stagedBlobs: [String]? = nil) {
+        self.init(id: id, sourceId: sourceId, pass: custody.pass, seal: custody.seal, kind: kind, write: write, months: months,
+                  stagedBlobs: stagedBlobs)
     }
 
     init(id: String, sourceId: String, custody: SealCustody, history: Bool, live: String? = nil,
-         months: [String: Through.Month]? = nil) {
+         months: [String: Through.Month]? = nil, stagedBlobs: [String]? = nil) {
         self.init(id: id, sourceId: sourceId, custody: custody, kind: history ? HistoryPage.kind : live, write: history ? .later : .new,
-                  months: months)
+                  months: months, stagedBlobs: stagedBlobs)
     }
 
     enum CodingKeys: String, CodingKey {
         case id, pass, seal, kind, write, refused, months
         case sourceId = "source_id"
+        case stagedBlobs = "staged_blobs"
     }
 }

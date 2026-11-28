@@ -138,7 +138,7 @@ final class InputEventsDomainTests: XCTestCase {
         }
     }
 
-    func testAnImportedBatchIsDeletedOnlyOnceItIsThirtyDaysOld() async throws {
+    func testAnImportedBatchIsDeletedOnlyOnceItIsSevenDaysOld() async throws {
         try buildBatches()
         _ = try XCTUnwrap(try domain().sealOne(DomainFixtures.request(work: work)))
 
@@ -146,8 +146,11 @@ final class InputEventsDomainTests: XCTestCase {
         XCTAssertEqual(try spool().filter { $0.hasPrefix("2026") }, [Self.newer],
                        "the batch that opened 33 days ago leaves; the newer one stays")
 
-        try domain(now: "2026-10-23T00:00:00.000Z").applied(try await DomainFixtures.fresh(Self.source, received: 4, imported: 4, folder: root))
-        XCTAssertEqual(try spool().filter { $0.hasPrefix("2026") }, [])
+        try domain(now: "2026-09-29T22:00:00.000Z").applied(try await DomainFixtures.fresh(Self.source, received: 1, imported: 1, folder: root))
+        XCTAssertEqual(try spool().filter { $0.hasPrefix("2026") }, [Self.newer], "an imported batch under seven days old stays")
+
+        try domain(now: "2026-09-29T23:00:00.000Z").applied(try await DomainFixtures.fresh(Self.source, received: 1, imported: 1, folder: root))
+        XCTAssertEqual(try spool().filter { $0.hasPrefix("2026") }, [], "seven days after it opened, not thirty, it leaves")
         XCTAssertEqual(try spool(), ["current.chunk", "current.jsonl", "current.jsonl.torn-20260923T000000.000Z"],
                        "the open batch, the open minute and a torn batch are never deleted")
     }

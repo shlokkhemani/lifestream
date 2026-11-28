@@ -603,7 +603,7 @@ final class ImportsTests: XCTestCase {
         gate.heard(2_600_000)
         XCTAssertEqual(passed.all, [1_500_000, 2_600_000], "under a megabyte, then under a second, then under a megabyte again")
 
-        let first = try file("Streaming_History_Audio_2024.json", bytes: 3 << 20, seed: 9)
+        let first = try randomFile("Streaming_History_Audio_2024.json", bytes: 3 << 20, seed: 9)
         try handOver([first])
         let sent = Collected<String>(), writes = Collected<Bool>()
         let told = ImportTold(changed: { writes.append(true) }, sent: { id, bytes in sent.append("\(id) \(bytes)") })
@@ -671,6 +671,23 @@ final class ImportsTests: XCTestCase {
     private func file(_ name: String, bytes: Int, seed: UInt8 = 0) throws -> URL {
         let url = downloads.appendingPathComponent(name)
         try Data((0..<bytes).map { UInt8(truncatingIfNeeded: $0 &+ Int(seed) &* 31) }).write(to: url)
+        return url
+    }
+
+    private func randomFile(_ name: String, bytes: Int, seed: UInt64) throws -> URL {
+        let url = downloads.appendingPathComponent(name)
+        var state = seed == 0 ? 1 : seed
+        var data = Data(count: bytes)
+        data.withUnsafeMutableBytes { raw in
+            let out = raw.bindMemory(to: UInt8.self)
+            for index in 0..<bytes {
+                state ^= state << 13
+                state ^= state >> 7
+                state ^= state << 17
+                out[index] = UInt8(truncatingIfNeeded: state)
+            }
+        }
+        try data.write(to: url)
         return url
     }
 

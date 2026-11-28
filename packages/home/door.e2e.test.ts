@@ -189,7 +189,7 @@ describe("a device request today's door accepts is refused, or the reverse", () 
     } });
     expect(Object.keys(first.body)).toEqual(["home", "clock", "pass", "unit", "sources", "owner", "needs", "calls", "settings", "mobile_data", "stores", "turn"]);
     expect(first.body.clock).toMatch(/^[0-9a-f]{16}$/u);
-    expect(first.body.settings).toEqual({ "apple-calls": { refresh: "5m", start_ms: null }, machine: { start_ms: null } });
+    expect(first.body.settings, "a store the Mac hears change is read on its change, never on a refresh").toEqual({ "apple-calls": { start_ms: null }, machine: { start_ms: null } });
     const directory = join(at.root, "inbox", MACHINE, basic(NOW_MS));
     expect(readFileSync(join(directory, "0000.jsonl"), "utf8")).toBe('{"synthetic":0}\n');
     expect(readFileSync(join(at.root, "inbox", MACHINE, "blobs", sha256(blob)))).toEqual(blob);
@@ -2735,9 +2735,10 @@ describe("what a device allows", () => {
 
     const first = (await a.exchange()).body.settings as Applies;
     expect(first).toMatchObject({
-      location: { precision: "precise", start_ms: null }, checkin: { prompts: false, bedtime: "23:30", start_ms: null }, "apple-photos": { refresh: "5m", start_ms: null },
+      location: { precision: "precise", start_ms: null }, checkin: { prompts: false, bedtime: "23:30", start_ms: null }, "apple-photos": { start_ms: null },
       "screen-time": { refresh: "5m", start_ms: null },
     });
+    expect(first["apple-photos"], "the photo library is read when it changes").not.toHaveProperty("refresh");
     for (const absent of ["screen", "claude", "whatsapp", "gmail"]) expect(first).not.toHaveProperty(absent);
     for (const [id, members] of Object.entries(first)) {
       const connector = declared.get(id)!;
@@ -2752,7 +2753,7 @@ describe("what a device allows", () => {
     const started = (await a.exchange()).body.settings as Applies;
     expect([started["screen-time"], started["apple-photos"]]).toMatchObject([{ start_ms: Date.UTC(2026, 7, 1) }, { start_ms: null }]);
 
-    const applying = { location: { precision: "battery" }, checkin: { prompts: false, bedtime: "23:30" }, "apple-photos": { refresh: "5m", start_ms: null }, "screen-time": { start_ms: null } };
+    const applying = { location: { precision: "battery" }, checkin: { prompts: false, bedtime: "23:30" }, "apple-photos": { start_ms: null }, "screen-time": { start_ms: null } };
     expect((await a.exchange(undefined, applying)).status).toBe(200);
     await until("the home wrote the phone's settings", () => home.events().length === 1 && home.told(a.unit));
     const member = (row: ConnectorReport, key: string) => {
@@ -2761,14 +2762,12 @@ describe("what a device allows", () => {
     };
     const marks = (row: Record<string, ConnectorReport>) => ({
       precision: member(row.location!, "precision"), bedtime: member(row.checkin!, "bedtime"),
-      refresh: member(row["apple-photos"]!, "refresh"), start: member(row["screen-time"]!, "start"),
-      biome: member(row["screen-time"]!, "refresh"), spam: member(row.gmail!, "spam"),
+      start: member(row["screen-time"]!, "start"), biome: member(row["screen-time"]!, "refresh"), spam: member(row.gmail!, "spam"),
     });
     const stating = marks(await rows());
     expect(stating).toMatchObject({
       precision: { value: "precise", drawn: true, waiting: [name] }, bedtime: { value: "23:30", drawn: true, waiting: [] },
-      refresh: { value: "5m", drawn: true, waiting: [] }, start: { value: "2026-08-01", drawn: true },
-      biome: { drawn: false, waiting: [] },
+      start: { value: "2026-08-01", drawn: true }, biome: { drawn: false, waiting: [] },
     });
     expect([Object.hasOwn(stating.spam, "waiting"), Object.hasOwn(stating.start, "waiting")]).toEqual([false, false]);
     const socket = Object.fromEntries((await askHome(home.sock, "connectors") as StreamsReport).connectors.map((row) => [row.id, row]));
@@ -2778,10 +2777,11 @@ describe("what a device allows", () => {
     await a.exchange({ location: "on" });
     await until("the grants written", () => home.events().length === 2 && home.told(a.unit));
     expect(marks(await rows()).precision).toMatchObject({ drawn: true, waiting: [name] });
-    await a.exchange(undefined, { ...applying, location: { precision: "precise" }, "screen-time": { start_ms: Date.UTC(2026, 7, 1) } });
+    await a.exchange(undefined, { ...applying, location: { precision: "precise" }, "screen-time": { refresh: "5m", start_ms: Date.UTC(2026, 7, 1) } });
     await until("the applied settings written", () => home.events().length === 3 && home.told(a.unit));
     const applied = marks(await rows());
     expect([applied.precision!.waiting, Object.hasOwn(applied.start, "waiting")]).toEqual([[], false]);
+    expect(applied.biome, "a refresh a device states it applies is drawn").toMatchObject({ value: "5m", drawn: true });
 
     const taken = await a.set({ connector: "location", member: "precision", value: "battery", was: "precise" });
     expect(taken, "the save answers what landed, as the report then says it").toEqual({ status: 200, body: { landed: { connector: "location", member: "precision", value: "battery" } } });
@@ -3884,7 +3884,7 @@ function cutAfter(url: string, path: string, headers: Record<string, string>, le
 const lineOf = (logs: string[], status: number) => logs.map((line) => JSON.parse(line) as Record<string, unknown>).find((line) => String(line.path).startsWith("/v1/files/") && line.status === status);
 
 describe("a phone's file sent on its own", () => {
-  it("refuses a file without its length, with an offset not a number, past the door's bound, or from a Mac's pass or a reader's", async () => {
+  it("refuses a file without its length, with an offset not a number, past the door's bound, from a Mac's pass naming no source, or a reader's", async () => {
     const at = home();
     const { url } = await serve(at, { max_bundle_bytes: 1_000 });
     const bytes = Buffer.alloc(600, "a"), name = `sha256:${sha256(bytes)}`;
@@ -3897,7 +3897,7 @@ describe("a phone's file sent on its own", () => {
       reader: await putUnread(url, path, { ...auth(at, "reader"), ...sized(bytes) }),
     };
     expect(Object.fromEntries(Object.entries(answers).map(([what, answer]) => [what, [answer.status, answer.body.code]]))).toEqual({
-      length: [411, "LENGTH_REQUIRED"], offset: [422, "UPLOAD_HEADERS"], large: [413, "FILE_TOO_LARGE"], mac: [403, "PRINCIPAL_SCOPE"], reader: [403, "PRINCIPAL_SCOPE"],
+      length: [411, "LENGTH_REQUIRED"], offset: [422, "UPLOAD_HEADERS"], large: [413, "FILE_TOO_LARGE"], mac: [422, "UPLOAD_HEADERS"], reader: [403, "PRINCIPAL_SCOPE"],
     });
   });
 

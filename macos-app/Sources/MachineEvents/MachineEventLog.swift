@@ -10,6 +10,7 @@ final class MachineEventLog {
     private let batches: BatchFiles
     private var file: Log?
     private var openFirstLineAt: Date?
+    private var openMaxAtMs: Int64?
 
     init(recorderDirectory: URL, files: DeviceFiles, timeZone: TimeZone = .current, drops: LineDrops = LineDrops(),
          state: @escaping () -> MachineState) throws {
@@ -60,6 +61,25 @@ final class MachineEventLog {
         file?.close()
         file = nil
         openFirstLineAt = nil
+        openMaxAtMs = nil
+    }
+
+    func rotateIfSafe(now: Date) throws -> Bool {
+        guard openFirstLineAt != nil else { return false }
+        if let maxAt = openMaxAtMs, Self.milliseconds(now) <= maxAt { return false }
+        try rotate()
+        return true
+    }
+
+    var batchOpen: Bool { openFirstLineAt != nil }
+
+    func rotateForShipping(now: Date) throws -> Bool {
+        guard batchOpen else { return true }
+        return try rotateIfSafe(now: now)
+    }
+
+    static func milliseconds(_ instant: Date) -> Int64 {
+        Int64((instant.timeIntervalSince1970 * 1000).rounded())
     }
 
     private func write(_ events: [MachineEvent]) throws {
@@ -72,6 +92,10 @@ final class MachineEventLog {
         }
         if openFirstLineAt == nil {
             openFirstLineAt = events[0].at
+        }
+        for event in events {
+            let at = Self.milliseconds(event.at)
+            openMaxAtMs = max(openMaxAtMs ?? at, at)
         }
     }
 }

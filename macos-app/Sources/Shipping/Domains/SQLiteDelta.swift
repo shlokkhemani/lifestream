@@ -3,6 +3,7 @@ import SQLite3
 
 enum SQLiteDelta {
     static let pageSize = 4096
+    static let indexedRows = 500
 
     struct Table: Equatable {
         let name: String
@@ -87,12 +88,14 @@ enum SQLiteDelta {
         }
         try exec("BEGIN")
         do {
-            var schema: [(type: String, name: String, table: String, sql: String)] = []
-            try SQLite.rows("SELECT type, name, tbl_name, sql FROM source.sqlite_master "
+            var schema: [(type: String, name: String, table: String, sql: String, unique: Bool)] = []
+            try SQLite.rows("SELECT type, name, tbl_name, sql, CASE WHEN object.type = 'index' AND (SELECT list.\"unique\" "
+                                    + "FROM pragma_index_list(object.tbl_name, 'source') AS list WHERE list.name = object.name) = 1 "
+                                    + "THEN 'unique' ELSE '' END FROM source.sqlite_master AS object "
                                     + "WHERE sql IS NOT NULL AND type IN ('table', 'index') ORDER BY rowid", on: handle) { cells in
-                guard cells.count == 4, case .text(let type) = cells[0], case .text(let name) = cells[1],
-                      case .text(let table) = cells[2], case .text(let sql) = cells[3] else { return }
-                schema.append((type, name, table, sql))
+                guard cells.count == 5, case .text(let type) = cells[0], case .text(let name) = cells[1],
+                      case .text(let table) = cells[2], case .text(let sql) = cells[3], case .text(let unique) = cells[4] else { return }
+                schema.append((type, name, table, sql, unique == "unique"))
             }
             try exec("PRAGMA main.page_size = \(pageSize)")
             var reserve: Int32 = -1
@@ -115,13 +118,30 @@ enum SQLiteDelta {
             }
 
             let reserved = { (name: String) in name.lowercased().hasPrefix("sqlite_") }
-            for type in ["table", "index"] {
-                for object in schema where object.type == type && !reserved(object.name) && holds(object.table) { try exec(object.sql) }
+            let objects = schema.filter { !reserved($0.name) && holds($0.table) }
+            for object in objects where object.type == "table" { try exec(object.sql) }
+            let indexes = objects.filter { $0.type == "index" }
+            for index in indexes where index.unique { try exec(index.sql) }
+            var rows = 0
+            for table in tables where table.keep == nil {
+                rows += try copy(table.name, keep: nil, on: handle)
+            }
+            let filled = tables.filter { $0.keep != nil }
+            for table in filled {
+                try exec("CREATE TEMP VIEW \(quoted(table.name)) AS SELECT * FROM source.\(quoted(table.name))")
+            }
+            for table in filled {
+                rows += try copy(table.name, keep: table.keep, on: handle)
+                try exec("DROP VIEW temp.\(quoted(table.name))")
             }
             let naming = { (column: String) in "\(column) IN (\(held.sorted().map(literal).joined(separator: ", ")))" }
-            let statistics = declared.filter { reserved($0) && $0 != "sqlite_sequence" }
+            let indexed = rows >= indexedRows
+            if indexed {
+                for index in indexes where !index.unique { try exec(index.sql) }
+            }
+            let statistics = indexed ? declared.filter { reserved($0) && $0 != "sqlite_sequence" } : []
             if !statistics.isEmpty {
-                try exec("ANALYZE main")
+                try exec("ANALYZE main.sqlite_master")
                 var made: [String] = []
                 try SQLite.rows("SELECT name FROM main.sqlite_master WHERE name GLOB 'sqlite_stat*'", on: handle) { cells in
                     if case .text(let name) = cells.first { made.append(name) }
@@ -130,22 +150,11 @@ enum SQLiteDelta {
                     try exec(statistics.contains(name) ? "DELETE FROM main.\(quoted(name))" : "DROP TABLE main.\(quoted(name))")
                 }
                 for name in statistics where !made.contains(name) { throw SQLiteDeltaError.reservedTable(name) }
-                for name in statistics { try copy(name, keep: naming("tbl"), on: handle) }
-            }
-            for table in tables where table.keep == nil {
-                try copy(table.name, keep: nil, on: handle)
-            }
-            let filled = tables.filter { $0.keep != nil }
-            for table in filled {
-                try exec("CREATE TEMP VIEW \(quoted(table.name)) AS SELECT * FROM source.\(quoted(table.name))")
-            }
-            for table in filled {
-                try copy(table.name, keep: table.keep, on: handle)
-                try exec("DROP VIEW temp.\(quoted(table.name))")
+                for name in statistics { _ = try copy(name, keep: naming("tbl"), on: handle) }
             }
             if try integer("SELECT count(*) FROM main.sqlite_master WHERE name = 'sqlite_sequence'") > 0 {
                 try exec("DELETE FROM main.sqlite_sequence")
-                try copy("sqlite_sequence", keep: naming("name"), on: handle)
+                _ = try copy("sqlite_sequence", keep: naming("name"), on: handle)
             }
             for pragma in ["user_version", "application_id"] {
                 let value = try integer("PRAGMA source.\(pragma)")
@@ -172,7 +181,7 @@ enum SQLiteDelta {
         }
     }
 
-    private static func copy(_ table: String, keep: String?, on handle: OpaquePointer) throws {
+    private static func copy(_ table: String, keep: String?, on handle: OpaquePointer) throws -> Int {
         let name = literal(table)
         var columns: [String] = []
         try SQLite.rows("SELECT name FROM pragma_table_xinfo(\(name), 'source') WHERE hidden = 0 ORDER BY cid",
@@ -193,6 +202,7 @@ enum SQLiteDelta {
         let filter = keep.map { " WHERE (\($0)) IS TRUE" } ?? ""
         try SQLite.exec("INSERT INTO main.\(quoted(table)) (\(list)) SELECT \(list) "
                                 + "FROM source.\(quoted(table))\(filter)", on: handle)
+        return Int(sqlite3_changes(handle))
     }
 }
 

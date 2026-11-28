@@ -5,7 +5,7 @@ import { setImmediate as yieldTurn, setTimeout as delay } from "node:timers/prom
 import { pathToFileURL } from "node:url";
 import { chromeSites, googlePlaces, routeOf, secretFieldOf, stationsOver, survey, verdictOf, type Accounts } from "@lifestreamprotocol/connect";
 import {
-  civilDay, damaged, HOME_DB, isObject, LEDGER_DB, makeUnder, writeDurably, openHome, openHomeFolder, outOfRoom, RELEASE, roomAt, SecretError, SETTINGS_MOVE, tryLock, type AttemptRow, type BlobStore, type FileLock, type Form, type HandedFolder, type HomeDb, type HomeFolder, type JobRow, type Json, type JsonObject, type Room, type SourceRow, type Tx, walkPlace,
+  civilDay, damaged, HOME_DB, isObject, isStopped, LEDGER_DB, makeUnder, writeDurably, openHome, openHomeFolder, outOfRoom, RELEASE, roomAt, SecretError, selects, SETTINGS_MOVE, tryLock, type AttemptRow, type BlobStore, type DeliveryRow, type FileLock, type Form, type HandedFolder, type HomeDb, type HomeFolder, type JobRow, type Json, type JsonObject, type Room, type SourceRow, type Tx, walkPlace,
 } from "@lifestreamprotocol/core";
 import type { Family } from "@lifestreamprotocol/families";
 import { CALL_PASS, callCopiesOf, LEDGER_DAMAGED_EXIT, listRunners, MODEL_USES, openAsker, openLedger, OPENROUTER_SECRET, readRouteId, transportSecret, USE_IDS, warmRunner, WORK_KINDS, type Ledger, type ProgramAt, type UseId } from "@lifestreamprotocol/model";
@@ -15,7 +15,9 @@ import { driveHalf, hidingPick, openDetector } from "./detector.js";
 import { restingOf } from "./embedder.js";
 import { findingsDirOf, openEnginePictures, scannedFaces } from "./engine-pictures.js";
 import { markingQueues } from "./index-job.js";
-import { SCREEN_INDEX } from "./screen-job.js";
+import { SCREEN_INDEX, SCREEN_KINDS } from "./screen-job.js";
+import { screenRoles } from "./screen-source.js";
+import { RECORD_INDEX, searchInputs } from "./search.js";
 import { marksFileOf, openMarking, type Marking } from "./marking.js";
 import { meaningSettingsOf, ScreenIndex, screenFileOf } from "./screen-index.js";
 import { searchFileOf } from "./search-index.js";
@@ -32,7 +34,7 @@ import type { StreamRow } from "./pages.js";
 import { Calls } from "./pick.js";
 import { callCommand, faceEngine, homeCommand } from "./programs.js";
 import { commandFile, linked } from "./command.js";
-import { fingerprintKey, readDays, rebuildCursor, sweepDayTemporaries, type Listed } from "./derive.js";
+import { extractCursor, fingerprintKey, readDays, rebuildCursor, sweepDayTemporaries, type Listed } from "./derive.js";
 import { Due } from "./due.js";
 import { isProgramName, Programs, type ProgramsOptions } from "./subscriptions.js";
 import { failpoint } from "./failpoint.js";
@@ -48,7 +50,7 @@ import { KINDS, unpausable, unrun } from "./kinds.js";
 import { STORED_KEY, STORED_REST, storedMark } from "./stored.js";
 import { HELD_KEY, LEFT_KEY, TALLY_KEY } from "./tally.js";
 import { LEFT_FOLDED, QUIET_DONE, QUIET_KEY } from "./quiet.js";
-import { connectorOfJob, covers, errorText, heldBy, homeNetwork, jobError, LANE, nextRun, pauseTarget, POLL_PARKED, servedLane, storageError, type Kind, type Main, type Running, type Slice } from "./jobs.js";
+import { connectorOfJob, covers, errorText, heldBy, homeNetwork, jobError, LANE, nextRun, pauseTarget, POLL_PARKED, RECENT_MS, servedLane, storageError, type Kind, type Main, type Running, type Slice } from "./jobs.js";
 import { Pool, READ_QUIET_MS } from "./pool.js";
 import { DOOR_AWAY, LOCKED, LOCKED_WORDS, notNow, Refusal, RETRY_S, RETRY_SOON_S } from "./refusal.js";
 import { CUT_MOST, type Removed } from "./erasable-streams.js";
@@ -64,7 +66,7 @@ import type { Existing } from "./access.js";
 import { settleAccess } from "./access-move.js";
 import { offeredOf } from "./access-routes.js";
 import { heldRunners, mintOwnPair, readPrincipals, retireUnit, revokePrincipal } from "./principals.js";
-import { homeOf, loadRegistry, type Loaded } from "./registry.js";
+import { homeOf, loadRegistry, type Inputs, type Loaded } from "./registry.js";
 import { connectorsFolder, FOLDER_UNLOADED, hand, handed, homeLeft, loadGeneration, READ_FOLDER } from "./folders.js";
 import { guidePath } from "./verbs/connectors-folder.js";
 import { facesRun, lookupRow } from "./registry-home.js";
@@ -127,6 +129,55 @@ export interface Home {
 }
 
 const ONE_HELPER = LANE.history;
+const READABLE_MOST_MS = 30_000;
+const WAITING_PAGE = 500;
+
+export type Readable = { readonly state: "settled" | "timeout"; readonly elapsed_ms: number };
+
+interface ReadableReader {
+  readonly cursor: string;
+  readonly kind: string;
+  readonly key: string;
+  readonly inputs: Inputs;
+}
+
+interface ReadableSeen {
+  readonly waiter: ReadableWaiter;
+  readonly state: Readable["state"] | null;
+  readonly target: number | null;
+}
+
+interface ReadableWaiter {
+  readonly seals: readonly (readonly [string, number])[];
+  readonly passes: ReadonlyMap<string, readonly string[]>;
+  readonly readers: readonly ReadableReader[];
+  target: number | null;
+  readonly settle: (state: Readable["state"]) => void;
+}
+
+function sealsOf(said: unknown): [string, number][] | null {
+  if (!isObject(said)) return null;
+  const seals = Object.entries(said);
+  return seals.length > 0 && seals.every((seal): seal is [string, number] => seal[0] !== "" && Number.isSafeInteger(seal[1]) && (seal[1] as number) > 0) ? seals as [string, number][] : null;
+}
+
+function passesOf(said: unknown, seals: readonly (readonly [string, number])[]): ReadonlyMap<string, string> | null {
+  if (said === undefined) return new Map();
+  if (!isObject(said)) return null;
+  const sealed = new Set(seals.map(([source]) => source));
+  const passes = Object.entries(said);
+  return passes.every((pass): pass is [string, string] => sealed.has(pass[0]) && typeof pass[1] === "string" && pass[1] !== "") ? new Map(passes as [string, string][]) : null;
+}
+
+function readableReaders(families: Loaded["families"]): ReadableReader[] {
+  const searched = searchInputs(families);
+  const screen = screenRoles(families);
+  return [
+    ...families.map((family) => ({ cursor: extractCursor(family.name), kind: "extract", key: family.name, inputs: family.inputs })),
+    ...(searched.length === 0 ? [] : [{ cursor: RECORD_INDEX.name, kind: "index", key: RECORD_INDEX.name, inputs: searched }]),
+    ...(screen === undefined ? [] : [{ cursor: SCREEN_INDEX.name, kind: "index", key: SCREEN_INDEX.name, inputs: [{ sources: screen.selector("frames", "prior"), kinds: SCREEN_KINDS }] }]),
+  ];
+}
 const NOT_LAST = "kind:import";
 const CHECKPOINT_EVERY_MS = 5 * 60_000;
 
@@ -636,6 +687,7 @@ class HomeProcess implements Main {
   #surveyNumber = Date.now();
   readonly #leaving = new AbortController();
   #commitWaits: (() => void)[] = [];
+  readonly #readable = new Set<ReadableWaiter>();
   readonly #doorFetch: typeof fetch = (input, init) =>
     fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, this.#leaving.signal]) : this.#leaving.signal });
   #dailyDone: string | null = null;
@@ -996,6 +1048,7 @@ class HomeProcess implements Main {
   async stop(): Promise<void> {
     if (this.#stopping) return this.#ended;
     this.#stopping = true;
+    for (const waiter of [...this.#readable]) waiter.settle("timeout");
     void this.#marking?.stop();
     this.#writer?.close("Lifestream is stopping: try again in a moment.");
     this.#leaving.abort();
@@ -1174,6 +1227,7 @@ class HomeProcess implements Main {
       const started = performance.now();
       let worked = started;
       let dued = started;
+      let readable: ReadableSeen[] = [];
       try {
         part("work");
         const result = this.#db.commit((tx) => {
@@ -1181,18 +1235,121 @@ class HomeProcess implements Main {
           worked = performance.now();
           part("due");
           this.#due.after(tx);
+          readable = this.#readable.size === 0 ? [] : this.#readableNow(tx);
           dued = performance.now();
           part("commit");
           return done;
         }, options);
         this.#turns.committed(performance.now() - started, dued - worked);
         for (const answer of this.#commitWaits.splice(0)) answer();
+        for (const { waiter, state, target } of readable) {
+          if (state !== null) waiter.settle(state);
+          else if (waiter.target === null) waiter.target = target;
+        }
         return result;
       } catch (error) {
         this.#storageFailed(error);
         throw error;
       }
     });
+  }
+
+  #waitReadable(request: JsonObject): Promise<Readable> {
+    const seals = sealsOf(request.seals);
+    const named = seals === null ? null : passesOf(request.passes, seals);
+    const budget = request.budget_ms;
+    if (seals === null || named === null || typeof budget !== "number" || !Number.isFinite(budget) || budget <= 0) {
+      throw new TypeError("wait_readable names its seals (each source with its positive seal), may name the pass that sealed each, and names its budget_ms");
+    }
+    const budget_ms = Math.min(Math.max(Math.round(budget), 1), READABLE_MOST_MS);
+    const started = performance.now();
+    if (this.#stopping) return Promise.resolve({ state: "timeout", elapsed_ms: 0 });
+    const macs = seals.every(([source]) => named.has(source)) ? [] : readPrincipals(this.folder).principals
+      .filter((row) => row.kind === "mac" && row.revoked_at === null)
+      .sort((a, b) => (a.minted_at < b.minted_at ? 1 : a.minted_at > b.minted_at ? -1 : 0));
+    const passes = new Map(seals.map(([source]): [string, readonly string[]] => {
+      const exact = named.get(source);
+      return [source, exact !== undefined ? [exact] : macs.filter((row) => row.sources.includes(source)).map((row) => row.id)];
+    }));
+    return new Promise<Readable>((resolve, reject) => {
+      const timer = setTimeout(() => waiter.settle("timeout"), budget_ms);
+      const waiter: ReadableWaiter = {
+        seals, passes, readers: readableReaders(this.registry.families), target: null,
+        settle: (state) => {
+          if (!this.#readable.delete(waiter)) return;
+          clearTimeout(timer);
+          resolve({ state, elapsed_ms: Math.round(performance.now() - started) });
+        },
+      };
+      this.#readable.add(waiter);
+      try {
+        this.#commit((tx) => this.#hurry(tx, waiter), "wait_readable");
+      } catch (error) {
+        this.#readable.delete(waiter);
+        clearTimeout(timer);
+        reject(error);
+        return;
+      }
+      this.#poke();
+    });
+  }
+
+  #hurry(tx: Tx, waiter: ReadableWaiter): void {
+    if (waiter.seals.some(([source, seal]) => this.#holder(tx, waiter, source, seal) === undefined)) lookAtInbox(tx, this.now());
+    for (const source of new Set(waiter.seals.map(([source]) => source))) {
+      if (tx.tables.deliveries.waiting(source) !== undefined) this.#due.queueNow(tx, "import", source, LANE.live);
+    }
+  }
+
+  #holder(tx: Tx, waiter: ReadableWaiter, source: string, seal: number): string | undefined {
+    return waiter.passes.get(source)?.find((pass) => tx.tables.deliveries.held(pass, source, seal));
+  }
+
+  #readableNow(tx: Tx): ReadableSeen[] {
+    return [...this.#readable].map((waiter): ReadableSeen => {
+      try {
+        const target = waiter.target ?? (this.#imported(tx, waiter) ? tx.records.top() : null);
+        return { waiter, state: target !== null && this.#caughtUp(tx, waiter, target) ? "settled" : null, target };
+      } catch (error) {
+        this.log({ wait_readable: "not read", error: errorText(error) });
+        return { waiter, state: "timeout", target: null };
+      }
+    });
+  }
+
+  #imported(tx: Tx, waiter: ReadableWaiter): boolean {
+    return waiter.seals.every(([source, seal]) => {
+      const holder = this.#holder(tx, waiter, source, seal);
+      return holder !== undefined && !this.#importsAhead(tx, holder, source, seal);
+    });
+  }
+
+  #importsAhead(tx: Tx, pass: string, source: string, seal: number): boolean {
+    let after: DeliveryRow | null = null;
+    for (;;) {
+      const rows = tx.tables.deliveries.waitingAfter(source, after, WAITING_PAGE);
+      if (rows.some((row) => row.pass === pass && row.seal !== null && row.seal <= seal && !isStopped(row))) return true;
+      if (rows.length < WAITING_PAGE) return false;
+      after = rows[rows.length - 1]!;
+    }
+  }
+
+  #caughtUp(tx: Tx, waiter: ReadableWaiter, target: number): boolean {
+    const now = this.now();
+    const busy = (kind: string, key: string): boolean => {
+      const job = tx.tables.jobs.get(kind, key);
+      return job !== undefined && (job.state === "running" || (job.state === "queued" && job.not_before_ms <= now));
+    };
+    const rows = tx.tables.sources.list().filter((row) => waiter.passes.has(row.id));
+    for (const reader of waiter.readers) {
+      const reads = rows.flatMap((row) => reader.inputs.filter((input) => selects(input.sources, row)).flatMap((input) => input.kinds.map((kind) => [row.id, kind] as const)));
+      if (reads.length === 0) continue;
+      if (busy(reader.kind, reader.key)) return false;
+      const seq = tx.tables.cursors.get(reader.cursor)?.seq ?? 0;
+      if (seq < target && reads.some(([source, kind]) => tx.tables.statements.after(source, kind, seq))) return false;
+    }
+    if (busy("render", "days") || busy("index", RECORD_INDEX.name)) return false;
+    return !tx.tables.dirty.between(civilDay(now - RECENT_MS, this.settings.day), civilDay(now, this.settings.day)).some((day) => !day.aside);
   }
 
   #storageFailed(error: unknown): boolean {
@@ -2494,6 +2651,7 @@ class HomeProcess implements Main {
       this.#poke();
       return { indexed: added };
     }
+    if (verb === "wait_readable") return this.#waitReadable(request);
     if (verb === "vault") return { ...this.#vault.state(), requests: this.#requests };
     if (verb === "vault-check") return this.#vault.check(textOf(request.recovery));
     if (verb === "vault-init" || verb === "vault-new" || verb === "vault-confirm" || verb === "vault-recovery" || verb === "vault-discard" || verb === "vault-slot" || verb === "unlock" || verb === "recover") {

@@ -93,8 +93,9 @@ none; none was measured. A record that states no field at all is refused alone.
   record.
 - A record is written once. Retention zeroes it; nothing else changes it. Absence never states
   `gone`.
-- The Mac app ships at most one bundle an hour per stream, so a phone's records reach the home
-  up to an hour after the Mac holds them, and the Mac holds them when the phone syncs: hours to
+- The Mac app ships at most one bundle per stream every 5 minutes on power, 15 on battery and 30
+  in Low Power Mode, so a phone's records reach the home up to that long after the Mac holds
+  them, and the Mac holds them when the phone syncs: hours to
   days after they happened.
 
 
@@ -130,7 +131,7 @@ device as the sync id the key starts with.
 
 How the Mac keeps custody of this source: each seal's ledger entry holds the hashes of the segments it carried and its fetch instant. `BiomeDomainTests` hold each answer.
 
-1. **Order.** No ordered item: the log rewrites a segment in place through a mapping (4 of 5 measured), so a segment ships when its bytes are not a hash a seal up to `received` carried. At most one bundle an hour, from the newest seal's fetch instant.
+1. **Order.** No ordered item: the log rewrites a segment in place through a mapping (4 of 5 measured), so a segment ships when its bytes are not a hash a seal up to `received` carried. At most one bundle every 5 minutes on power, 15 on battery and 30 in Low Power Mode (`BiomeEngine.spacing`), from the newest seal's fetch instant.
 2. **Reuse.** Not applicable.
 3. **Rebuilds.** Biome is per macOS user: a new user is a new log.
 4. **Late arrivals.** Synced devices' segments appear under `remote/<device>/` at any time, and a segment gains records: the hashes, not a name or a time, decide.

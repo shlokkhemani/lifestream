@@ -5,7 +5,7 @@ import { notNow, refuse, RETRY_SOON_S } from "./refusal.js";
 import { bodyOf } from "./silence.js";
 
 
-export type PeerCaller = { readonly peer: string } | { readonly drive: true; readonly line?: FindLine };
+export type PeerCaller = { readonly peer: string; readonly pass?: string } | { readonly drive: true; readonly line?: FindLine };
 
 export interface PeerWire {
   half(method: string | undefined, pathname: string): "peer" | "drive" | null;
@@ -56,6 +56,7 @@ export interface Peers<S extends Statement, C extends Handable, R, X> {
   offer(call: C, pick: (present: (Peer<S> & X)[]) => (Peer<S> & X) | { readonly refused: R }, settle: (result: R) => void): (Peer<S> & X) | null;
   end(peer: Peer<S>, id: string, result: R): void;
   pending(peer: Peer<S>): C[];
+  unhanded(peer: Peer<S>): C[];
   holds(peer: Peer<S>, id: string): boolean;
   take(peer: Peer<S>): Hand<C>;
   giveBack(peer: Peer<S>, hand: Hand<C>): Fenced[];
@@ -177,6 +178,7 @@ export function openPeers<S extends Statement, C extends Handable, R, X>(options
     },
     end: (peer, id, result) => end(slotOf(peer), id, result),
     pending: (peer) => [...slotOf(peer).pending.values()].map(({ call }) => call),
+    unhanded: (peer) => [...slotOf(peer).queue],
     holds: (peer, id) => slotOf(peer).pending.has(id),
     take(peer) {
       const slot = slotOf(peer);

@@ -5,6 +5,7 @@ import InputEvents
 
 public final class InputEventsDomain: ShippingDomain {
     static let feeder = "input-events"
+    static let batchRetention: TimeInterval = 7 * 24 * 60 * 60
 
     public let sourceId: String
     public let name = "input_events"
@@ -64,7 +65,8 @@ public final class InputEventsDomain: ShippingDomain {
 
     public func applied(_ answer: FreshAnswer) {
         guard let imported = answer.sources[sourceId]?.imported else { return }
-        custody(pass: answer.pass).reclaimBatches(imported: imported, in: batchRoot, now: clock())
+        custody(pass: answer.pass).reclaimBatches(imported: imported, in: batchRoot, now: clock(),
+                                                  retention: Self.batchRetention)
     }
 
     static func readThrough(fetchedAt: Date) -> Date {

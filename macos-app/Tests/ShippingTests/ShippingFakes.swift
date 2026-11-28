@@ -3,6 +3,7 @@ import DeviceFiles
 import Foundation
 import HomeLink
 import XCTest
+import zlib
 @testable import Shipping
 
 
@@ -147,6 +148,12 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
         set { lock.withLock { heldHangs = newValue } }
     }
     private var heldHangs = false
+
+    var encodings: [String?] { lock.withLock { encoded } }
+    private var encoded: [String?] = []
+    private var missingOnce: [String: [String]] = [:]
+
+    func missesOnce(_ source: String, files: [String]) { lock.withLock { missingOnce[source] = files } }
 
     var holdingBack: Set<String> {
         get { lock.withLock { pastHeld } }
@@ -326,14 +333,27 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
                 guard let photosWanted else { return Self.refusal(404, "ROUTE") }
                 return HomeResponse(status: 200, body: Self.json(photosWanted))
             }
-            guard request.method == "PUT", path.hasPrefix("/v1/acquisitions/"), case .file(let file) = request.body else {
+            guard request.method == "PUT", path.hasPrefix("/v1/acquisitions/"), case .file(let sent) = request.body else {
                 return Self.refusal(404, "ROUTE")
             }
+            let encoding = request.headers["Content-Encoding"]
+            encoded.append(encoding)
+            let file: URL
+            if let encoding {
+                guard encoding == "gzip", let stated = request.headers[HomeLink.uncompressedLengthHeader].flatMap(Int.init),
+                      let plain = try? Gunzip.data(Data(contentsOf: sent)) else { return Self.refusal(422, "CONTENT_ENCODING") }
+                guard plain.count == stated else { return Self.refusal(422, "UNCOMPRESSED_LENGTH") }
+                file = FileManager.default.temporaryDirectory.appendingPathComponent("fake-home-\(UUID().uuidString).zip")
+                try plain.write(to: file)
+            } else {
+                file = sent
+            }
+            defer { if file != sent { try? FileManager.default.removeItem(at: file) } }
             if Self.older(String(device.dropFirst(4)), than: floor) {
                 return HomeResponse(status: 426, body: Self.json(["code": "DEVICE_TOO_OLD", "message": "update", "floor": floor]))
             }
             if roomless.contains(request.headers[HomeLink.kindHeader] ?? "later") { return Self.refusal(503, "DISK_LOW") }
-            if let progress = request.progress, let size = FileFacts.regularFileSize(file.path) {
+            if let progress = request.progress, let size = FileFacts.regularFileSize(sent.path) {
                 for sent in stride(from: 1 << 16, to: size, by: 1 << 16) { progress.heard(Int64(sent)) }
                 progress.heard(Int64(size))
             }
@@ -356,6 +376,10 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
         if sealed[id] != nil { return answer(200, pass) }
         guard delivered.contains(source) else { return Self.refusal(403, "PRINCIPAL_SCOPE") }
         if let refusal = refusals[source] { return Self.refusal(refusal.status, refusal.code, retryAfter: refusal.retryAfter) }
+        if let missing = missingOnce.removeValue(forKey: source) {
+            return HomeResponse(status: 409, body: Self.json(["code": "FILES_MISSING", "message": "send the staged files again",
+                                                              "missing": ["files": missing]]))
+        }
         let facts = manifest["facts"] as? [String: Any] ?? [:]
         let stated = (facts["snapshot_taken_at"] as? String).flatMap(UTCInstant.date(rfc3339:)) ?? fetched
         if stated.timeIntervalSince(clock()) > 600 { return Self.refusal(422, "CLOCK_AHEAD") }
@@ -421,6 +445,34 @@ final class FakeHome: HomeTransport, @unchecked Sendable {
     }
 }
 
+enum Gunzip {
+    struct Unreadable: Error {}
+
+    static func data(_ data: Data) throws -> Data {
+        var stream = z_stream()
+        guard inflateInit2_(&stream, MAX_WBITS + 16, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else { throw Unreadable() }
+        defer { inflateEnd(&stream) }
+        var out = Data()
+        var buffer = Data(count: 1 << 16)
+        var status = Z_OK
+        try data.withUnsafeBytes { raw in
+            stream.next_in = UnsafeMutablePointer(mutating: raw.bindMemory(to: Bytef.self).baseAddress)
+            stream.avail_in = uInt(raw.count)
+            while status != Z_STREAM_END {
+                let have = buffer.withUnsafeMutableBytes { space -> Int in
+                    stream.next_out = space.bindMemory(to: Bytef.self).baseAddress
+                    stream.avail_out = uInt(space.count)
+                    status = inflate(&stream, Z_NO_FLUSH)
+                    return space.count - Int(stream.avail_out)
+                }
+                guard status == Z_OK || status == Z_STREAM_END else { throw Unreadable() }
+                out.append(buffer.prefix(have))
+            }
+        }
+        return out
+    }
+}
+
 struct FakeSealFailure: Error, CustomStringConvertible {
     let sourceId: String
     var description: String { "the synthetic domain \(sourceId) cannot read its own data" }
@@ -455,11 +507,13 @@ final class FakeDomain: ShippingDomain, @unchecked Sendable {
         case quietLeft(Int)
         case quietCounted([String: Through.Month])
         case sealedCounted([String: Through.Month])
+        case sealedStaged([String])
         case failure
     }
 
     let sourceId: String
     let name: String
+    let behindLive: Bool
 
     private let lock = NSLock()
     private var script: [Seal]
@@ -468,9 +522,10 @@ final class FakeDomain: ShippingDomain, @unchecked Sendable {
     private let gate: (@Sendable () -> Void)?
 
     init(sourceId: String, name: String, seals: [Seal] = [.nothingNew],
-         holdingSealAt gate: (@Sendable () -> Void)? = nil) {
+         holdingSealAt gate: (@Sendable () -> Void)? = nil, behindLive: Bool = false) {
         self.sourceId = sourceId
         self.name = name
+        self.behindLive = behindLive
         script = seals
         self.gate = gate
     }
@@ -529,6 +584,8 @@ final class FakeDomain: ShippingDomain, @unchecked Sendable {
             return [try bundle(request, at: request.fetchedAt, custody: request.custody, kind: nil, months: request.monthsOwed(months))]
         case .sealedLater:
             return [try bundle(request, at: request.fetchedAt, custody: request.custody, kind: nil, write: .later)]
+        case .sealedStaged(let staged):
+            return [try bundle(request, at: request.fetchedAt, custody: request.custody, kind: nil, staged: staged)]
         case .sealedWithPage, .lastPage:
             let changes = try bundle(request, at: request.fetchedAt, custody: request.custody, kind: "changes")
             guard request.custody.history else { return [changes] }
@@ -538,19 +595,66 @@ final class FakeDomain: ShippingDomain, @unchecked Sendable {
     }
 
     private func bundle(_ request: SealRequest, at fetchedAt: Date, custody: SealCustody, kind: String?,
-                        write: WriteKind? = nil, months: [String: Through.Month]? = nil) throws -> SealedBundle {
+                        write: WriteKind? = nil, months: [String: Through.Month]? = nil, staged: [String] = []) throws -> SealedBundle {
         let written = try BundleWriter.write(
             into: request.workDirectory, sourceId: sourceId, feeder: "synthetic", fetchedAt: fetchedAt,
             files: [BundleWriter.File(name: "synthetic.txt", content: .bytes(Data("synthetic \(name) bundle\n".utf8)))],
+            stagedBlobs: staged,
             facts: [("snapshot_taken_at", .string(UTCInstant.rfc3339(fetchedAt)))] + Months.facts(months),
             custody: (custody, []), through: DeviceFiles(.plain))
         return SealedBundle(file: written.file, sidecar: BundleSidecar(id: written.id, sourceId: sourceId, custody: custody, kind: kind,
                                                                        write: write ?? (kind == HistoryPage.kind ? .later : .new),
-                                                                       months: months))
+                                                                       months: months, stagedBlobs: written.staged))
     }
 
     func applied(_ answer: FreshAnswer) {
         lock.withLock { answersSeen.append(answer) }
+    }
+}
+
+final class StagingBoard: @unchecked Sendable {
+    struct Enqueued: Equatable {
+        let sha256: String
+        let bytes: Int64
+        let kept: Bool
+        let kind: WriteKind
+    }
+
+    private let lock = NSLock()
+    private var readySet: Set<String> = []
+    private var asked: [Enqueued] = []
+
+    var enqueued: [Enqueued] { lock.withLock { asked } }
+
+    func ready(_ sha256: String) { lock.withLock { _ = readySet.insert(sha256) } }
+
+    var staged: StagedBlobs {
+        StagedBlobs(isReady: { sha256 in self.lock.withLock { self.readySet.contains(sha256) } },
+                    enqueue: { sha256, _, bytes, kept, kind in
+                        self.lock.withLock { self.asked.append(Enqueued(sha256: sha256, bytes: bytes, kept: kept, kind: kind)) }
+                    })
+    }
+}
+
+final class CancellingHome: HomeTransport, @unchecked Sendable {
+    private let home: FakeHome
+    private let lock = NSLock()
+    private var cancelling = false
+
+    init(_ home: FakeHome) { self.home = home }
+
+    var cancelsSends: Bool {
+        get { lock.withLock { cancelling } }
+        set { lock.withLock { cancelling = newValue } }
+    }
+
+    func perform(_ request: HomeRequest) async throws -> HomeResponse {
+        if request.method == "PUT", cancelsSends { throw CancellationError() }
+        return try await home.perform(request)
+    }
+
+    func identify(_ address: URL, within: TimeInterval) async throws -> String {
+        try await home.identify(address, within: within)
     }
 }
 
@@ -599,9 +703,9 @@ enum ShippingFixture {
 
     static func link(_ home: FakeHome, folder: URL, version: String = "0.2.0", stamp: Int? = nil,
                      credentials: any Credentials = MemoryCredentials(), at address: String = name,
-                     network: (any NetworkWatch)? = nil) async throws -> HomeLink {
+                     network: (any NetworkWatch)? = nil, transport: (any HomeTransport)? = nil) async throws -> HomeLink {
         let link = HomeLink(device: HomeLink.Device(kind: .mac, version: version, model: "MacBook Pro", serial4: "0001", stamp: stamp),
-                            credentials: credentials, folder: folder, transport: home, network: network, clock: home.clock,
+                            credentials: credentials, folder: folder, transport: transport ?? home, network: network, clock: home.clock,
                             files: DeviceFiles(.plain))
         _ = try await link.pair(code: FakeHome.code, name: address)
         home.forgetRequests()

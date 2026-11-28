@@ -44,13 +44,15 @@ enum BundleWriter {
         let sourceId: String
         let carried: [String]
         let held: [String]
+        let staged: [String]
         let files: [ZipWriter.Member]
 
-        var named: [String] { (carried + held).sorted() }
+        var named: [String] { (carried + held + staged).sorted() }
     }
 
     static func write(into directory: URL, sourceId: String, feeder: String, fetchedAt: Date,
-                      files: [File], blobs: [Blob] = [], held: (Set<String>) -> Set<String> = { _ in [] },
+                      files: [File], blobs: [Blob] = [], stagedBlobs: [String] = [],
+                      held: (Set<String>) -> Set<String> = { _ in [] },
                       facts: [(String, JSONText)], custody: (seal: SealCustody, lost: [Lost])?,
                       through deviceFiles: DeviceFiles) throws -> Written {
         precondition(!facts.contains { $0.0 == "blobs_carried" }, "facts.blobs_carried is counted by the writer")
@@ -60,6 +62,12 @@ enum BundleWriter {
             if blob.file != nil { here[blob.sha256] = blob }
         }
         let named = Set(blobs.map(\.sha256))
+        var staged: Set<String> = []
+        for sha256 in stagedBlobs {
+            guard ShippingState.isHexSHA256(sha256) else { throw BundleWriterError.blobName(sha256) }
+            guard !named.contains(sha256) else { throw BundleWriterError.stagedCarried(sha256) }
+            guard staged.insert(sha256).inserted else { throw BundleWriterError.stagedTwice(sha256) }
+        }
         let held = named.isEmpty ? [] : held(named).intersection(named)
         let missing = named.subtracting(held).subtracting(here.keys)
         precondition(missing.isEmpty || custody != nil, "a bundle that names a file it does not carry states custody")
@@ -102,14 +110,17 @@ enum BundleWriter {
                 ("fetched_at", .string(UTCInstant.rfc3339(fetchedAt))),
                 ("complete", .bool(true)),
                 ("files", .array(listed)),
-                ("facts", .object(facts + [("blobs_carried", .int(carried.count))])),
+                ("facts", .object(facts + [("blobs_carried", .int(carried.count + staged.count))])),
             ]
+            if !staged.isEmpty {
+                manifestMembers.append(("staged_blobs", .array(staged.sorted().map { .string("sha256:\($0)") })))
+            }
             if let custody { manifestMembers.append(("custody", custody.seal.manifest(sourceId, lost: lost))) }
             let manifest = JSONText.object(manifestMembers)
             _ = try writer.addBytes(manifestFile, manifest.data + Data("\n".utf8))
             try writer.close()
             return Written(file: target, id: id(sourceId: sourceId, fetchedAt: fetchedAt), sourceId: sourceId,
-                           carried: carried, held: held.sorted(), files: members)
+                           carried: carried, held: held.sorted(), staged: staged.sorted(), files: members)
         } catch {
             writer.abort()
             throw error
@@ -156,6 +167,8 @@ enum BundleWriterError: Error, Equatable, CustomStringConvertible {
     case listed(String)
     case blobName(String)
     case blobMismatch(String)
+    case stagedTwice(String)
+    case stagedCarried(String)
     case uncarried(String, String)
     case changed(String)
 
@@ -164,6 +177,8 @@ enum BundleWriterError: Error, Equatable, CustomStringConvertible {
         case .listed(let name): return "bundle file \(name) cannot be listed"
         case .blobName(let name): return "blob \(name) is not a hex SHA-256"
         case .blobMismatch(let name): return "blob \(name) bytes do not match its name"
+        case .stagedTwice(let name): return "blob \(name) is staged twice"
+        case .stagedCarried(let name): return "blob \(name) is both staged and named to carry"
         case .uncarried(let name, let why): return "blob \(name) cannot be carried: \(why)"
         case .changed(let name): return "bundle file \(name) changed while it was written"
         }

@@ -49,8 +49,8 @@ struct SpoolCustody {
         UTCInstant.date(basic: String(name.prefix(20)))
     }
 
-    func reclaimBatches(imported: Int, in root: URL, now: Date) {
-        let cutoff = now.addingTimeInterval(-Self.batchRetention)
+    func reclaimBatches(imported: Int, in root: URL, now: Date, retention: TimeInterval = Self.batchRetention) {
+        let cutoff = now.addingTimeInterval(-retention)
         reclaim(imported: imported) { name in
             guard let opened = Self.batchOpenedAt(name), opened < cutoff else { return false }
             let file = root.appendingPathComponent(name)

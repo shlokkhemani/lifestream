@@ -107,13 +107,13 @@ final class UploadDomainTests: XCTestCase {
 
     func testAFileStillBeingWrittenWaits() throws {
         try drop("settled.txt", "settled")
-        try drop("fresh.txt", "still growing", modified: "2026-09-23T03:59:30.000Z")
+        try drop("fresh.txt", "still growing", modified: "2026-09-23T03:59:58.000Z")
         try drop("takeout-001.zip.crdownload", "half a download")
         try drop("export.zip.download/data", "half a Safari download")
         let sealed = try XCTUnwrap(try seal())
         XCTAssertEqual(try shipped(sealed).keys.sorted(), ["settled.txt"])
         XCTAssertEqual(try facts(sealed)["unsettled"] as? Int, 3)
-        let later = try XCTUnwrap(try seal(shipped: Set(try carried(sealed)), at: "2026-09-23T04:01:00.000Z"))
+        let later = try XCTUnwrap(try seal(shipped: Set(try carried(sealed)), at: "2026-09-23T04:00:05.000Z"))
         XCTAssertEqual(try shipped(later).keys.sorted(), ["fresh.txt"])
     }
 

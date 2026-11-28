@@ -49,6 +49,7 @@ enum VideoCompaction {
                 interrupt: interrupt
             )
             if let recovered {
+                store.segmentSettled?()
                 return recovered
             }
             try Task.checkCancellation()
@@ -72,6 +73,7 @@ enum VideoCompaction {
                         interrupt: interrupt)
             store.didCloseSegment(id)
             store.compactionNeedsRecovery = false
+            store.segmentSettled?()
             return store.pendingVideoReport(images: prepared.journal.entries.count)
         }
         return store.pendingVideoReport()

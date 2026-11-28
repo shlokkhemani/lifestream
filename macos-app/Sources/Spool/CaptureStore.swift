@@ -13,6 +13,7 @@ public final class CaptureStore: @unchecked Sendable {
     private let readOnly: Bool
     let observationDecoder: (Data) throws -> CaptureObservation
     private let fits: (@Sendable () -> Bool)?
+    let segmentSettled: (@Sendable () -> Void)?
     private var writerLock: Int32 = -1
 
     let mutex = NSLock()
@@ -34,7 +35,8 @@ public final class CaptureStore: @unchecked Sendable {
 
     public convenience init(directory: URL, files: DeviceFiles, scratch: URL,
                             readOnly: Bool = false, videoQuality: Double = 0.65,
-                            fits: (@Sendable () -> Bool)? = nil) throws {
+                            fits: (@Sendable () -> Bool)? = nil,
+                            onSegmentSettled: (@Sendable () -> Void)? = nil) throws {
         try self.init(
             directory: directory,
             files: files,
@@ -44,7 +46,8 @@ public final class CaptureStore: @unchecked Sendable {
             observationDecoder: Self.decodeObservation,
             fits: fits,
             makeEncoder: SegmentEncoder.init,
-            appendInterrupt: nil
+            appendInterrupt: nil,
+            onSegmentSettled: onSegmentSettled
         )
     }
 
@@ -59,13 +62,15 @@ public final class CaptureStore: @unchecked Sendable {
         makeEncoder: @escaping (CaptureVideoProvenance) throws -> SegmentEncoder = SegmentEncoder.init,
         appendInterrupt: (() throws -> Void)? = nil,
         readFile: ((URL, Int) throws -> Data)? = nil,
-        flushDay: @escaping (URL) throws -> Void = { try DeviceFiles.syncDirectory($0, flush: .full) }
+        flushDay: @escaping (URL) throws -> Void = { try DeviceFiles.syncDirectory($0, flush: .full) },
+        onSegmentSettled: (@Sendable () -> Void)? = nil
     ) throws {
         self.files = files
         self.scratch = scratch
         self.observationDecoder = observationDecoder
         self.flushDay = flushDay
         self.fits = fits
+        segmentSettled = onSegmentSettled
         self.makeEncoder = makeEncoder
         self.appendInterrupt = appendInterrupt
         self.readFile = readFile ?? { try SpoolFiles.read(files, $0, maximumBytes: $1) }

@@ -526,6 +526,101 @@ final class ScreenSpoolDomainTests: XCTestCase {
         XCTAssertEqual(facts["blobs_carried"] as? Int, 0)
     }
 
+    func testALargeSegmentIsStagedBeforeItsBundleAndTheBundleNamesItOnceReady() throws {
+        let large = String(repeating: "synthetic movie bytes ", count: 13_000)
+        let hash = try segment(1, bytes: large)
+        let small = try segment(2)
+        try archived("2026-09-23T04:00:00.000Z", 1, segment: 1, ordinal: 0, frames: 1, hash: hash)
+        try archived("2026-09-23T04:00:02.000Z", 2, segment: 2, ordinal: 0, frames: 1)
+        try compacted(through: "2026-09-23T04:05:00.000Z")
+        let board = StagingBoard()
+        let asked = Collected<Set<String>>()
+        let request = { try DomainFixtures.request(work: self.work, at: "2026-09-23T04:30:00.000Z", owesThrough: true,
+                                                   held: { asked.append($0); return [] }, staged: board.staged) }
+        let domain = try domain()
+
+        XCTAssertEqual(try domain.seal(request()), [], "a large segment not yet at the door holds the seal back")
+        XCTAssertEqual(board.enqueued, [StagingBoard.Enqueued(sha256: hash, bytes: Int64(large.utf8.count), kept: true, kind: .new)],
+                       "only the large one is staged, read through this Mac's files")
+        XCTAssertNil(domain.through, "work waits: no read-through is stated")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ledgerFile.path), "and no seal is recorded")
+        XCTAssertEqual(asked.all, [[hash, small]], "the door is asked once which it holds")
+
+        board.ready(hash)
+        let sealed = try XCTUnwrap(try domain.sealOne(request()))
+        let zip = try StoredZipReader(sealed.file)
+        XCTAssertFalse(zip.names.contains("blobs/\(hash)"), "the staged segment is not carried")
+        XCTAssertTrue(zip.names.contains("blobs/\(small)"), "a small one still rides in the bundle")
+        XCTAssertEqual(try manifest(sealed)["staged_blobs"] as? [String], ["sha256:\(hash)"])
+        XCTAssertEqual(sealed.sidecar.stagedBlobs, [hash])
+        XCTAssertEqual(Set(try entry(sealed).blobs), [hash, small], "the ledger names both as this seal's")
+        XCTAssertEqual(board.enqueued.count, 1, "a ready file is not staged again")
+    }
+
+    func testTheReadyFramesShipWhileANewerLargeSegmentIsStillStaging() throws {
+        let large = String(repeating: "synthetic movie bytes ", count: 13_000)
+        let small = try segment(1)
+        let hash = try segment(2, bytes: large)
+        let ready = try archived("2026-09-23T04:00:00.000Z", 1, segment: 1, ordinal: 0, frames: 1)
+        let waiting = try archived("2026-09-23T04:00:02.000Z", 2, segment: 2, ordinal: 0, frames: 1, hash: hash)
+        try compacted(through: "2026-09-23T04:05:00.000Z")
+        let board = StagingBoard()
+        let asked = Collected<Set<String>>()
+        let request = { (custody: SealCustody) in
+            try DomainFixtures.request(work: self.work, at: "2026-09-23T04:30:00.000Z", custody: custody,
+                                       held: { asked.append($0); return [] }, staged: board.staged)
+        }
+        let domain = try domain()
+
+        let first = try XCTUnwrap(try domain.sealOne(request(ShippingFixture.first)))
+        XCTAssertEqual(try carried(first), [ready], "the frames before the staging segment ship now")
+        XCTAssertEqual(try StoredZipReader(first.file).names.filter { $0.hasPrefix("blobs/") }, ["blobs/\(small)"])
+        XCTAssertNil(first.sidecar.stagedBlobs)
+        XCTAssertEqual(board.enqueued, [StagingBoard.Enqueued(sha256: hash, bytes: Int64(large.utf8.count), kept: true, kind: .new)],
+                       "the large one uploads meanwhile")
+        XCTAssertEqual(asked.count, 1, "the door is asked once which files it holds")
+
+        board.ready(hash)
+        let custody = SealCustody(pass: ShippingFixture.pass, received: first.sidecar.seal, imported: first.sidecar.seal)
+        let second = try XCTUnwrap(try domain.sealOne(request(custody)))
+        XCTAssertEqual(try carried(second), [waiting], "the rest follows once its segment is at the door")
+        XCTAssertEqual(second.sidecar.stagedBlobs, [hash])
+        XCTAssertEqual(board.enqueued.count, 1)
+    }
+
+    func testALargeSegmentTheHomeHoldsIsNeitherStagedNorWaitedOn() throws {
+        let large = String(repeating: "synthetic movie bytes ", count: 13_000)
+        let hash = try segment(1, bytes: large)
+        let frame = try archived("2026-09-23T04:00:00.000Z", 1, segment: 1, ordinal: 0, frames: 1, hash: hash)
+        try compacted(through: "2026-09-23T04:05:00.000Z")
+        let board = StagingBoard()
+        let request = try DomainFixtures.request(work: work, at: "2026-09-23T04:30:00.000Z", held: { $0.intersection([hash]) },
+                                                 staged: board.staged)
+
+        let sealed = try XCTUnwrap(try domain().sealOne(request))
+        XCTAssertEqual(try carried(sealed), [frame])
+        XCTAssertEqual(board.enqueued, [], "a held file is not staged")
+        XCTAssertFalse(try StoredZipReader(sealed.file).names.contains("blobs/\(hash)"), "nor carried")
+        XCTAssertNil(sealed.sidecar.stagedBlobs)
+    }
+
+    func testAHistoryPagesLargeSegmentIsStagedAsLaterWork() throws {
+        let large = String(repeating: "synthetic movie bytes ", count: 13_000)
+        let hash = try segment(1, bytes: large)
+        _ = try segment(2)
+        try archived("2026-09-22T22:00:00.000Z", 1, segment: 1, ordinal: 0, frames: 1, hash: hash)
+        let now = try archived("2026-09-23T04:20:00.000Z", 2, segment: 2, ordinal: 0, frames: 1)
+        try compacted(through: "2026-09-23T04:25:00.000Z")
+        let board = StagingBoard()
+        let request = try DomainFixtures.request(work: work, at: "2026-09-23T04:30:00.000Z", staged: board.staged)
+        let domain = try domain(limit: 1)
+
+        let sealed = try domain.seal(request)
+        XCTAssertEqual(try sealed.map { try carried($0) }, [[now]], "the live bundle ships; the page waits on its segment")
+        XCTAssertEqual(board.enqueued, [StagingBoard.Enqueued(sha256: hash, bytes: Int64(large.utf8.count), kept: true, kind: .later)])
+        XCTAssertTrue(domain.owesHistory)
+    }
+
     func testAMissingSegmentTheHomeHoldsIsNamedAndOneItLacksIsLost() throws {
         try archived("2026-09-23T04:00:00.000Z", 1, segment: 1, ordinal: 0, frames: 1)
         try archived("2026-09-23T04:00:02.000Z", 2, segment: 2, ordinal: 0, frames: 1)

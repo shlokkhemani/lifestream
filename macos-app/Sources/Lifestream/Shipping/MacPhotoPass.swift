@@ -11,15 +11,26 @@ actor MacPhotoPass {
     private let settings: MacSettings
     private let disk: Volume
     private let exports: URL
+    private let library: PhotoLibrary
+    private let changes = PhotoChanges()
     private var current: (source: String, pass: PhotoPass)?
 
     init(paths: ShippingDomains.Paths, link: HomeLink, settings: MacSettings, disk: Volume,
-         exports: URL = MacPhotoPass.exports) {
+         exports: URL = MacPhotoPass.exports, library: PhotoLibrary = PhotoLibrary()) {
         self.paths = paths
         self.link = link
         self.settings = settings
         self.disk = disk
         self.exports = exports
+        self.library = library
+    }
+
+    nonisolated func startObserving(onChange: @escaping @Sendable () -> Void) {
+        changes.start(library, onChange: onChange)
+    }
+
+    nonisolated func stopObserving() {
+        changes.stop()
     }
 
     static var exports: URL {
@@ -30,7 +41,7 @@ actor MacPhotoPass {
         guard let domain = ShippingDomains.photos(in: Array(answer.sources.keys), paths: paths) else { return [] }
         try? FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         if current?.source != domain.sourceId {
-            current = (domain.sourceId, PhotoPass(library: PhotoLibrary(), store: domain.photos, build: Self.build, exports: exports))
+            current = (domain.sourceId, PhotoPass(library: library, store: domain.photos, build: Self.build, exports: exports))
         }
         let report = await current!.pass.run(.init(seconds: Self.seconds),
                                              device: device(pressed: pressed),
@@ -53,5 +64,23 @@ actor MacPhotoPass {
     static func device(_ mobile: MobileData.Moment, onBattery: Bool, spare: Int64) -> Device {
         Device(pastMoves: mobile.past.moves, iCloud: mobile.internet.past.moves,
                charging: !onBattery, spare: spare, changeRoom: nil, page: 5_000)
+    }
+}
+
+final class PhotoChanges: @unchecked Sendable {
+    private let lock = NSLock()
+    private var onChange: (@Sendable () -> Void)?
+
+    func start(_ library: PhotoLibrary, onChange: @escaping @Sendable () -> Void) {
+        lock.withLock { self.onChange = onChange }
+        library.observe { [weak self] in self?.changed() }
+    }
+
+    func stop() {
+        lock.withLock { onChange = nil }
+    }
+
+    private func changed() {
+        lock.withLock { onChange }?()
     }
 }

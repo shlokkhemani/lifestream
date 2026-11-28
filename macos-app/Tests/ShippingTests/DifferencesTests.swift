@@ -51,10 +51,10 @@ class DifferencesTests: XCTestCase {
 
     private func seal(_ custody: SealCustody, minute: Int = 0, owesThrough: Bool = false, start: Date? = nil,
                       owed: @escaping @Sendable ([String: Through.Month]) -> [String: Through.Month]? = { _ in nil },
-                      on given: DifferencesDomain? = nil) throws -> [SealedBundle] {
+                      forceCold: Bool = false, on given: DifferencesDomain? = nil) throws -> [SealedBundle] {
         let at = try DomainFixtures.instant(Self.fetchedAt).addingTimeInterval(Double(minute) * 60)
         return try (given ?? domain()).seal(SealRequest(fetchedAt: at, workDirectory: try DomainFixtures.directory(work), scratch: try DomainFixtures.directory(work), custody: custody,
-                                             owesThrough: owesThrough, start: start, monthsOwed: owed))
+                                             owesThrough: owesThrough, start: start, monthsOwed: owed, forceCold: forceCold))
     }
 
     private func stated(_ custody: SealCustody, minute: Int, start: Date? = nil) throws -> Through? {
@@ -118,7 +118,7 @@ class DifferencesTests: XCTestCase {
         XCTAssertEqual(try DomainFixtures.read("PRAGMA quick_check", from: file), [["ok"]])
         XCTAssertEqual(try DomainFixtures.read("PRAGMA page_size", from: file), [["4096"]])
         XCTAssertEqual(try DomainFixtures.read("SELECT type, name FROM sqlite_master ORDER BY name", from: file),
-                       [["table", "t7"], ["index", "t7_url"]])
+                       [["table", "t7"]])
         XCTAssertEqual(try DomainFixtures.read("SELECT url, title FROM t7", from: file), [["https://example.com/visited", "one visit"]])
     }
 
@@ -339,13 +339,12 @@ class DifferencesTests: XCTestCase {
         try firstSync()
         XCTAssertNotNil(try stated(custody(2), minute: 1), "a file still absent: its read-through")
         try DomainFixtures.write("later media bytes", to: media.appendingPathComponent("Media/15550000002/later.jpg"))
-        XCTAssertEqual(try seal(custody(2), minute: 2), [], "between read-throughs the store's stamp stands")
-        let sealed = try seal(custody(2), minute: 3, owesThrough: true)
-        XCTAssertEqual(sealed.map(\.sidecar.kind), ["history"], "message 1 is old: its page")
+        let sealed = try seal(custody(2), minute: 2)
+        XCTAssertEqual(sealed.map(\.sidecar.kind), ["history"], "the row waiting on its file is read again at the next wake: message 1 is old, its page")
         XCTAssertEqual(try keys(sealed[0])["ZWAMESSAGE"], [1])
         XCTAssertEqual(try StoredZipReader(sealed[0].file).names.filter { $0.hasPrefix("blobs/") },
                        ["blobs/\(DomainFixtures.sha256("later media bytes"))"])
-        XCTAssertNotNil(try stated(custody(3), minute: 4), "shipped once")
+        XCTAssertNotNil(try stated(custody(3), minute: 3), "shipped once")
     }
 
     func testAMediaFileTheDeviceClearsShipsNothing() throws {
@@ -358,7 +357,8 @@ class DifferencesTests: XCTestCase {
         try DomainFixtures.write("old media bytes", to: old)
         XCTAssertNotNil(try stated(custody(2), minute: 2), "back the same: its read-through")
         try DomainFixtures.write("new media bytes, downloaded whole", to: new)
-        let sealed = try seal(custody(2), minute: 3, owesThrough: true)
+        XCTAssertNotNil(try stated(custody(2), minute: 3), "an unchanged store with no file waiting is not read between cold passes")
+        let sealed = try seal(custody(2), minute: 4, owesThrough: true, forceCold: true)
         XCTAssertEqual(sealed.map(\.sidecar.kind), ["changes"])
         XCTAssertEqual(try keys(sealed[0])["ZWAMESSAGE"], [5])
         XCTAssertEqual(try StoredZipReader(sealed[0].file).names.filter { $0.hasPrefix("blobs/") },

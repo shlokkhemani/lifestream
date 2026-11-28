@@ -11,9 +11,10 @@ final class CaptureStoreAdapter: RecorderStorage, @unchecked Sendable {
     }
 
     static func open(directory: URL, files: DeviceFiles, scratch: URL, videoQuality: Double,
-                     fits: (@Sendable () -> Bool)?) async throws -> CaptureStoreAdapter {
+                     fits: (@Sendable () -> Bool)?, onSegmentSettled: (@Sendable () -> Void)? = nil) async throws -> CaptureStoreAdapter {
         try await Task.detached(priority: .utility) {
-            CaptureStoreAdapter(try CaptureStore(directory: directory, files: files, scratch: scratch, videoQuality: videoQuality, fits: fits))
+            CaptureStoreAdapter(try CaptureStore(directory: directory, files: files, scratch: scratch, videoQuality: videoQuality, fits: fits,
+                                                 onSegmentSettled: onSegmentSettled))
         }.value
     }
 

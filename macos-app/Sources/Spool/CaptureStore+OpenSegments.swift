@@ -165,6 +165,7 @@ extension CaptureStore {
         sealedSegments.removeAll { $0 == id }
         mutex.unlock()
         FailureLines.shared.note(.segmentSetAside, kind: why.rawValue)
+        segmentSettled?()
     }
 
     private static func keep(_ source: URL, in folder: URL, as name: String) throws {
